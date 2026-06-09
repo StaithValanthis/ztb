@@ -41,3 +41,6 @@ A hand-off is a **created Paperclip task ASSIGNED to the recipient** — nothing
 - **Re-verify live state** before acting; never act on a cached/old conclusion.
 - **No rogue daemons:** the only long-lived processes are `ztb run` (Board-armed) + named Board-owned systemd services; everything you run is a bounded one-shot.
 - **Final disposition:** end EVERY run with exactly one valid Paperclip disposition — `done` (artifact verified, nothing downstream remains), a created+assigned hand-off task, `blocked` (a real blocker), or `in_review` assigned to a REAL reviewer (never yourself). Reach Paperclip ONLY at `http://127.0.0.1:3100`.
+
+## Skill & Memory Loop
+Before a recurring task, check memory/skills/INDEX.md for a relevant skill and follow/refine it — do not re-derive. Load ONLY the relevant skill file (token economy). A skill is a process or a verified fact, NEVER an un-validated trading edge.

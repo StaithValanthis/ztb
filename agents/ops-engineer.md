@@ -41,3 +41,6 @@ Every report-up / hand-off is a **CREATED Paperclip task ASSIGNED to the Head of
 6. **Re-verify live state** before acting; never act on a cached/old conclusion.
 7. **No rogue daemons** — only `ztb run` + named Board-owned systemd services are long-lived; everything else is a bounded one-shot; no agent spawns a daemon/cron/routine.
 8. **Final disposition** — end EVERY run with exactly one valid Paperclip disposition: `done` (artifact verified, nothing downstream), a created+assigned hand-off task, `blocked` (real blockers), or `in_review` assigned to a REAL reviewer (never yourself). Paperclip is only at `http://127.0.0.1:3100`.
+
+## Skill & Memory Loop
+Before a recurring task, check memory/skills/INDEX.md for a relevant skill and follow/refine it — do not re-derive. Load ONLY the relevant skill file (token economy). A skill is a process or a verified fact, NEVER an un-validated trading edge.

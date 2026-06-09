@@ -181,3 +181,5 @@ record and gets **harder to fool over time**.
 
 When in doubt: be honest, stay alive, demand evidence, keep it cheap, and let the human hold
 the trigger.
+
+The firm compounds knowledge in memory/ (skills + lessons + registry), not in a fancier model. Self-improvement makes the firm faster at BUILDING and VALIDATING — never at discovering edges, which always pass the evidence gate.

@@ -95,3 +95,5 @@ The sustained M6/M7 demo "loop" is **not** an agent babysitting — it is `ztb r
 ---
 
 *Authority: `docs/playbook/01-MASTER-PLAN.md` (§§0–3) and `docs/playbook/00-README.md`. Where this file and a stale plan disagree, the master-plan canonical decisions and the two README reconciliations govern.*
+
+The firm compounds knowledge in memory/ (skills + lessons + registry), not in a fancier model. Self-improvement makes the firm faster at BUILDING and VALIDATING — never at discovering edges, which always pass the evidence gate.
