@@ -35,9 +35,9 @@ jobs:
       - name: Version consistency
         run: |
           python3 -c "
-import importlib.metadata
-from ztb import __version__
-ver = importlib.metadata.version('ztb')
-assert ver == __version__, f'{ver} != {__version__}'
-print(f'Version OK: {ver}')
-"
+          import importlib.metadata
+          from ztb import __version__
+          ver = importlib.metadata.version('ztb')
+          assert ver == __version__, f'{ver} != {__version__}'
+          print(f'Version OK: {ver}')
+          "
