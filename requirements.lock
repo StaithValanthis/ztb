@@ -1,0 +1,26 @@
+ast_serialize==0.5.0
+cfgv==3.5.0
+click==8.1.6
+coverage==7.14.1
+distlib==0.4.2
+filelock==3.29.1
+identify==2.6.19
+iniconfig==2.3.0
+librt==0.11.0
+mypy==2.1.0
+mypy_extensions==1.1.0
+nodeenv==1.10.0
+packaging==24.0
+pathspec==1.1.1
+platformdirs==4.10.0
+pluggy==1.6.0
+pre_commit==4.6.0
+Pygments==2.17.2
+pytest-cov==7.1.0
+pytest==9.0.3
+python-discovery==1.4.0
+PyYAML==6.0.1
+ruff==0.15.16
+typing_extensions==4.15.0
+virtualenv==21.4.2
+-e git+https://github.com/StaithValanthis/ztb.git@6c05d74b9f28e5f5e8c1e0b443f7d78d577ee952#egg=ztb

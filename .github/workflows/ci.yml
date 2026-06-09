@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**', 'strat/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Format check (ruff-format)
+        run: ruff format --check .
+      - name: Types (mypy)
+        run: mypy --strict ztb/ tests/
+      - name: Test + coverage
+        run: pytest --cov-fail-under=90 --cov=ztb --cov-report=term-missing
+      - name: Secret scan
+        run: python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null || find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' | grep -v __pycache__ | grep -v .git)
+      - name: Version consistency
+        run: |
+          python3 -c "
+          import importlib.metadata
+          from ztb import __version__
+          ver = importlib.metadata.version('ztb')
+          assert ver == __version__, f'{ver} != {__version__}'
+          print(f'Version OK: {ver}')
+          "

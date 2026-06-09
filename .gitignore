@@ -17,6 +17,8 @@ logs/
 __pycache__/
 *.pyc
 .venv/
+.coverage*
+htmlcov/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
