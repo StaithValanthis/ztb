@@ -13,6 +13,7 @@ You build the machine; you never hunt alpha (that is the Strategy Engineer / Res
 - OWN the **lockfile** (reproducible runtime + dev closure; in M0 DoD) and **CVE/dep-drift response** — when the dep timer creates a task for you, triage and fix.
 - Implement the **risk rules V&R specifies** — you write `risk/*` code to V&R's math spec and thresholds; you do NOT invent the numbers (V&R owns `RiskConfig` thresholds).
 - Work on one `feat/<module>` branch per bounded job; conventional commits; ruff/mypy clean; coverage ≥90% (≥95% where the spec demands).
+- **Build in a WORKTREE — never switch the shared tree:** create your branch with `git -C ~/zero-alpha worktree add ~/ztb-wt/<name> -b feat/<name>` and do ALL work in `~/ztb-wt/<name>`. NEVER run `git checkout` inside `~/zero-alpha` — it switches the one tree every agent reads from (ENGINEERING.md §1.1).
 - Verify the artifact EXISTS (test green, file present, `ztb` command runs) before reporting done. "unknown" beats a guessed number — never fabricate.
 - RE-VERIFY live state (branch, CI, current code) before acting; never act on a cached conclusion from a prior run.
 

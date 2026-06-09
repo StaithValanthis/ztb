@@ -17,6 +17,14 @@ All work happens on a topic branch off `main`; `main` is protected (require-PR +
 
 Never commit directly to `main`. Never do member-to-member hand-offs of a branch; work flows UP to a Head, BACK to the MD.
 
+### 1.1 Worktrees — keep `~/zero-alpha` on `main` (non-negotiable)
+NEVER `git checkout -b` or `git checkout <branch>` inside the shared `~/zero-alpha`: that switches the ONE tree every agent reads its instructions and the ledger (`opportunities-registry.md`, `lessons-learned.md`) from, silently making them branch-stale (this has bitten the firm before). Build every topic branch in an ISOLATED git worktree instead:
+```
+git -C ~/zero-alpha worktree add ~/ztb-wt/<name> -b <feat|fix|strat>/<name>
+cd ~/ztb-wt/<name>      # do ALL build / commit / push work HERE
+```
+`~/zero-alpha` stays pinned to `main`, so the MD, the ledger, and every agent's instructions are always the canonical `main` version. After the branch merges, remove it: `git -C ~/zero-alpha worktree remove ~/ztb-wt/<name>`. The Head of Engineering keeps `~/zero-alpha` on `main` and merges land there; `git worktree list` shows what is active.
+
 ## 2. Pull Requests & Commits
 
 - Every change lands via a PR into `main`.
