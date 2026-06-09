@@ -1,0 +1,25 @@
+# Secrets — never commit
+config/*.env
+*.env
+.env
+secrets/
+*.key
+*.pem
+.ztb-secrets*
+# Data + runtime
+data_cache/
+*.parquet
+logs/
+*.sqlite
+*.db
+.paperclip/
+# Python
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/

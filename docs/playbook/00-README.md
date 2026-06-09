@@ -1,0 +1,17 @@
+# ztb — The Complete Playbook
+
+The definitive, end-to-end plan to **research, build, ship, prove, manage, and continuously expand** `ztb` — Zero Alpha's deterministic Python trading product for Bybit. Synthesized from three multi-agent workflows (39 subagents, ~1.6M tokens, each adversarially gap-checked).
+
+## Read in order
+1. **`01-MASTER-PLAN.md`** — the build playbook: *Canonical Decisions* (resolving cross-draft contradictions), Org & Ownership (the 10 agents, every lifecycle gap closed, no new headcount), step-by-step **M0→M7** (each milestone: deliverables, required tests, definition-of-done, owners, release tag), the two agent **relays** (build-a-module + ship-a-strategy), cadence & triggers, rollout sequencing, and the go-live + proving loop.
+2. **`02-COST-OPS-MANUAL.md`** — DeepSeek cost-efficiency at **≤ $50 AUD/month**: current pricing, expected spend (~$1–5 AUD/mo — 3–11% of cap), the ranked levers, the concrete config, and the guardrails.
+3. **`03-EXPANSION-ROADMAP.md`** — Horizon 1/2/3 future modules (validation + cost-realism infra FIRST, then the risk/live-safety backbone, then options & richer instruments), with top-picks and an explicit *avoid* list.
+4. **`04-SELF-DEVELOPING-MECHANISM.md`** — how the firm proposes, scores, and builds its **own** roadmap forever, with anti-bloat / anti-overfit / cost guardrails.
+5. **`05-OPTIONS-SPEC.md`** — Bybit USDC options: data + IV surface + greeks/pricing engine + options-aware backtest/risk + the strategy classes it unlocks, with honest liquidity caveats.
+
+## The through-line
+**M0→M7 builds and *proves* the core machine** (empty repo → reproducible data → cost-aware backtest engine + plugin framework → reporting/dashboard → forward-test → risk → demo execution → `v1.0.0` live-ready, **disarmed by default**). `v1.0.0` is *enrollment in continuous proof*, not a finish line — it hands off to the **expansion roadmap** and the **self-developing mechanism**, where every 2-day cycle ends in an engine improvement, a proven plugin, or a documented lesson, and live results feed back to make the machine harder to fool. **One reusable engine; evidence at every gate; cost-realistic and demo-safe; survival first — capital earned, never assumed.**
+
+## Two reconciliations to apply (independent agents drafted these)
+1. **Deployment target = Linux `~/zero-alpha`, not the Windows path.** `01-MASTER-PLAN.md §0.1` names a Windows build-host root (`C:\Users\User\Self-Improving Trading Agent`) — that's the drafting agent's local-context assumption. Your fresh deployment is **Ubuntu `~/zero-alpha`**; use that path everywhere, with the private GitHub remote `zero-alpha/ztb`.
+2. **Model IDs & cost — the cost manual supersedes the older `[reasoner]/[chat]` labels.** Keep "reasoner vs chat" as a *quality* distinction (thinking vs non-thinking), but per the cost research (`02`, as-of 2026-06-09, **verify live before each top-up**): the API model is `deepseek-v4-flash` with thinking on/off; `deepseek-chat`/`deepseek-reasoner` are **aliases that deprecate 2026-07-24** (repoint before then); both tiers **bill identically** (thinking costs more only via its chain-of-thought *output* tokens); **add a per-call `max_tokens`** (~4k chat / 8k reasoner — currently missing, the #1 control); the **prepaid balance is the real hard wall** (load only ~$30 USD); and **off-peak / Batch discounts do not exist for V4** — don't design around them.
