@@ -6,6 +6,7 @@
 - CLI: ztb data fetch|show|verify|instruments
 - Dependencies: httpx, pandas, pyarrow
 - **Tests:** all green, ≥90% coverage, cold==warm determinism proven, delta-fetch spy-proven
+- **Merge commit:** 651d284 — two-key merge (CI green + V&R PASS on SHA 1a8250b)
 - **Tag:** v0.2.0
 
 ## v0.1.0 (2026-06-09)
