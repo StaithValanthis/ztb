@@ -68,5 +68,5 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short --cov=ztb --cov-report=term-missing"
 markers = [
-    "network: tests that make live API calls (opt-in only)",
+    "network: marks tests that make live API calls (opt-in only; excluded from default run)",
 ]
