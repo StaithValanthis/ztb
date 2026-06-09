@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +21,7 @@ from ztb.data.schema import OHLCV_COLUMNS
 
 
 @pytest.fixture
-def tmp_base() -> Path:
+def tmp_base() -> Generator[Path, None, None]:
     with tempfile.TemporaryDirectory() as d:
         yield Path(d)
 
@@ -48,7 +49,9 @@ class TestWriteReadRoundTrip:
         assert list(loaded.columns) == OHLCV_COLUMNS
         assert len(loaded) == len(df)
         assert loaded.index.name == "open_time"
-        assert str(loaded.index.tz) == "UTC"
+        idx = loaded.index
+        assert isinstance(idx, pd.DatetimeIndex)
+        assert str(idx.tz) == "UTC"
 
     def test_missing_file_returns_none(self, tmp_base: Path) -> None:
         assert read_cache("linear", "NONEXISTENT", "60", base=tmp_base) is None

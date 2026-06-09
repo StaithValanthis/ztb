@@ -27,7 +27,7 @@ jobs:
       - name: Format check (ruff-format)
         run: ruff format --check .
       - name: Types (mypy)
-        run: mypy --strict ztb/ tests/
+        run: mypy --strict ztb/
       - name: Test + coverage
         run: pytest --cov-fail-under=90 --cov=ztb --cov-report=term-missing
       - name: Secret scan

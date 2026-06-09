@@ -15,7 +15,7 @@ from ztb.data.schema import OHLCV_COLUMNS
 
 
 class _MockClient:
-    def __init__(self, pages: list[list[dict]] | None = None) -> None:
+    def __init__(self, pages: list[list[dict[str, Any]]] | None = None) -> None:
         self.pages = pages or []
         self.call_count = 0
 
@@ -27,7 +27,7 @@ class _MockClient:
         start: int | None = None,
         end: int | None = None,
         limit: int = 200,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         self.call_count += 1
         if self.call_count > len(self.pages):
             return []
@@ -41,7 +41,7 @@ class _MockClient:
         end: int | None = None,
         limit: int = 200,
         cursor: str | None = None,
-    ) -> tuple[list[dict], str | None]:
+    ) -> tuple[list[dict[str, Any]], str | None]:
         return ([], None)
 
     def get_instruments_info(
@@ -50,10 +50,10 @@ class _MockClient:
         symbol: str | None = None,
         status: str | None = None,
         limit: int = 500,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         return []
 
-    def get_server_time(self) -> dict:
+    def get_server_time(self) -> dict[str, Any]:
         return {"timeSecond": 1700000000, "timeNano": "1700000000000000000"}
 
 
@@ -65,7 +65,7 @@ def _raw_bar(
     c: float = 50050,
     v: float = 100,
     t: float = 5000000,
-) -> dict:
+) -> dict[str, str]:
     return {
         "start": str(ts),
         "open": str(o),
@@ -77,7 +77,7 @@ def _raw_bar(
     }
 
 
-def _make_raw_pages(start_ts: int, n_bars: int = 10, n_pages: int = 1) -> list[list[dict]]:
+def _make_raw_pages(start_ts: int, n_bars: int = 10, n_pages: int = 1) -> list[list[dict[str, str]]]:
     pages = []
     for p in range(n_pages):
         page = []
@@ -90,7 +90,7 @@ def _make_raw_pages(start_ts: int, n_bars: int = 10, n_pages: int = 1) -> list[l
 
 class TestRawToDataFrame:
     def test_dict_input(self) -> None:
-        raw: list[dict] = [
+        raw: list[dict[str, Any]] = [
             {
                 "start": "1700000000000",
                 "open": "50000",
@@ -131,7 +131,7 @@ class TestRawToDataFrame:
 class TestLoad:
     def test_fetch_returns_data(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df = load(
@@ -149,7 +149,7 @@ class TestLoad:
             assert df.index.is_monotonic_increasing
 
     def test_no_data_raises_fetch_error(self) -> None:
-        client = _MockClient(pages=[])
+        client: Any = _MockClient(pages=[])
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             with pytest.raises(FetchError):
@@ -186,7 +186,7 @@ class TestColdWarmDeterminism:
     def test_cold_equals_warm(self) -> None:
         start, end = self._get_timestamps()
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df_cold = load(
@@ -212,7 +212,7 @@ class TestColdWarmDeterminism:
     def test_delta_fetch_spy_zero_http(self) -> None:
         start, end = self._get_timestamps()
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             load(
@@ -240,7 +240,7 @@ class TestColdWarmDeterminism:
 class TestLoadWithFunding:
     def test_perp_returns_funding_column(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df = load_with_funding(
@@ -272,7 +272,7 @@ class TestLoadWithFunding:
 class TestRangeBounds:
     def test_start_end_inclusive(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             start = "2023-11-15"
@@ -296,7 +296,7 @@ class TestRangeBounds:
 class TestLoadEdgeCases:
     def test_load_without_end(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df = load(
@@ -312,7 +312,7 @@ class TestLoadEdgeCases:
 
     def test_load_without_start(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df = load(
@@ -328,7 +328,7 @@ class TestLoadEdgeCases:
     def test_load_without_start_or_end(self) -> None:
         """Cover lines 91-92: neither start nor end specified."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df = load(
@@ -342,7 +342,7 @@ class TestLoadEdgeCases:
 
     def test_load_default_client(self) -> None:
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             with patch("ztb.data.loader._default_client") as mock_default:
@@ -360,7 +360,7 @@ class TestLoadEdgeCases:
     def test_load_no_cache_base_defaults(self) -> None:
         """Cover line 50: cache_base defaults to DEFAULT_CACHE_DIR."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             saved = Path(tmp)
             with patch("ztb.data.loader.DEFAULT_CACHE_DIR", saved):
@@ -377,7 +377,7 @@ class TestLoadEdgeCases:
     def test_empty_raw_raises(self) -> None:
         """Cover line 95: empty raw data raises FetchError."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=0)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             with pytest.raises(FetchError):
@@ -394,7 +394,7 @@ class TestLoadEdgeCases:
     def test_cache_merge_path(self) -> None:
         """Cover line 101: merge with existing cache."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             df_first = load(
@@ -411,7 +411,7 @@ class TestLoadEdgeCases:
     def test_integrity_failure_raises(self) -> None:
         """Cover line 110: integrity check failure raises IntegrityError."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=5)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             bad_report = IntegrityReport(
@@ -447,7 +447,7 @@ class TestLoadEdgeCases:
     def test_cache_with_start_only(self) -> None:
         """Cover lines 74-77: cache covers start, no end."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             load(
@@ -462,7 +462,7 @@ class TestLoadEdgeCases:
             first_bar_ts = pd.Timestamp(1700000000000, unit="ms", tz="UTC")
             # Use a start that's AFTER the cache first bar to hit lines 74-77
             later_start = (first_bar_ts + pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
-            new_client = _MockClient()
+            new_client: Any = _MockClient()
             df = load(
                 "BTCUSDT",
                 "60",
@@ -476,7 +476,7 @@ class TestLoadEdgeCases:
     def test_cache_with_end_only(self) -> None:
         """Cover lines 78-81: cache covers end, no start."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
-        client = _MockClient(pages)
+        client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             load(
@@ -489,7 +489,7 @@ class TestLoadEdgeCases:
                 cache_base=base,
             )
             end_within = "2023-11-15T03:00:00"
-            new_client = _MockClient()
+            new_client: Any = _MockClient()
             df = load(
                 "BTCUSDT",
                 "60",
