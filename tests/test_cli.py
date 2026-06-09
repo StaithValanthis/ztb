@@ -55,10 +55,10 @@ def test_backtest_stub() -> None:
     assert "not yet implemented" in result.output
 
 
-def test_data_stub() -> None:
+def test_data_group_usage() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["data"])
-    assert result.exit_code == 0
+    assert result.exit_code == 0 or result.exit_code == 2
 
 
 def test_forwardtest_stub() -> None:

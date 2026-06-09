@@ -166,7 +166,7 @@ def _raw_to_dataframe(raw: list[dict[str, Any]]) -> DataFrame:
         if isinstance(bar, dict):
             rows.append(
                 {
-                    "open_time": pd.Timestamp(int(bar["start"]) / 1000, unit="s", tz="UTC"),
+                    "open_time": pd.Timestamp(int(bar["start"]), unit="ms", tz="UTC"),
                     "open": float(bar["open"]),
                     "high": float(bar["high"]),
                     "low": float(bar["low"]),
@@ -178,7 +178,7 @@ def _raw_to_dataframe(raw: list[dict[str, Any]]) -> DataFrame:
         elif isinstance(bar, (list, tuple)):
             rows.append(
                 {
-                    "open_time": pd.Timestamp(int(bar[0]) / 1000, unit="s", tz="UTC"),
+                    "open_time": pd.Timestamp(int(bar[0]), unit="ms", tz="UTC"),
                     "open": float(bar[1]),
                     "high": float(bar[2]),
                     "low": float(bar[3]),

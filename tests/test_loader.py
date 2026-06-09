@@ -122,7 +122,8 @@ class TestRawToDataFrame:
     def test_schema_valid(self) -> None:
         raw = [_raw_bar(1700000000000)]
         df = _raw_to_dataframe(raw)
-        assert df.index.dtype == "datetime64[ns, UTC]"
+        assert isinstance(df.index.dtype, pd.DatetimeTZDtype)
+        assert str(df.index.dtype.tz) == "UTC"
         for col in OHLCV_COLUMNS:
             assert df[col].dtype == "float64"
 
