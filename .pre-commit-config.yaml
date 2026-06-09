@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies: []
+        args: [--strict]
+  - repo: local
+    hooks:
+      - id: secret-scan
+        name: secret-scan
+        entry: python3 scripts/secret-scan.py
+        language: system
+        types: [text]
+        pass_filenames: true
+  - repo: local
+    hooks:
+      - id: fast-unit
+        name: fast-unit
+        entry: python3 -m pytest tests/ -x -q --no-header
+        language: system
+        types: [python]
+        pass_filenames: false
