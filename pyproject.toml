@@ -63,3 +63,6 @@ check_untyped_defs = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short --cov=ztb --cov-report=term-missing"
+markers = [
+    "network: marks tests that make live API calls (opt-in only; excluded from default run)",
+]

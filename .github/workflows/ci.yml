@@ -29,7 +29,7 @@ jobs:
       - name: Types (mypy)
         run: mypy --strict ztb/ tests/
       - name: Test + coverage
-        run: pytest --cov-fail-under=90 --cov=ztb --cov-report=term-missing
+        run: pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing
       - name: Secret scan
         run: python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null || find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' | grep -v __pycache__ | grep -v .git)
       - name: Version consistency
