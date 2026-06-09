@@ -77,7 +77,9 @@ def _raw_bar(
     }
 
 
-def _make_raw_pages(start_ts: int, n_bars: int = 10, n_pages: int = 1) -> list[list[dict[str, str]]]:
+def _make_raw_pages(
+    start_ts: int, n_bars: int = 10, n_pages: int = 1
+) -> list[list[dict[str, str]]]:
     pages = []
     for p in range(n_pages):
         page = []
@@ -224,7 +226,7 @@ class TestColdWarmDeterminism:
                 client=client,
                 cache_base=base,
             )
-            client2 = _MockClient()
+            client2: Any = _MockClient()
             load(
                 "BTCUSDT",
                 "60",
