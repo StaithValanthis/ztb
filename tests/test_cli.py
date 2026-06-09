@@ -17,6 +17,37 @@ def test_help() -> None:
     assert "Usage:" in result.output
 
 
+def test_data_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["data", "--help"])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "fetch" in result.output
+    assert "show" in result.output
+    assert "verify" in result.output
+    assert "instruments" in result.output
+
+
+def test_data_show_no_cache() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["data", "show", "NONEXISTENT"])
+    assert result.exit_code == 1
+    assert "No cached data" in result.output
+
+
+def test_data_verify_no_cache() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["data", "verify", "NONEXISTENT"])
+    assert result.exit_code == 1
+    assert "No cached data" in result.output
+
+
+def test_data_fetch_no_symbol_fails() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["data", "fetch"])
+    assert result.exit_code != 0
+
+
 def test_backtest_stub() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["backtest"])
@@ -24,11 +55,10 @@ def test_backtest_stub() -> None:
     assert "not yet implemented" in result.output
 
 
-def test_data_stub() -> None:
+def test_data_group_usage() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["data"])
-    assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert result.exit_code == 0 or result.exit_code == 2
 
 
 def test_forwardtest_stub() -> None:
