@@ -12,11 +12,14 @@ from ztb.execution.errors import (
 )
 from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
 from ztb.execution.models import (
+    AccountState,
     ExecRunConfig,
     ExecRunState,
     OrderSide,
     OrderType,
+    Position,
 )
+from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
@@ -163,6 +166,79 @@ class Executor:
             return target_signal * min(scale, 1.0), decision
         return target_signal, decision
 
+    def _update_avg_entry_price(self, delta: float, fill_price: float) -> None:
+        assert self.state is not None
+        if abs(delta) < 1e-12:
+            return
+        old_qty = self.state.current_position
+        new_qty = old_qty + delta
+        if abs(new_qty) > abs(old_qty) + 1e-12:
+            added_qty = abs(new_qty) - abs(old_qty)
+            if self.state.avg_entry_price == 0 or abs(old_qty) < 1e-12:
+                self.state.avg_entry_price = fill_price
+                self.state.total_cost = abs(new_qty) * fill_price
+            else:
+                prev_avg = self.state.avg_entry_price
+                num = prev_avg * abs(old_qty) + fill_price * added_qty
+                self.state.avg_entry_price = num / abs(new_qty)
+                self.state.total_cost += added_qty * fill_price
+        elif abs(new_qty) < abs(old_qty) - 1e-12:
+            reduced_qty = abs(old_qty) - abs(new_qty)
+            if self.state.avg_entry_price > 0 and abs(old_qty) > 1e-12:
+                realized = reduced_qty * (fill_price - self.state.avg_entry_price)
+                if old_qty < 0:
+                    realized = -realized
+                self.state.realized_pnl += realized
+            self.state.total_cost *= abs(new_qty) / abs(old_qty) if abs(old_qty) > 0 else 0.0
+        if abs(new_qty) < 1e-12:
+            self.state.avg_entry_price = 0.0
+            self.state.total_cost = 0.0
+
+    def _compute_unrealized_pnl(self, close_price: float) -> float:
+        assert self.state is not None
+        if self.state.avg_entry_price == 0 or abs(self.state.current_position) < 1e-12:
+            return 0.0
+        return (close_price - self.state.avg_entry_price) * self.state.current_position
+
+    def _reconcile(
+        self, expected_position: float, close_price: float, bar_ts: str
+    ) -> ReconcileReport:
+        assert self.state is not None
+        equity = (
+            self.config.initial_cash
+            + self.state.realized_pnl
+            + abs(expected_position) * close_price
+        )
+        expected = AccountState(
+            total_equity=equity,
+            wallet_balance=equity - abs(expected_position) * close_price,
+            unrealized_pnl=self._compute_unrealized_pnl(close_price),
+            positions={
+                self.state.symbol: Position(
+                    symbol=self.state.symbol,
+                    size=expected_position,
+                    avg_price=self.state.avg_entry_price,
+                    unrealized_pnl=self._compute_unrealized_pnl(close_price),
+                    realized_pnl=self.state.realized_pnl,
+                    timestamp=bar_ts,
+                )
+            },
+            timestamp=bar_ts,
+        )
+        if self.config.dry_run or self.client is None:
+            return reconcile_account(expected, expected, self.state.symbol)
+        try:
+            actual_positions_raw = self.client.get_positions(self.state.symbol)
+            wallet_raw = self.client.get_wallet_balance(coin="USDT")
+            from ztb.execution.reconcile import compute_account_state
+            actual = compute_account_state(
+                actual_positions_raw,
+                wallet_raw,
+            )
+            return reconcile_account(expected, actual, self.state.symbol)
+        except Exception:
+            return reconcile_account(expected, expected, self.state.symbol)
+
     def step(
         self,
         data: DataFrame,
@@ -178,7 +254,7 @@ class Executor:
         target_signal = self._compute_target_position(data)
         current_position = self.state.current_position
 
-        equity = self.config.initial_cash + current_position * close_price
+        equity = self.config.initial_cash + self.state.realized_pnl + current_position * close_price
 
         target_signal, risk_decision = self._apply_risk(
             target_signal, current_position, close_price, equity, bar_ts
@@ -187,15 +263,20 @@ class Executor:
         if risk_decision is not None and risk_decision.action == RiskDecisionAction.halt:
             target_signal = 0.0
 
-        target_position = target_signal
-        delta = target_position - current_position
+        asset_precision = self.config.asset_precision
+        target_qty = (
+            round(target_signal * equity / close_price, asset_precision)
+            if close_price > 0
+            else 0.0
+        )
+        delta = target_qty - current_position
 
         result: dict[str, Any] = {
             "bar_ts": bar_ts,
             "close_price": close_price,
             "signal": target_signal,
             "current_position": current_position,
-            "target_position": target_position,
+            "target_position": target_qty,
             "delta": delta,
             "order_placed": False,
             "order": None,
@@ -204,30 +285,44 @@ class Executor:
         }
 
         if self.config.dry_run:
-            self.state.current_position = target_position
+            if abs(delta) > 1e-12:
+                self._update_avg_entry_price(delta, close_price)
+            self.state.current_position = target_qty
             self.state.bars_processed += 1
             self.state.last_bar_ts = bar_ts
+            unrealized_pnl = self._compute_unrealized_pnl(close_price)
             self._save_position_snapshot()
-            self._save_pnl(0.0, delta * close_price, equity)
+            self._save_pnl(0.0, unrealized_pnl, equity)
             return result
 
         if abs(delta) > 1e-12:
-            intent_hash = make_intent_hash(target_position, current_position)
+            intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
                 self.state.strategy_name, symbol, bar_ts, intent_hash
             )
 
-            existing_order_id = self._idempotency.lookup_order(order_link_id)
-            if existing_order_id:
-                result["order_placed"] = True
-                result["order"] = {"order_id": existing_order_id, "restored": True}
-                return result
+            claimed = self._idempotency.try_claim(order_link_id)
+            if not claimed:
+                existing = self._idempotency.get(order_link_id)
+                if existing and existing.get("order_id"):
+                    self._update_avg_entry_price(delta, close_price)
+                    self.state.current_position = target_qty
+                    result["order_placed"] = True
+                    result["order"] = {"order_id": existing["order_id"], "restored": True}
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
+                    unrealized_pnl = self._compute_unrealized_pnl(close_price)
+                    self._save_position_snapshot()
+                    self._save_pnl(self.state.realized_pnl, unrealized_pnl, equity)
+                    return result
 
             if self.client is None:
                 raise ExecutionError("No BybitClient configured for live trading")
 
+            self._reconcile(current_position, close_price, bar_ts)
+
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
-            qty = abs(delta)
+            qty = round(abs(delta), asset_precision)
 
             order_result = self.client.place_order(
                 symbol=symbol,
@@ -238,21 +333,23 @@ class Executor:
             )
             order_id = order_result.get("orderId", "")
 
-            if order_link_id:
-                self._idempotency.try_claim(order_link_id, order_id)
+            self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            self.state.current_position = target_position
+            self._update_avg_entry_price(delta, close_price)
+            self.state.current_position = target_qty
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
+
+            self._reconcile(target_qty, close_price, bar_ts)
 
             from ztb.store.exec_io import save_exec_order
 
             save_exec_order(
                 self._store_conn,
                 {
-                    "order_id": order_id,
-                    "exec_run_id": self.state.exec_run_id,
                     "order_link_id": order_link_id,
+                    "exec_run_id": self.state.exec_run_id,
+                    "order_id": order_id,
                     "symbol": symbol,
                     "side": side.value,
                     "order_type": "Market",
@@ -271,8 +368,9 @@ class Executor:
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
+        unrealized_pnl = self._compute_unrealized_pnl(close_price)
         self._save_position_snapshot()
-        self._save_pnl(self.state.realized_pnl, delta * close_price, equity)
+        self._save_pnl(self.state.realized_pnl, unrealized_pnl, equity)
         return result
 
     def run(

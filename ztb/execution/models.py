@@ -86,6 +86,7 @@ class ExecRunConfig:
     initial_cash: float = 100_000.0
     commission: float = 0.0005
     slippage: float = 0.0005
+    asset_precision: int = 8
     warmup_bars: int = 100
     risk_enabled: bool = True
     max_position_pct: float = 0.50
@@ -113,6 +114,7 @@ class ExecRunState:
     exec_run_id: str
     current_position: float = 0.0
     avg_entry_price: float = 0.0
+    total_cost: float = 0.0
     realized_pnl: float = 0.0
     total_commission: float = 0.0
     total_slippage: float = 0.0

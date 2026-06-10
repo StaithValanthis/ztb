@@ -21,9 +21,9 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS exec_orders (
-            order_id TEXT PRIMARY KEY,
+            order_link_id TEXT PRIMARY KEY,
             exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
-            order_link_id TEXT NOT NULL DEFAULT '',
+            order_id TEXT NOT NULL DEFAULT '',
             symbol TEXT NOT NULL,
             side TEXT NOT NULL,
             order_type TEXT NOT NULL,
@@ -39,8 +39,9 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS exec_fills (
             fill_id TEXT PRIMARY KEY,
-            order_id TEXT NOT NULL REFERENCES exec_orders(order_id),
+            order_link_id TEXT NOT NULL REFERENCES exec_orders(order_link_id),
             exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
+            order_id TEXT NOT NULL DEFAULT '',
             symbol TEXT NOT NULL,
             side TEXT NOT NULL,
             price REAL NOT NULL,
@@ -121,13 +122,13 @@ def update_exec_run_status(
 def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO exec_orders
-           (order_id, exec_run_id, order_link_id, symbol, side, order_type,
+           (order_link_id, exec_run_id, order_id, symbol, side, order_type,
             price, qty, status, created_at, cum_exec_qty, cum_exec_value, cum_exec_fee)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            order["order_id"],
+            order["order_link_id"],
             order["exec_run_id"],
-            order.get("order_link_id", ""),
+            order.get("order_id", ""),
             order["symbol"],
             order["side"],
             order["order_type"],
@@ -143,28 +144,29 @@ def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
     conn.commit()
 
 
-def update_exec_order(conn: sqlite3.Connection, order_id: str, status: str, **kwargs: Any) -> None:
+def update_exec_order(conn: sqlite3.Connection, order_link_id: str, status: str, **kwargs: Any) -> None:
     fields = ["status = ?"]
     values: list[Any] = [status]
     for key, val in kwargs.items():
         if key in ("cum_exec_qty", "cum_exec_value", "cum_exec_fee", "price", "qty"):
             fields.append(f"{key} = ?")
             values.append(val)
-    values.append(order_id)
-    conn.execute(f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_id = ?", tuple(values))
+    values.append(order_link_id)
+    conn.execute(f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_link_id = ?", tuple(values))
     conn.commit()
 
 
 def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO exec_fills
-           (fill_id, order_id, exec_run_id, symbol, side,
+           (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
             price, qty, commission, realized_pnl, filled_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             fill["fill_id"],
-            fill["order_id"],
+            fill.get("order_link_id", ""),
             fill["exec_run_id"],
+            fill.get("order_id", ""),
             fill["symbol"],
             fill["side"],
             fill["price"],

@@ -134,7 +134,7 @@ def test_update_exec_order_status(conn: sqlite3.Connection) -> None:
             "cum_exec_fee": 0.0,
         },
     )
-    update_exec_order(conn, "oid1", "Cancelled")
+    update_exec_order(conn, "olid1", "Cancelled")
     orders = get_exec_orders(conn, "exec1")
     assert orders[0]["status"] == "Cancelled"
 
@@ -146,7 +146,7 @@ def test_save_exec_fill(conn: sqlite3.Connection) -> None:
         {
             "order_id": "oid1",
             "exec_run_id": "exec1",
-            "order_link_id": "",
+            "order_link_id": "olid1",
             "symbol": "BTCUSDT",
             "side": "Buy",
             "order_type": "Market",
@@ -163,6 +163,7 @@ def test_save_exec_fill(conn: sqlite3.Connection) -> None:
         conn,
         {
             "fill_id": "fill1",
+            "order_link_id": "olid1",
             "order_id": "oid1",
             "exec_run_id": "exec1",
             "symbol": "BTCUSDT",

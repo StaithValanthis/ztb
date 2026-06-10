@@ -28,7 +28,7 @@ class IdempotencyLedger:
         self.conn.row_factory = sqlite3.Row
         _ensure_idempotency_table(conn)
 
-    def try_claim(self, order_link_id: str, order_id: str) -> bool:
+    def try_claim(self, order_link_id: str, order_id: str = "") -> bool:
         try:
             self.conn.execute(
                 """INSERT INTO idempotency (order_link_id, order_id, status, created_at)
@@ -60,7 +60,9 @@ class IdempotencyLedger:
 
     def lookup_order(self, order_link_id: str) -> str | None:
         row = self.conn.execute(
-            "SELECT order_id FROM idempotency WHERE order_link_id = ?", (order_link_id,)
+            "SELECT order_id FROM idempotency"
+            " WHERE order_link_id = ? AND status IN ('placed', 'filled')",
+            (order_link_id,),
         ).fetchone()
         if row is None:
             return None
