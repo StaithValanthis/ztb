@@ -123,3 +123,16 @@ def test_different_intent_different_id() -> None:
     id1 = make_order_link_id("strat", "SYM", "T1", intent1)
     id2 = make_order_link_id("strat", "SYM", "T1", intent2)
     assert id1 != id2
+
+
+def test_idempotency_get_missing(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    entry = ledger.get("nonexistent_link")
+    assert entry is None
+
+
+def test_idempotency_lookup_order_wrong_status(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("link1", "order1")
+    oid = ledger.lookup_order("link1")
+    assert oid is None
