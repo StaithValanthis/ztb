@@ -10,9 +10,11 @@
 - Store migration v4: `exec_runs`, `exec_orders`, `exec_fills`, `exec_positions_snapshots`, `exec_pnl_ledger`, `exec_errors` tables
 - CLI: `ztb run <strategy> <symbol> [--mode demo] [--dry-run] [--once]`, `ztb reconcile [--exec-run-id]`
 - Docs: `docs/m6_execution.md` (architecture, idempotency design, CLI reference)
-- **Tests:** hermetic (mocked transport), zero network in unit CI; signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path
-- **Measured evidence:** N/A (M6 is execution infrastructure; A/B scorecard not applicable)
-- **Version:** v0.7.0
+- **Tests:** 517/517 pass, 91.72% coverage, ruff/mypy clean, secret scan clean, hermetic (mocked transport), signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path
+- **Documentation:** `docs/m6_execution.md`
+- **PR:** [#9](https://github.com/StaithValanthis/ztb/pull/9)
+- **Merge commit:** `286c3ea` — two-key merge (CI green + V&R PASS on SHA `fb10d0c`)
+- **Tag:** v0.7.0
 
 ## v0.6.0 (2026-06-10)
 
