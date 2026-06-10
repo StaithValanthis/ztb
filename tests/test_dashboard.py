@@ -124,3 +124,55 @@ def test_dashboard_readonly_connection(empty_db: str) -> None:
 def test_dashboard_list_forward_runs_empty(empty_db: str) -> None:
     dd = DashboardData(empty_db)
     assert dd.list_forward_runs() == []
+
+
+# DB-6: Forward runs appear in the dashboard run list
+def test_dashboard_forward_runs_appear_in_list(tmp_path: Path) -> None:
+    import pandas as pd
+
+    from ztb.engine.forwardtest import ForwardtestResult
+    from ztb.engine.metrics import MetricsResult
+    from ztb.engine.portfolio import PortfolioState
+    from ztb.store.results import connect, save_forward_run
+
+    db_path = str(tmp_path / "fwd.db")
+    conn = connect(db_path)
+    result = ForwardtestResult(
+        strategy_name="fwd_test",
+        symbol="TEST",
+        timeframe="60",
+        metrics=MetricsResult(
+            total_return=0.05,
+            sharpe=0.8,
+            sortino=1.0,
+            max_drawdown=-0.03,
+            max_drawdown_duration=2,
+            num_trades=10,
+            profit_factor=1.2,
+            win_rate=0.50,
+            turnover=20.0,
+            exposure_time=50.0,
+            credible=True,
+        ),
+        portfolio=PortfolioState(
+            cash=95000.0,
+            position=0.5,
+            equity=[100000.0, 100500.0],
+            timestamps=pd.date_range("2020-01-01", periods=2, freq="h").tolist(),
+            trades=[],
+        ),
+        trades=[],
+        parameters={},
+        warmup_bars=50,
+        total_bars=200,
+    )
+    save_forward_run(conn, result)
+    conn.close()
+
+    dd = DashboardData(db_path)
+    all_runs = dd.list_runs()
+    fwd_runs = dd.list_forward_runs()
+    assert len(all_runs) == 1
+    assert all_runs[0]["run_type"] == "forward"
+    assert len(fwd_runs) == 1
+    assert fwd_runs[0]["strategy_name"] == "fwd_test"

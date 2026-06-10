@@ -13,6 +13,7 @@ from ztb.data.loader import load
 from ztb.data.timeframes import interval_to_ms
 from ztb.engine.backtest import BacktestConfig, run_backtest
 from ztb.engine.forwardtest import ForwardtestConfig, run_forwardtest
+from ztb.engine.metrics import MetricsResult
 from ztb.reporting.format import format_backtest_result, format_forwardtest_result
 from ztb.reporting.scorecard import build_scorecard
 from ztb.store.results import (
@@ -229,6 +230,8 @@ def backtest(
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
 @click.option("--warmup", default=100, type=int, help="Warmup bars before forward test begins")
+@click.option("--baseline-run-id", default=None,
+              help="Run ID for baseline metrics (decay computation)")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def forwardtest(
@@ -242,6 +245,7 @@ def forwardtest(
     commission: float,
     slippage: float,
     warmup: int,
+    baseline_run_id: str | None,
     persist: bool,
     db: str | None,
 ) -> None:
@@ -269,15 +273,55 @@ def forwardtest(
         warmup_bars=warmup,
     )
 
-    result = run_forwardtest(strategy, df, cfg)
+    need_store = persist or baseline_run_id is not None
+    conn = connect(db) if need_store else None
+
+    baseline_metrics: MetricsResult | None = None
+    if baseline_run_id is not None:
+        run_info = get_run(conn, baseline_run_id) if conn else None
+        if run_info is None:
+            if conn:
+                conn.close()
+            click.echo(f"Baseline run not found: {baseline_run_id}", err=True)
+            sys.exit(1)
+        metrics_rows = get_metrics(conn, baseline_run_id) if conn else []
+        full_metrics = next((r for r in metrics_rows if r["scope"] == "full"), None)
+        if full_metrics is None:
+            if conn:
+                conn.close()
+            click.echo(f"No 'full' metrics for baseline run {baseline_run_id}", err=True)
+            sys.exit(1)
+        baseline_metrics = MetricsResult(
+            total_return=full_metrics["total_return"],
+            sharpe=full_metrics["sharpe"],
+            sortino=full_metrics["sortino"],
+            max_drawdown=full_metrics["max_drawdown"],
+            max_drawdown_duration=full_metrics["max_drawdown_duration"],
+            num_trades=full_metrics["num_trades"],
+            profit_factor=full_metrics["profit_factor"],
+            win_rate=full_metrics["win_rate"],
+            turnover=full_metrics["turnover"],
+            exposure_time=full_metrics["exposure_time"],
+            credible=bool(full_metrics["credible"]),
+            reason=full_metrics["reason"],
+        )
+
+    result = run_forwardtest(
+        strategy,
+        df,
+        cfg,
+        baseline_metrics=baseline_metrics,
+        baseline_run_id=baseline_run_id,
+    )
 
     click.echo(format_forwardtest_result(result))
 
     if persist:
-        conn = connect(db)
+        assert conn is not None
         run_id = save_forward_run(conn, result)
-        conn.close()
         click.echo(f"Saved to store: run_id={run_id}")
+    if conn is not None:
+        conn.close()
 
 
 @cli.command()

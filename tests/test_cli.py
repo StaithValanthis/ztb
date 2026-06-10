@@ -233,3 +233,50 @@ def test_dashboard_no_streamlit(tmp_path) -> None:
     with patch("subprocess.run", side_effect=FileNotFoundError):
         result = runner.invoke(cli, ["dashboard", "--db", str(tmp_path / "none.db")])
     assert result.exit_code == 1
+
+
+def test_forwardtest_with_baseline_run_id(tmp_path) -> None:
+    import pandas as pd
+
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+    from ztb.store.results import connect, save_run
+    from ztb.strategies.registry import get as get_strategy
+
+    db_path = str(tmp_path / "test.db")
+    cls = get_strategy("sma_cross")
+    strat = cls()
+    strat.symbols = ["TEST"]
+    df = pd.DataFrame(
+        {
+            "open": [100.0] * 500,
+            "high": [101.0] * 500,
+            "low": [99.0] * 500,
+            "close": [100.0 + i * 0.1 for i in range(500)],
+            "volume": [1000.0] * 500,
+        },
+        index=pd.date_range("2020-01-01", periods=500, freq="h"),
+    )
+    result = run_backtest(strat, df, BacktestConfig(min_trades=0))
+    conn = connect(db_path)
+    baseline_run_id = save_run(conn, result)
+    conn.close()
+
+    runner = CliRunner()
+    with patch("ztb.cli.load", return_value=df):
+        result = runner.invoke(
+            cli,
+            [
+                "forwardtest",
+                "sma_cross",
+                "TEST",
+                "--db",
+                db_path,
+                "--warmup",
+                "50",
+                "--baseline-run-id",
+                baseline_run_id,
+            ],
+        )
+    assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
+    assert "Forward Test" in result.output
+    assert "Decay score" in result.output
