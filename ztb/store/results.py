@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ztb.engine.backtest import BacktestResult
+from ztb.engine.forwardtest import ForwardtestResult
 
 _METRIC_NAMES = frozenset(
     {
@@ -43,6 +44,7 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     _ensure_schema(conn)
+    _run_migrations(conn)
     return conn
 
 
@@ -52,21 +54,34 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _generate_run_id(result: BacktestResult) -> str:
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    version = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_meta"
+    ).fetchone()[0]
+    if version < 2:
+        try:
+            conn.execute("ALTER TABLE runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'backtest'")
+            conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (2)")
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+
+
+def _generate_run_id(strategy_name: str, symbol: str) -> str:
     now = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-    return f"{result.strategy_name}_{result.symbol}_{now}"
+    return f"{strategy_name}_{symbol}_{now}"
 
 
 def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
-    run_id = _generate_run_id(result)
+    run_id = _generate_run_id(result.strategy_name, result.symbol)
     conn.execute("BEGIN")
 
     try:
         conn.execute(
             """INSERT OR IGNORE INTO runs
-               (run_id, strategy_name, symbol, timeframe, parameters,
+               (run_id, strategy_name, symbol, timeframe, run_type, parameters,
                 splits, code_version, credible)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, 'backtest', ?, ?, ?, ?)""",
             (
                 run_id,
                 result.strategy_name,
@@ -74,7 +89,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 result.timeframe,
                 json.dumps(result.parameters),
                 json.dumps(result.splits),
-                "0.4.0",
+                "0.5.0",
                 1 if result.full.credible else 0,
             ),
         )
@@ -137,6 +152,85 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
     return run_id
 
 
+def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str:
+    run_id = _generate_run_id(result.strategy_name, result.symbol)
+    conn.execute("BEGIN")
+
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO runs
+               (run_id, strategy_name, symbol, timeframe, run_type, parameters,
+                splits, code_version, credible)
+               VALUES (?, ?, ?, ?, 'forward', ?, ?, ?, ?)""",
+            (
+                run_id,
+                result.strategy_name,
+                result.symbol,
+                result.timeframe,
+                json.dumps(result.parameters),
+                json.dumps({"warmup_bars": result.warmup_bars, "total_bars": result.total_bars}),
+                "0.5.0",
+                1 if result.metrics.credible else 0,
+            ),
+        )
+
+        m = result.metrics
+        conn.execute(
+            """INSERT OR IGNORE INTO metrics
+               (run_id, scope, total_return, sharpe, sortino, max_drawdown,
+                max_drawdown_duration, num_trades, profit_factor, win_rate,
+                turnover, exposure_time, credible, reason)
+               VALUES (?, 'forward', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                m.total_return,
+                m.sharpe,
+                m.sortino,
+                m.max_drawdown,
+                m.max_drawdown_duration,
+                m.num_trades,
+                m.profit_factor,
+                m.win_rate,
+                m.turnover,
+                m.exposure_time,
+                1 if m.credible else 0,
+                m.reason,
+            ),
+        )
+
+        for trade in result.trades:
+            conn.execute(
+                """INSERT INTO trades
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    run_id,
+                    str(trade.get("timestamp", "")),
+                    trade.get("side", ""),
+                    trade.get("price", 0.0),
+                    trade.get("size", 0.0),
+                    trade.get("pnl", 0.0),
+                    trade.get("commission", 0.0),
+                    trade.get("slippage", 0.0),
+                ),
+            )
+
+        timestamps = result.portfolio.timestamps
+        equity = result.portfolio.equity
+        for ts, eq in zip(timestamps, equity, strict=True):
+            conn.execute(
+                "INSERT INTO equity_curve (run_id, timestamp, equity) VALUES (?, ?, ?)",
+                (run_id, str(ts), float(eq)),
+            )
+
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+
+    return run_id
+
+
 def get_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
@@ -153,15 +247,23 @@ def get_metrics(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
 
 def list_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT run_id, strategy_name, symbol, timeframe, code_version, created_at, credible "
+        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
         "FROM runs ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_forward_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
+        "FROM runs WHERE run_type = 'forward' ORDER BY created_at DESC"
     ).fetchall()
     return [dict(r) for r in rows]
 
 
 def latest_run(conn: sqlite3.Connection) -> dict[str, Any] | None:
     row = conn.execute(
-        "SELECT run_id, strategy_name, symbol, timeframe, code_version, created_at, credible "
+        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
         "FROM runs ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
     if row is None:
@@ -175,7 +277,7 @@ def best_runs(
     scope: str = "oos",
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    if scope not in ("full", "is", "oos"):
+    if scope not in ("full", "is", "oos", "forward"):
         scope = "oos"
     if metric not in _METRIC_NAMES:
         metric = "sharpe"
@@ -214,7 +316,7 @@ def get_oos_metric(conn: sqlite3.Connection, run_id: str, name: str) -> float | 
     ).fetchone()
     if row is None:
         return None
-    return row[0]  # type: ignore[no-any-return]
+    return row[0]
 
 
 def get_oos_sharpe(conn: sqlite3.Connection, run_id: str) -> float | None:

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS runs (
     strategy_name TEXT NOT NULL,
     symbol TEXT NOT NULL,
     timeframe TEXT NOT NULL,
+    run_type TEXT NOT NULL DEFAULT 'backtest',
     parameters TEXT NOT NULL DEFAULT '{}',
     splits TEXT NOT NULL DEFAULT '{}',
     code_version TEXT NOT NULL DEFAULT '',
@@ -61,3 +62,4 @@ CREATE TABLE IF NOT EXISTS equity_curve (
 CREATE INDEX IF NOT EXISTS idx_equity_run ON equity_curve(run_id);
 
 INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
+INSERT OR IGNORE INTO schema_meta (version) VALUES (2);

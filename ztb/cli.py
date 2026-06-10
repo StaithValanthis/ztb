@@ -12,7 +12,8 @@ from ztb.data.integrity import check_integrity
 from ztb.data.loader import load
 from ztb.data.timeframes import interval_to_ms
 from ztb.engine.backtest import BacktestConfig, run_backtest
-from ztb.reporting.format import format_backtest_result
+from ztb.engine.forwardtest import ForwardtestConfig, run_forwardtest
+from ztb.reporting.format import format_backtest_result, format_forwardtest_result
 from ztb.reporting.scorecard import build_scorecard
 from ztb.store.results import (
     connect,
@@ -20,7 +21,9 @@ from ztb.store.results import (
     get_metrics,
     get_run,
     get_trades,
+    list_forward_runs,
     list_runs,
+    save_forward_run,
     save_run,
 )
 from ztb.strategies.registry import get as get_strategy
@@ -217,8 +220,65 @@ def backtest(
 
 
 @cli.command()
-def forwardtest() -> None:
-    click.echo("forwardtest: not yet implemented")
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval (1, 5, 15, 60, D, W, M)")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--commission", default=0.0005, type=float, help="Commission rate")
+@click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--warmup", default=100, type=int, help="Warmup bars before forward test begins")
+@click.option("--persist", is_flag=True, help="Save result to the store")
+@click.option("--db", default=None, help="Path to result database")
+def forwardtest(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    cash: float,
+    commission: float,
+    slippage: float,
+    warmup: int,
+    persist: bool,
+    db: str | None,
+) -> None:
+    """Run a forward test for a strategy on a symbol."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    cfg = ForwardtestConfig(
+        initial_cash=cash,
+        commission=commission,
+        slippage=slippage,
+        warmup_bars=warmup,
+    )
+
+    result = run_forwardtest(strategy, df, cfg)
+
+    click.echo(format_forwardtest_result(result))
+
+    if persist:
+        conn = connect(db)
+        run_id = save_forward_run(conn, result)
+        conn.close()
+        click.echo(f"Saved to store: run_id={run_id}")
 
 
 @cli.command()
@@ -297,9 +357,10 @@ def report(
         click.echo(f"Recent runs (last {limit}):")
         click.echo()
         for r in runs:
+            rtype = r.get("run_type", "backtest")
             click.echo(
                 f"  {r['run_id'][:12]}  {r['strategy_name']:12s} {r['symbol']:10s} "
-                f"{r['timeframe']:6s}  {r['created_at']}"
+                f"{r['timeframe']:6s} {rtype:9s} {r['created_at']}"
             )
 
     conn.close()
