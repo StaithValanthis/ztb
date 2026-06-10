@@ -347,3 +347,115 @@ def test_send_discord_success(monkeypatch) -> None:
     monkeypatch.setattr("httpx.post", mock_post)
     result = send_discord([{"title": "test"}], "http://example.com/webhook")
     assert result is True
+
+
+# RP-11: format_forwardtest_result produces correct output
+def test_format_forwardtest_result() -> None:
+    from ztb.engine.forwardtest import ForwardtestResult
+    from ztb.reporting.format import format_forwardtest_result
+
+    m = MetricsResult(
+        total_return=0.05,
+        sharpe=0.8,
+        sortino=1.0,
+        max_drawdown=-0.03,
+        max_drawdown_duration=2,
+        num_trades=10,
+        profit_factor=1.2,
+        win_rate=0.50,
+        turnover=20.0,
+        exposure_time=50.0,
+        credible=True,
+    )
+    ps = PortfolioState(cash=95000.0, position=0.5, trades=[], equity=[], timestamps=[])
+    result = ForwardtestResult(
+        strategy_name="test_strat",
+        symbol="BTCUSDT",
+        timeframe="60",
+        metrics=m,
+        portfolio=ps,
+        trades=[],
+        parameters={},
+        warmup_bars=50,
+        total_bars=200,
+    )
+    output = format_forwardtest_result(result)
+    assert "Forward Test" in output
+    assert "test_strat" in output
+    assert "BTCUSDT" in output
+    assert "Warmup bars: 50" in output
+    assert "Total bars: 200" in output
+    assert "0.0500" in output
+    assert "0.800" in output
+
+
+# RP-12: format_forwardtest_result with non-credible
+def test_format_forwardtest_result_non_credible() -> None:
+    from ztb.engine.forwardtest import ForwardtestResult
+    from ztb.reporting.format import format_forwardtest_result
+
+    m = MetricsResult(
+        total_return=None,
+        sharpe=None,
+        sortino=None,
+        max_drawdown=None,
+        max_drawdown_duration=0,
+        num_trades=2,
+        profit_factor=None,
+        win_rate=None,
+        turnover=0.0,
+        exposure_time=0.0,
+        credible=False,
+        reason="not enough trades",
+    )
+    ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
+    result = ForwardtestResult(
+        strategy_name="test",
+        symbol="X",
+        timeframe="60",
+        metrics=m,
+        portfolio=ps,
+        trades=[],
+        warmup_bars=10,
+        total_bars=100,
+    )
+    output = format_forwardtest_result(result)
+    assert "N/A" in output
+    assert "not enough trades" in output
+
+
+# RP-13: format_forwardtest_result with decay
+def test_format_forwardtest_result_with_decay() -> None:
+    from ztb.engine.forwardtest import ForwardtestResult
+    from ztb.reporting.format import format_forwardtest_result
+
+    m = MetricsResult(
+        total_return=0.05,
+        sharpe=0.8,
+        sortino=1.0,
+        max_drawdown=-0.03,
+        max_drawdown_duration=2,
+        num_trades=10,
+        profit_factor=1.2,
+        win_rate=0.50,
+        turnover=20.0,
+        exposure_time=50.0,
+        credible=True,
+    )
+    ps = PortfolioState(cash=95000.0, position=0.5, trades=[], equity=[], timestamps=[])
+    result = ForwardtestResult(
+        strategy_name="test_strat",
+        symbol="BTCUSDT",
+        timeframe="60",
+        metrics=m,
+        portfolio=ps,
+        trades=[],
+        parameters={},
+        warmup_bars=50,
+        total_bars=200,
+        decay_score=0.15,
+        decay_alarm=(True, "sharpe dropped"),
+    )
+    output = format_forwardtest_result(result)
+    assert "Forward Test" in output
+    assert "0.150" in output

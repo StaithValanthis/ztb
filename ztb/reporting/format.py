@@ -82,5 +82,11 @@ def format_forwardtest_result(result: ForwardtestResult) -> str:
     )
     if not m.credible:
         lines.append(f"\n  Not credible: {m.reason}")
+    if result.decay_score is not None:
+        lines.append(f"\n  Decay score: {result.decay_score:.4f}")
+    if result.decay_alarm is not None:
+        triggered, reason = result.decay_alarm
+        status = "ALARM" if triggered else "OK"
+        lines.append(f"  Decay alarm: {status} ({reason})")
     lines.append(sep)
     return "\n".join(lines)

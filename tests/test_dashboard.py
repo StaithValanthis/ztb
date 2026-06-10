@@ -118,3 +118,9 @@ def test_dashboard_readonly_connection(empty_db: str) -> None:
     dd = DashboardData(empty_db)
     rows = dd._conn.execute("SELECT * FROM runs").fetchall()
     assert rows == []
+
+
+# DB-5: list_forward_runs returns empty for empty db
+def test_dashboard_list_forward_runs_empty(empty_db: str) -> None:
+    dd = DashboardData(empty_db)
+    assert dd.list_forward_runs() == []

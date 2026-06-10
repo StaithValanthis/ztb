@@ -260,3 +260,122 @@ def test_forwardtest_equity_positive() -> None:
     result = run_forwardtest(strat, df, config)
     for eq in result.portfolio.equity:
         assert eq > 0
+
+
+def test_forwardtest_idempotency() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    r1 = run_forwardtest(strat, df, config)
+    r2 = run_forwardtest(strat, df, config)
+    assert r1.metrics.total_return == r2.metrics.total_return
+    assert r1.metrics.num_trades == r2.metrics.num_trades
+    assert r1.metrics.sharpe == r2.metrics.sharpe
+
+
+def test_forwardtest_decay_baseline_none() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    assert result.decay_score is None
+    assert result.decay_alarm is None
+    assert result.baseline_run_id is None
+
+
+def test_forwardtest_decay_with_baseline() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    result2 = run_forwardtest(strat, df, config, baseline_metrics=result.metrics)
+    assert result2.decay_score is not None
+    assert result2.decay_score >= 0.0
+    assert result2.baseline_run_id is None
+
+
+def test_forwardtest_decay_score_zero_when_identical() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    same_metrics = result.metrics
+    result2 = run_forwardtest(strat, df, config, baseline_metrics=same_metrics)
+    assert result2.decay_score == 0.0
+
+
+def test_forwardtest_decay_alarm_triggered() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    from ztb.engine.ft_decay import DecayConfig
+
+    aggressive = DecayConfig(min_sample=0, sharpe_floor_frac=100.0, maxdd_mult=0.01)
+    result2 = run_forwardtest(
+        strat, df, config, baseline_metrics=result.metrics, decay_cfg=aggressive
+    )
+    assert result2.decay_alarm is not None
+    assert result2.decay_alarm[0] is True
+
+
+def test_forwardtest_decay_alarm_suppressed() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=50, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    from ztb.engine.ft_decay import DecayConfig
+
+    loose = DecayConfig(min_sample=0, sharpe_floor_frac=0.0, maxdd_mult=100.0)
+    result2 = run_forwardtest(strat, df, config, baseline_metrics=result.metrics, decay_cfg=loose)
+    assert result2.decay_alarm is not None
+    assert result2.decay_alarm[0] is False
+
+
+def test_forwardtest_parity_with_backtest_long() -> None:
+    df = _sample_df(200)
+    strat = LongStrat()
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+
+    bt_config = BacktestConfig(min_trades=0)
+    bt_result = run_backtest(strat, df, bt_config)
+    ft_config = ForwardtestConfig(warmup_bars=0, min_trades=0)
+    ft_result = run_forwardtest(strat, df, ft_config)
+    assert ft_result.metrics.num_trades == bt_result.full.num_trades
+    if ft_result.metrics.total_return is not None and bt_result.full.total_return is not None:
+        assert abs(ft_result.metrics.total_return - bt_result.full.total_return) < 1e-9
+
+
+def test_forwardtest_parity_with_backtest_sma_cross() -> None:
+    from ztb.strategies.registry import get as get_strat
+
+    cls = get_strat("sma_cross")
+    strat = cls()
+    strat.symbols = ["TEST"]
+    df = _sample_df(500)
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+
+    bt_config = BacktestConfig(min_trades=0)
+    bt_result = run_backtest(strat, df, bt_config)
+    ft_config = ForwardtestConfig(warmup_bars=0, min_trades=0)
+    ft_result = run_forwardtest(strat, df, ft_config)
+    assert ft_result.metrics.num_trades == bt_result.full.num_trades
+
+
+def test_forwardtest_utc_timestamps() -> None:
+    df = DataFrame(
+        {
+            "open": [100.0] * 50,
+            "high": [101.0] * 50,
+            "low": [99.0] * 50,
+            "close": [100.0] * 50,
+            "volume": [1000.0] * 50,
+        },
+        index=pd.date_range("2020-01-01", periods=50, freq="h", tz="UTC"),
+    )
+    strat = LongStrat()
+    config = ForwardtestConfig(warmup_bars=0, min_trades=0)
+    result = run_forwardtest(strat, df, config)
+    for ts in result.portfolio.timestamps:
+        assert ts.tz is not None
+        assert str(ts.tz) == "UTC"
