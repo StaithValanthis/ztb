@@ -75,6 +75,20 @@ def test_forwardtest_no_args_fails() -> None:
     assert result.exit_code != 0
 
 
+def test_forwardtest_missing_strategy_fails() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["forwardtest", "nonexistent", "BTCUSDT"])
+    assert result.exit_code == 1
+    assert "Error" in result.output
+
+
+def test_forwardtest_no_data_returns_error() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["forwardtest", "sma_cross", "NONEXISTENT"])
+    assert result.exit_code == 1
+    assert "Error" in result.output or "No cached" in result.output
+
+
 def test_validate_stub() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])

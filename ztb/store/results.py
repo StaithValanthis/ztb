@@ -156,6 +156,19 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
     conn.execute("BEGIN")
 
     try:
+        splits: dict[str, Any] = {
+            "warmup_bars": result.warmup_bars,
+            "total_bars": result.total_bars,
+        }
+        if result.decay_score is not None:
+            splits["decay_score"] = result.decay_score
+        if result.decay_alarm is not None:
+            splits["decay_alarm"] = {
+                "triggered": result.decay_alarm[0],
+                "reason": result.decay_alarm[1],
+            }
+        if result.baseline_run_id is not None:
+            splits["baseline_run_id"] = result.baseline_run_id
         conn.execute(
             """INSERT OR IGNORE INTO runs
                (run_id, strategy_name, symbol, timeframe, run_type, parameters,
@@ -167,7 +180,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 result.symbol,
                 result.timeframe,
                 json.dumps(result.parameters),
-                json.dumps({"warmup_bars": result.warmup_bars, "total_bars": result.total_bars}),
+                json.dumps(splits),
                 "0.5.0",
                 1 if result.metrics.credible else 0,
             ),

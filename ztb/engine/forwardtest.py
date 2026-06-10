@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pandas import DataFrame, Series
 
 from ztb.engine.metrics import MetricsResult, compute_metrics
+
+if TYPE_CHECKING:
+    from ztb.engine.ft_decay import DecayConfig
 from ztb.engine.portfolio import PortfolioState, single_symbol_portfolio
 from ztb.strategies.base import Strategy, StrategyError
 
@@ -21,6 +24,9 @@ class ForwardtestResult:
     parameters: dict[str, Any] = field(default_factory=dict)
     warmup_bars: int = 0
     total_bars: int = 0
+    decay_score: float | None = None
+    decay_alarm: tuple[bool, str] | None = None
+    baseline_run_id: str | None = None
 
 
 @dataclass
@@ -36,6 +42,9 @@ def run_forwardtest(
     strategy: Strategy,
     data: DataFrame,
     config: ForwardtestConfig | None = None,
+    baseline_metrics: MetricsResult | None = None,
+    decay_cfg: DecayConfig | None = None,
+    baseline_run_id: str | None = None,
 ) -> ForwardtestResult:
     if config is None:
         config = ForwardtestConfig()
@@ -90,6 +99,17 @@ def run_forwardtest(
         min_trades=config.min_trades,
     )
 
+    decay_score: float | None = None
+    decay_alarm: tuple[bool, str] | None = None
+    if baseline_metrics is not None:
+        from ztb.engine.ft_decay import DecayConfig, check_decay_alarm, compute_decay_score
+
+        if decay_cfg is None:
+            decay_cfg = DecayConfig()
+        decay_score = compute_decay_score(metrics, baseline_metrics)
+        alarm = check_decay_alarm(metrics, baseline_metrics, len(forward_equity), decay_cfg)
+        decay_alarm = alarm
+
     return ForwardtestResult(
         strategy_name=strategy.name,
         symbol=strategy.symbols[0] if strategy.symbols else "",
@@ -100,6 +120,9 @@ def run_forwardtest(
         parameters=dict(strategy.params),
         warmup_bars=warmup,
         total_bars=len(data),
+        decay_score=decay_score,
+        decay_alarm=decay_alarm,
+        baseline_run_id=baseline_run_id,
     )
 
 
