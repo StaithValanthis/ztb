@@ -20,27 +20,71 @@ def _sample_run() -> dict:
 
 def _sample_metrics() -> list[dict]:
     return [
-        {"scope": "full", "total_return": 0.15, "sharpe": 1.5, "sortino": 2.0,
-         "max_drawdown": -0.05, "max_drawdown_duration": 3, "num_trades": 50,
-         "profit_factor": 2.0, "win_rate": 0.55, "turnover": 100.0,
-         "exposure_time": 200.0, "credible": 1},
-        {"scope": "is", "total_return": 0.20, "sharpe": 2.0, "sortino": 2.5,
-         "max_drawdown": -0.03, "max_drawdown_duration": 2, "num_trades": 35,
-         "profit_factor": 2.5, "win_rate": 0.60, "turnover": 70.0,
-         "exposure_time": 140.0, "credible": 1},
-        {"scope": "oos", "total_return": 0.10, "sharpe": 1.0, "sortino": 1.5,
-         "max_drawdown": -0.05, "max_drawdown_duration": 3, "num_trades": 15,
-         "profit_factor": 1.5, "win_rate": 0.50, "turnover": 30.0,
-         "exposure_time": 60.0, "credible": 1},
+        {
+            "scope": "full",
+            "total_return": 0.15,
+            "sharpe": 1.5,
+            "sortino": 2.0,
+            "max_drawdown": -0.05,
+            "max_drawdown_duration": 3,
+            "num_trades": 50,
+            "profit_factor": 2.0,
+            "win_rate": 0.55,
+            "turnover": 100.0,
+            "exposure_time": 200.0,
+            "credible": 1,
+        },
+        {
+            "scope": "is",
+            "total_return": 0.20,
+            "sharpe": 2.0,
+            "sortino": 2.5,
+            "max_drawdown": -0.03,
+            "max_drawdown_duration": 2,
+            "num_trades": 35,
+            "profit_factor": 2.5,
+            "win_rate": 0.60,
+            "turnover": 70.0,
+            "exposure_time": 140.0,
+            "credible": 1,
+        },
+        {
+            "scope": "oos",
+            "total_return": 0.10,
+            "sharpe": 1.0,
+            "sortino": 1.5,
+            "max_drawdown": -0.05,
+            "max_drawdown_duration": 3,
+            "num_trades": 15,
+            "profit_factor": 1.5,
+            "win_rate": 0.50,
+            "turnover": 30.0,
+            "exposure_time": 60.0,
+            "credible": 1,
+        },
     ]
 
 
 def _sample_trades() -> list[dict]:
     return [
-        {"timestamp": "2020-01-01 01:00", "side": "buy", "price": 100.0,
-         "size": 1.0, "pnl": 10.0, "commission": 0.05, "slippage": 0.05},
-        {"timestamp": "2020-01-01 02:00", "side": "sell", "price": 101.0,
-         "size": 1.0, "pnl": 0.95, "commission": 0.05, "slippage": 0.05},
+        {
+            "timestamp": "2020-01-01 01:00",
+            "side": "buy",
+            "price": 100.0,
+            "size": 1.0,
+            "pnl": 10.0,
+            "commission": 0.05,
+            "slippage": 0.05,
+        },
+        {
+            "timestamp": "2020-01-01 02:00",
+            "side": "sell",
+            "price": 101.0,
+            "size": 1.0,
+            "pnl": 0.95,
+            "commission": 0.05,
+            "slippage": 0.05,
+        },
     ]
 
 

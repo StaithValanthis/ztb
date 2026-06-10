@@ -51,7 +51,7 @@ def test_run_to_store(strat_and_data, db_path: str) -> None:
 
     conn = connect(db_path)
     run_id = save_run(conn, result)
-    retrieved = get_run(conn, run_id)
+    _ = get_run(conn, run_id)
 
     metrics = get_metrics(conn, run_id)
     assert len(metrics) == 3
@@ -116,12 +116,14 @@ def test_cli_report_output(strat_and_data, db_path: str) -> None:
     result = run_backtest(strat, df, config)
 
     conn = connect(db_path)
-    run_id = save_run(conn, result)
+    _ = save_run(conn, result)
     conn.close()
 
     proc = subprocess.run(
         [sys.executable, "-m", "ztb.cli", "report", "--db", db_path],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     assert proc.returncode == 0, f"stderr={proc.stderr}"
     assert "sma_cross" in proc.stdout, f"stdout={proc.stdout}"

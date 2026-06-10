@@ -44,34 +44,71 @@ def sample_result() -> BacktestResult:
         symbol="BTCUSDT",
         timeframe="60",
         full=MetricsResult(
-            total_return=0.15, sharpe=1.5, sortino=2.0, max_drawdown=-0.05,
-            max_drawdown_duration=3, num_trades=50, profit_factor=2.0,
-            win_rate=0.55, turnover=100.0, exposure_time=200.0, credible=True,
+            total_return=0.15,
+            sharpe=1.5,
+            sortino=2.0,
+            max_drawdown=-0.05,
+            max_drawdown_duration=3,
+            num_trades=50,
+            profit_factor=2.0,
+            win_rate=0.55,
+            turnover=100.0,
+            exposure_time=200.0,
+            credible=True,
         ),
         is_=MetricsResult(
-            total_return=0.20, sharpe=2.0, sortino=2.5, max_drawdown=-0.03,
-            max_drawdown_duration=2, num_trades=35, profit_factor=2.5,
-            win_rate=0.60, turnover=70.0, exposure_time=140.0, credible=True,
+            total_return=0.20,
+            sharpe=2.0,
+            sortino=2.5,
+            max_drawdown=-0.03,
+            max_drawdown_duration=2,
+            num_trades=35,
+            profit_factor=2.5,
+            win_rate=0.60,
+            turnover=70.0,
+            exposure_time=140.0,
+            credible=True,
         ),
         oos=MetricsResult(
-            total_return=0.10, sharpe=1.0, sortino=1.5, max_drawdown=-0.05,
-            max_drawdown_duration=3, num_trades=15, profit_factor=1.5,
-            win_rate=0.50, turnover=30.0, exposure_time=60.0, credible=True,
+            total_return=0.10,
+            sharpe=1.0,
+            sortino=1.5,
+            max_drawdown=-0.05,
+            max_drawdown_duration=3,
+            num_trades=15,
+            profit_factor=1.5,
+            win_rate=0.50,
+            turnover=30.0,
+            exposure_time=60.0,
+            credible=True,
         ),
         portfolio=PortfolioState(
-            cash=50000.0, position=1.0,
+            cash=50000.0,
+            position=1.0,
             equity=[100000.0, 101000.0, 102000.0, 103000.0, 104000.0],
             timestamps=pd.date_range("2020-01-01", periods=5, freq="h").tolist(),
             trades=[
-                {"timestamp": pd.Timestamp("2020-01-01 01:00"), "side": "buy",
-                 "price": 100.0, "size": 1.0, "pnl": 0.0, "commission": 0.05,
-                 "slippage": 0.05},
+                {
+                    "timestamp": pd.Timestamp("2020-01-01 01:00"),
+                    "side": "buy",
+                    "price": 100.0,
+                    "size": 1.0,
+                    "pnl": 0.0,
+                    "commission": 0.05,
+                    "slippage": 0.05,
+                },
             ],
         ),
         trades=[
-            {"timestamp": pd.Timestamp("2020-01-01 01:00"), "side": "buy",
-             "price": 100.0, "size": 1.0, "pnl": 0.0, "commission": 0.05,
-             "slippage": 0.05},
+            {
+                "timestamp": pd.Timestamp("2020-01-01 01:00"),
+                "side": "buy",
+                "price": 100.0,
+                "size": 1.0,
+                "pnl": 0.0,
+                "commission": 0.05,
+                "slippage": 0.05,
+            },
         ],
         splits={"is_end": 70, "n_bars": 100},
         parameters={"fast": 10, "slow": 30},
@@ -105,7 +142,9 @@ def test_save_run_atomicity(conn: sqlite3.Connection, sample_result: BacktestRes
 # ST-3: FK enforcement
 def test_fk_enforcement(conn: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute("INSERT INTO metrics (run_id, scope, num_trades) VALUES ('nonexistent', 'full', 0)")
+        conn.execute(
+            "INSERT INTO metrics (run_id, scope, num_trades) VALUES ('nonexistent', 'full', 0)",
+        )
         conn.commit()
 
 

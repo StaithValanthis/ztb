@@ -22,9 +22,12 @@ st.caption("Read-only view of backtest results from the ztb result store.")
 
 
 @st.cache_resource
-def get_data() -> DashboardData:
+def get_data() -> DashboardData:  # pragma: no cover
     return DashboardData()
 
+
+# --- Streamlit app (coverage excluded: requires Streamlit runtime) ---
+# coverage: no cover
 
 data = get_data()
 runs = data.list_runs()
@@ -54,16 +57,16 @@ if selected_label:
         cols[2].metric("Timeframe", run_info["timeframe"])
         cols[3].metric("Run ID", run_info["run_id"][:12] + "...")
 
-    if metrics:
-        st.subheader("Performance Metrics")
-        render_metrics_table(metrics)
+        if metrics:
+            st.subheader("Performance Metrics")
+            render_metrics_table(metrics)
 
-        st.subheader("Scorecard")
-        try:
-            sc = build_scorecard(run_info, metrics, trades, equity)
-            render_scorecard(sc)
-        except Exception:
-            st.info("Scorecard not available for this run.")
+            st.subheader("Scorecard")
+            try:
+                sc = build_scorecard(run_info, metrics, trades, equity)
+                render_scorecard(sc)
+            except Exception:
+                st.info("Scorecard not available for this run.")
     else:
         st.info("No metrics recorded for this run.")
 
@@ -74,3 +77,4 @@ if selected_label:
     if trades:
         st.subheader("Trades")
         render_trades_table(trades)
+    

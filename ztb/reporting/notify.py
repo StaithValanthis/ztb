@@ -12,7 +12,7 @@ def format_discord_payload(scorecard: dict[str, Any]) -> list[dict[str, Any]]:
     oos_return = oos.get("total_return", "N/A")
     oos_dd = oos.get("max_drawdown", "N/A")
 
-    embed = {
+    embed: dict[str, Any] = {
         "title": f"Backtest: {scorecard.get('strategy_name', '?')} / {scorecard.get('symbol', '?')}",  # noqa: E501
         "color": 0x00FF00 if scorecard.get("credible", False) else 0xFF0000,
         "fields": [

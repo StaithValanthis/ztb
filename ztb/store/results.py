@@ -214,7 +214,7 @@ def get_oos_metric(conn: sqlite3.Connection, run_id: str, name: str) -> float | 
     ).fetchone()
     if row is None:
         return None
-    return row[0]
+    return row[0]  # type: ignore[no-any-return]
 
 
 def get_oos_sharpe(conn: sqlite3.Connection, run_id: str) -> float | None:
