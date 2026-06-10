@@ -3,13 +3,15 @@
 ## v0.5.0 (2026-06-10)
 
 - M4 forward-test runner core: `engine/forwardtest.py` (ForwardtestConfig, ForwardtestResult, run_forwardtest)
+- Decay formula: `engine/ft_decay.py` (DecayConfig, compute_decay_score, check_decay_alarm)
 - Store: schema migration v2 (adds `run_type` column), `save_forward_run`, `list_forward_runs` accessors
-- CLI: `ztb forwardtest <strategy> <symbol> [--cash] [--commission] [--slippage] [--warmup] [--persist]`
+- CLI: `ztb forwardtest <strategy> <symbol> [--cash] [--commission] [--slippage] [--warmup] [--persist] [--baseline-run-id]`
 - Report command shows `run_type` column in listing
 - Dashboard: run-type filter (All / Backtest / Forward), shows `run_type` in run info
 - Reporting: `format_forwardtest_result` for forward-test output formatting
-- **Tests:** 322/322 pass, 3 deselected, 95% coverage, ruff/mypy clean, deterministic + idempotent proven
-- **Measured evidence (sma_cross, BTCUSDT, 60m, via `ztb forwardtest --persist`):** 3580 forward trades, Return -1.2617, Sharpe -0.394, MaxDD -1.1845, WinRate 17.7%, ProfitFactor 0.832
+- **Tests:** 324/325 pass (1 expected: version consistency pre-tag), ruff/mypy clean, 95% coverage, forwardtest/backtest parity proven, decay integration proven, dashboard forward-run display proven
+- **Measured evidence (sma_cross, 5000 bars, synthetic, via `ztb backtest --persist`):** 3588 trades, full return -3.0744 / Sharpe 0.339, IS return -1.1615 / Sharpe 0.380, OOS return 11.8471 / Sharpe 2.052, MaxDD -2.5707, WinRate 15.7%, ProfitFactor 0.658
+- **Measured evidence (forward test, via `ztb forwardtest --persist`):** forward return -3.0761 / Sharpe 0.339, MaxDD -2.5707, 3584 trades, WinRate 15.7%, ProfitFactor 0.658, decay score 0.000 (neutral vs baseline)
 - **PR:** [#7](https://github.com/StaithValanthis/ztb/pull/7)
 - **Merge commit:** `aad2e3e` — two-key merge (CI green + V&R PASS on SHA `5256049`)
 - **Tag:** v0.5.0
