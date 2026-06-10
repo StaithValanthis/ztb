@@ -366,7 +366,8 @@ def run(
     """Execute a strategy on live/demo data (M6 — demo only)."""
     from ztb.execution.errors import LiveModeBlockedError
     from ztb.execution.executor import Executor
-    from ztb.execution.models import ExecRunConfig, Mode as ExecMode
+    from ztb.execution.models import ExecRunConfig
+    from ztb.execution.models import Mode as ExecMode
 
     try:
         strat_cls = get_strategy(strategy_name)
