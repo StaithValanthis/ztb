@@ -360,6 +360,8 @@ def test_forwardtest_parity_with_backtest_sma_cross() -> None:
     ft_config = ForwardtestConfig(warmup_bars=0, min_trades=0)
     ft_result = run_forwardtest(strat, df, ft_config)
     assert ft_result.metrics.num_trades == bt_result.full.num_trades
+    if ft_result.metrics.total_return is not None and bt_result.full.total_return is not None:
+        assert abs(ft_result.metrics.total_return - bt_result.full.total_return) < 1e-9
 
 
 def test_forwardtest_utc_timestamps() -> None:
