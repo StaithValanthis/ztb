@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ztb.dashboard.data_access import DashboardData
 from ztb.dashboard.components import (
     render_equity_chart,
     render_metrics_table,
     render_scorecard,
     render_trades_table,
 )
+from ztb.dashboard.data_access import DashboardData
 from ztb.reporting.scorecard import build_scorecard
 
 st.set_page_config(

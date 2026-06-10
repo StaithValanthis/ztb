@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ztb.engine.backtest import BacktestConfig, BacktestResult, run_backtest
+from ztb.engine.backtest import BacktestResult
 from ztb.engine.metrics import MetricsResult
 from ztb.engine.portfolio import PortfolioState
 from ztb.store.results import (

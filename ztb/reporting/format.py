@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
 from ztb.engine.backtest import BacktestResult
-from ztb.engine.metrics import MetricsResult
 
 OOS_SHARPE_FLOOR: float = 0.5
 MAX_DD_LIMIT: float = -0.25

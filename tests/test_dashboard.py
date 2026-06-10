@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
-import sqlite3
 
 from ztb.dashboard.data_access import DashboardData
 

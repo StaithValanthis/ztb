@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from ztb.engine.backtest import BacktestConfig, run_backtest
-from ztb.reporting.format import format_backtest_result
 from ztb.reporting.scorecard import build_scorecard
-from ztb.store.results import connect, get_equity_curve, get_metrics, get_run, get_trades, list_runs, save_run
+from ztb.store.results import (
+    connect,
+    get_equity_curve,
+    get_metrics,
+    get_run,
+    get_trades,
+    list_runs,
+    save_run,
+)
 from ztb.strategies.registry import get as get_strategy
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _generate_run_id(result: BacktestResult) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    now = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     return f"{result.strategy_name}_{result.symbol}_{now}"
 
 
@@ -64,7 +64,8 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
     try:
         conn.execute(
             """INSERT OR IGNORE INTO runs
-               (run_id, strategy_name, symbol, timeframe, parameters, splits, code_version, credible)
+               (run_id, strategy_name, symbol, timeframe, parameters,
+                splits, code_version, credible)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id,
@@ -105,7 +106,8 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
 
         for trade in result.trades:
             conn.execute(
-                """INSERT INTO trades (run_id, timestamp, side, price, size, pnl, commission, slippage)
+                """INSERT INTO trades
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
@@ -121,7 +123,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
 
         timestamps = result.portfolio.timestamps
         equity = result.portfolio.equity
-        for ts, eq in zip(timestamps, equity):
+        for ts, eq in zip(timestamps, equity, strict=True):
             conn.execute(
                 "INSERT INTO equity_curve (run_id, timestamp, equity) VALUES (?, ?, ?)",
                 (run_id, str(ts), float(eq)),
