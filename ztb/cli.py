@@ -230,8 +230,9 @@ def backtest(
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
 @click.option("--warmup", default=100, type=int, help="Warmup bars before forward test begins")
-@click.option("--baseline-run-id", default=None,
-              help="Run ID for baseline metrics (decay computation)")
+@click.option(
+    "--baseline-run-id", default=None, help="Run ID for baseline metrics (decay computation)"
+)
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def forwardtest(
