@@ -404,7 +404,10 @@ def test_get_positions_with_symbol(mock_client_cls: MagicMock) -> None:
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"symbol": "BTCUSDT", "size": "0.1"}]}}
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {"list": [{"symbol": "BTCUSDT", "size": "0.1"}]},
+    }
     mock_instance.request.return_value = mock_resp
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)

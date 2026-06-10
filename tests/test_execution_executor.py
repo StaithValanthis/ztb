@@ -218,7 +218,13 @@ def test_executor_compute_target_warmup_insufficient(
     exe = Executor(fake_strategy, config=config)
     idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
     data = pd.DataFrame(
-        {"close": [50000.0] * 50, "open": [50000.0] * 50, "high": [50100.0] * 50, "low": [49900.0] * 50, "volume": [100.0] * 50},
+        {
+            "close": [50000.0] * 50,
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "volume": [100.0] * 50,
+        },
         index=idx,
     )
     target = exe._compute_target_position(data)
@@ -365,7 +371,13 @@ def test_executor_once_mode_insufficient_data(
 ) -> None:
     idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
     data = pd.DataFrame(
-        {"close": [50000.0] * 50, "open": [50000.0] * 50, "high": [50100.0] * 50, "low": [49900.0] * 50, "volume": [100.0] * 50},
+        {
+            "close": [50000.0] * 50,
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "volume": [100.0] * 50,
+        },
         index=idx,
     )
     data.index.name = "timestamp"
