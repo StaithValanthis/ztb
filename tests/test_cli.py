@@ -62,11 +62,17 @@ def test_data_group_usage() -> None:
     assert result.exit_code == 0 or result.exit_code == 2
 
 
-def test_forwardtest_stub() -> None:
+def test_forwardtest_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["forwardtest", "--help"])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+
+
+def test_forwardtest_no_args_fails() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["forwardtest"])
-    assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert result.exit_code != 0
 
 
 def test_validate_stub() -> None:
@@ -83,9 +89,9 @@ def test_run_stub() -> None:
     assert "not yet implemented" in result.output
 
 
-def test_report_no_args() -> None:
+def test_report_no_args(tmp_path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["report"])
+    result = runner.invoke(cli, ["report", "--db", str(tmp_path / "empty.db")])
     assert result.exit_code == 1
     assert "No runs found" in result.output
 

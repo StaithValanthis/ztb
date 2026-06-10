@@ -9,6 +9,7 @@ from ztb.store.results import (
     get_metrics,
     get_run,
     get_trades,
+    list_forward_runs,
     list_runs,
 )
 
@@ -19,6 +20,9 @@ class DashboardData:
 
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         return list_runs(self._conn)[:limit]
+
+    def list_forward_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        return list_forward_runs(self._conn)[:limit]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         return get_run(self._conn, run_id)
