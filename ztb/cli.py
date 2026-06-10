@@ -12,6 +12,17 @@ from ztb.data.integrity import check_integrity
 from ztb.data.loader import load
 from ztb.data.timeframes import interval_to_ms
 from ztb.engine.backtest import BacktestConfig, run_backtest
+from ztb.reporting.format import format_backtest_result
+from ztb.reporting.scorecard import build_scorecard
+from ztb.store.results import (
+    connect,
+    get_equity_curve,
+    get_metrics,
+    get_run,
+    get_trades,
+    list_runs,
+    save_run,
+)
 from ztb.strategies.registry import get as get_strategy
 from ztb.strategies.registry import list_names
 
@@ -156,6 +167,8 @@ def instruments(category: str) -> None:
 @click.option("--cash", default=100000.0, type=float, help="Initial cash")
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--persist", is_flag=True, help="Save result to the store")
+@click.option("--db", default=None, help="Path to result database")
 def backtest(
     strategy_name: str,
     symbol: str,
@@ -166,6 +179,8 @@ def backtest(
     cash: float,
     commission: float,
     slippage: float,
+    persist: bool,
+    db: str | None,
 ) -> None:
     """Run a backtest for a strategy on a symbol."""
     try:
@@ -192,31 +207,13 @@ def backtest(
 
     result = run_backtest(strategy, df, cfg)
 
-    def _fmt(v: float | None, decimals: int = 4) -> str:
-        if v is None:
-            return "N/A"
-        return f"{v:.{decimals}f}"
+    click.echo(format_backtest_result(result))
 
-    click.echo(f"\n{'=' * 60}")
-    click.echo(f"Backtest: {strategy_name} on {symbol} [{timeframe}]")
-    click.echo(f"{'=' * 60}")
-    click.echo(
-        f"  {'Scope':12s} {'Return':>10s} {'Sharpe':>10s} "
-        f"{'MaxDD':>10s} {'Trades':>8s} {'Win%':>8s}"
-    )
-    click.echo(f"  {'-' * 58}")
-    for label, m in [("FULL", result.full), ("IS", result.is_), ("OOS", result.oos)]:
-        credible = "✓" if m.credible else "✗"
-        click.echo(
-            f"  {label:12s} {_fmt(m.total_return, 4):>10s} "
-            f"{_fmt(m.sharpe, 3):>10s} {_fmt(m.max_drawdown, 4):>10s} "
-            f"{str(m.num_trades):>8s} {_fmt(m.win_rate, 3):>8s}  {credible}"
-        )
-    if not result.full.credible:
-        click.echo(f"\n  Not credible: {result.full.reason}")
-    if not result.oos.credible:
-        click.echo(f"\n  OOS not credible: {result.oos.reason}")
-    click.echo(f"{'=' * 60}\n")
+    if persist:
+        conn = connect(db)
+        run_id = save_run(conn, result)
+        conn.close()
+        click.echo(f"Saved to store: run_id={run_id}")
 
 
 @cli.command()
@@ -235,13 +232,105 @@ def run() -> None:
 
 
 @cli.command()
-def report() -> None:
-    click.echo("report: not yet implemented")
+@click.option("--run-id", default=None, help="Specific run ID to report")
+@click.option("--db", default=None, help="Path to result database")
+@click.option("--limit", default=10, type=int, help="Number of recent runs to show")
+@click.option("--scorecard", is_flag=True, help="Show scorecard for the run")
+def report(
+    run_id: str | None,
+    db: str | None,
+    limit: int,
+    scorecard: bool,
+) -> None:
+    """Show backtest results from the store."""
+    conn = connect(db)
+
+    if run_id:
+        run_info = get_run(conn, run_id)
+        if run_info is None:
+            click.echo(f"Run not found: {run_id}", err=True)
+            sys.exit(1)
+
+        sn = run_info["strategy_name"]
+        click.echo(f"Run: {sn} / {run_info['symbol']} [{run_info['timeframe']}]")
+        click.echo(f"Run ID: {run_info['run_id']}")
+        click.echo(f"Created: {run_info['created_at']}")
+        click.echo(f"Parameters: {run_info['parameters']}")
+        click.echo()
+
+        metrics = get_metrics(conn, run_id)
+        header = (
+            f"  {'Scope':12s} {'Return':>10s} {'Sharpe':>10s} "
+            f"{'MaxDD':>10s} {'Trades':>8s} {'Win%':>8s} {'PF':>8s}"
+        )
+        click.echo(header)
+        click.echo(f"  {'-' * 66}")
+        for m in metrics:
+            cred = "✓" if m["credible"] else "✗"
+            ret = f"{m['total_return']:.4f}" if m["total_return"] is not None else "N/A"
+            shr = f"{m['sharpe']:.3f}" if m["sharpe"] is not None else "N/A"
+            dd = f"{m['max_drawdown']:.4f}" if m["max_drawdown"] is not None else "N/A"
+            wr = f"{m['win_rate']:.3f}" if m["win_rate"] is not None else "N/A"
+            pf = f"{m['profit_factor']:.3f}" if m["profit_factor"] is not None else "N/A"
+            click.echo(
+                f"  {m['scope'].upper():12s} {ret:>10s} {shr:>10s} "
+                f"{dd:>10s} {str(m['num_trades']):>8s} {wr:>8s} {pf:>8s}  {cred}"
+            )
+
+        if scorecard:
+            trades = get_trades(conn, run_id)
+            equity = get_equity_curve(conn, run_id)
+            sc = build_scorecard(run_info, metrics, trades, equity)
+            click.echo(f"\nScorecard: credible={sc.get('credible')}")
+            for scope_name, m in sc.get("metrics", {}).items():
+                click.echo(
+                    f"  {scope_name}: Sharpe={m.get('sharpe', 'N/A')} "
+                    f"DD={m.get('max_drawdown', 'N/A')} "
+                    f"Trades={m.get('num_trades', 0)}"
+                )
+    else:
+        runs = list_runs(conn)
+        if not runs:
+            click.echo("No runs found. Run `ztb backtest --persist` first.")
+            sys.exit(1)
+
+        click.echo(f"Recent runs (last {limit}):")
+        click.echo()
+        for r in runs:
+            click.echo(
+                f"  {r['run_id'][:12]}  {r['strategy_name']:12s} {r['symbol']:10s} "
+                f"{r['timeframe']:6s}  {r['created_at']}"
+            )
+
+    conn.close()
 
 
 @cli.command()
-def dashboard() -> None:
-    click.echo("dashboard: not yet implemented")
+@click.option("--db", default=None, help="Path to result database")
+def dashboard(db: str | None) -> None:
+    """Launch the Streamlit dashboard app."""
+    import subprocess
+    import sys
+
+    db_arg = f"--db={db}" if db else ""
+    app_path = str(__import__("ztb.dashboard.app", fromlist=[""]).__file__)
+
+    cmd = ["streamlit", "run", app_path]
+    if db:
+        cmd.extend(["--", db_arg])
+
+    click.echo("Launching ztb dashboard...")
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        click.echo(
+            "Streamlit not found. Install it with: pip install streamlit",
+            err=True,
+        )
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        click.echo("Dashboard exited with an error.", err=True)
+        sys.exit(1)
 
 
 @cli.command(name="list")
@@ -273,3 +362,7 @@ def _list(verbose: bool) -> None:
 
 def main() -> None:
     sys.exit(cli(auto_envvar_prefix="ZTB"))
+
+
+if __name__ == "__main__":
+    main()

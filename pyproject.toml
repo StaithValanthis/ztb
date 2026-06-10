@@ -35,6 +35,9 @@ dev = [
     "pre-commit>=3.5",
     "pandas-stubs>=2.0",
 ]
+dashboard = [
+    "streamlit>=1.28",
+]
 
 [project.urls]
 Homepage = "https://github.com/zero-alpha/ztb"

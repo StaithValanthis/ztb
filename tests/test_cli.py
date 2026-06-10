@@ -81,18 +81,25 @@ def test_run_stub() -> None:
     assert "not yet implemented" in result.output
 
 
-def test_report_stub() -> None:
+def test_report_no_args() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["report"])
-    assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert result.exit_code == 1
+    assert "No runs found" in result.output
 
 
-def test_dashboard_stub() -> None:
+def test_report_help() -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["dashboard"])
+    result = runner.invoke(cli, ["report", "--help"])
     assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert "Usage:" in result.output
+
+
+def test_dashboard_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["dashboard", "--help"])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
 
 
 def test_list_shows_strategies() -> None:
