@@ -231,6 +231,7 @@ class Executor:
             actual_positions_raw = self.client.get_positions(self.state.symbol)
             wallet_raw = self.client.get_wallet_balance(coin="USDT")
             from ztb.execution.reconcile import compute_account_state
+
             actual = compute_account_state(
                 actual_positions_raw,
                 wallet_raw,
@@ -265,9 +266,7 @@ class Executor:
 
         asset_precision = self.config.asset_precision
         target_qty = (
-            round(target_signal * equity / close_price, asset_precision)
-            if close_price > 0
-            else 0.0
+            round(target_signal * equity / close_price, asset_precision) if close_price > 0 else 0.0
         )
         delta = target_qty - current_position
 
