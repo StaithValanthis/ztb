@@ -337,8 +337,140 @@ def validate() -> None:
 
 
 @cli.command()
-def run() -> None:
-    click.echo("run: not yet implemented")
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval (1, 5, 15, 60, D, W, M)")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--mode", default="demo", help="Execution mode (demo only in M6)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--dry-run", is_flag=True, help="Simulate without placing orders")
+@click.option("--once", is_flag=True, help="Process only the last bar")
+@click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
+@click.option("--db", default=None, help="Path to result database")
+def run(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    mode: str,
+    cash: float,
+    dry_run: bool,
+    once: bool,
+    no_risk: bool,
+    db: str | None,
+) -> None:
+    """Execute a strategy on live/demo data (M6 — demo only)."""
+    from ztb.execution.errors import LiveModeBlockedError
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig
+    from ztb.execution.models import Mode as ExecMode
+
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    exec_mode = ExecMode(mode)
+    if exec_mode == ExecMode.LIVE:
+        click.echo("Error: --mode=live is blocked in M6. Use --mode=demo.", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    config = ExecRunConfig(
+        mode=exec_mode,
+        dry_run=dry_run,
+        once=once,
+        initial_cash=cash,
+        risk_enabled=not no_risk,
+    )
+
+    executor = Executor(strategy, config=config)
+
+    try:
+        result = executor.run(
+            symbol=symbol,
+            timeframe=timeframe,
+            category=category,
+            start=start,
+            end=end,
+            db_path=db,
+        )
+    except LiveModeBlockedError:
+        click.echo("Error: --mode=live is blocked in M6. Use --mode=demo.", err=True)
+        sys.exit(1)
+    except Exception as exc:
+        click.echo(f"Execution error: {exc}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Execution run: {result.exec_run_id}")
+    click.echo(f"  Strategy:    {result.strategy_name}")
+    click.echo(f"  Symbol:      {result.symbol}")
+    click.echo(f"  Mode:        {result.mode.value}")
+    click.echo(f"  Bars:        {result.bars_processed}")
+    click.echo(f"  Position:    {result.current_position:.6f}")
+    click.echo(f"  Realized PnL: {result.realized_pnl:.4f}")
+    click.echo(f"  Status:      {result.status}")
+    if dry_run:
+        click.echo("(dry-run — no orders placed)")
+
+
+@cli.command()
+@click.option("--exec-run-id", default=None, help="Execution run ID to reconcile")
+@click.option("--db", default=None, help="Path to result database")
+def reconcile(exec_run_id: str | None, db: str | None) -> None:
+    """Reconcile a previous execution run state against the exchange."""
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode as ExecMode
+    from ztb.execution.reconcile import compute_account_state
+    from ztb.store.exec_io import get_exec_run
+    from ztb.store.results import connect
+
+    conn = connect(db)
+    from ztb.store.exec_io import ensure_exec_tables
+
+    ensure_exec_tables(conn)
+
+    if exec_run_id:
+        run_info = get_exec_run(conn, exec_run_id)
+        if run_info is None:
+            click.echo(f"Execution run not found: {exec_run_id}", err=True)
+            conn.close()
+            sys.exit(1)
+        click.echo(f"Reconciling run: {exec_run_id}")
+        click.echo(f"  Strategy: {run_info['strategy_name']}")
+        click.echo(f"  Symbol:   {run_info['symbol']}")
+        click.echo(f"  Mode:     {run_info['mode']}")
+        click.echo(f"  Status:   {run_info['status']}")
+    else:
+        click.echo("No exec-run-id provided. Reconciling current account state only.")
+
+    try:
+        cfg = ClientConfig(mode=ExecMode.DEMO)
+        client = BybitClient(cfg)
+        positions_raw = client.get_positions()
+        wallet_raw = client.get_wallet_balance()
+        client.close()
+    except Exception as exc:
+        click.echo(f"Failed to fetch account state: {exc}", err=True)
+        conn.close()
+        sys.exit(1)
+
+    actual = compute_account_state(positions_raw, wallet_raw)
+    click.echo("\nCurrent account state:")
+    click.echo(f"  Total equity:   {actual.total_equity:.4f}")
+    click.echo(f"  Wallet balance: {actual.wallet_balance:.4f}")
+    click.echo(f"  Unrealized PnL: {actual.unrealized_pnl:.4f}")
+    for sym, pos in actual.positions.items():
+        click.echo(f"  Position {sym}: {pos.size:.6f} @ {pos.avg_price:.4f}")
+    conn.close()
 
 
 @cli.command()

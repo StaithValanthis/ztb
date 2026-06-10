@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.0 (2026-06-10)
+
+- M6 Execution Module (DEMO): `ztb/execution/` (models, bybit_client, idempotency, reconcile, executor)
+- BybitClient: signed REST v5 client, demo URL hard-pinned (`api-demo.bybit.com`), `--mode=live` blocked via `LiveModeBlockedError`
+- Idempotency: `orderLinkId` from stable tuple `(strategy, symbol, bar_ts, intent_hash)` — NOT `run_id`; SQLite dedupe ledger prevents double-fill on restart
+- Reconciler: `reconcile_account()` detects position drift between expected and actual exchange state
+- Executor pipeline: closed-bar → signal → risk gate (M5) → diff → round → idempotent place → persist
+- Store migration v4: `exec_runs`, `exec_orders`, `exec_fills`, `exec_positions_snapshots`, `exec_pnl_ledger`, `exec_errors` tables
+- CLI: `ztb run <strategy> <symbol> [--mode demo] [--dry-run] [--once]`, `ztb reconcile [--exec-run-id]`
+- Docs: `docs/m6_execution.md` (architecture, idempotency design, CLI reference)
+- **Tests:** hermetic (mocked transport), zero network in unit CI; signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path
+- **Measured evidence:** N/A (M6 is execution infrastructure; A/B scorecard not applicable)
+- **Version:** v0.7.0
+
 ## v0.6.0 (2026-06-10)
 
 - M5 Risk Module: `ztb/risk/` (models, dd_budget, vol_sizing, heat, killswitch, manager)
