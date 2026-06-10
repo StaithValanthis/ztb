@@ -93,14 +93,20 @@ def test_validate_stub() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
     assert result.exit_code == 0
-    assert "not yet implemented" in result.output
 
 
-def test_run_stub() -> None:
+def test_run_command_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "Execute a strategy" in result.output
+
+
+def test_run_missing_args() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["run"])
-    assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert result.exit_code == 2
+    assert "Missing argument" in result.output
 
 
 def test_report_no_args(tmp_path) -> None:
