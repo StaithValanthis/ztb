@@ -144,7 +144,9 @@ def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
     conn.commit()
 
 
-def update_exec_order(conn: sqlite3.Connection, order_link_id: str, status: str, **kwargs: Any) -> None:
+def update_exec_order(
+    conn: sqlite3.Connection, order_link_id: str, status: str, **kwargs: Any
+) -> None:
     fields = ["status = ?"]
     values: list[Any] = [status]
     for key, val in kwargs.items():
@@ -152,7 +154,10 @@ def update_exec_order(conn: sqlite3.Connection, order_link_id: str, status: str,
             fields.append(f"{key} = ?")
             values.append(val)
     values.append(order_link_id)
-    conn.execute(f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_link_id = ?", tuple(values))
+    conn.execute(
+        f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_link_id = ?",
+        tuple(values),
+    )
     conn.commit()
 
 
