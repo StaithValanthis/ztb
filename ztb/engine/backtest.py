@@ -86,7 +86,9 @@ def run_backtest(
     if config.risk_enabled:
         risk_mgr = RiskManager(config=config.risk_config)
         adj_signals, risk_decisions, adj_equity = risk_adjusted_signals(
-            shifted, close, risk_mgr,
+            shifted,
+            close,
+            risk_mgr,
             initial_cash=config.initial_cash,
             commission=config.commission,
             slippage=config.slippage,

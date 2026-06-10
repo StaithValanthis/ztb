@@ -148,9 +148,9 @@ def multi_symbol_portfolio(
                 elif pos < 0:
                     if target < 0:
                         if delta < 0:
-                            avg_prices[sym] = (
-                                avg_price * abs(pos) + abs(delta) * price
-                            ) / abs(target)
+                            avg_prices[sym] = (avg_price * abs(pos) + abs(delta) * price) / abs(
+                                target
+                            )
                         else:
                             pnl = (avg_price - price) * abs(delta)
                     else:
@@ -168,22 +168,22 @@ def multi_symbol_portfolio(
                     else:
                         cash += abs(delta) * price * (1 - commission - slippage)
 
-                trades.append({
-                    "timestamp": idx,
-                    "symbol": sym,
-                    "side": "buy" if delta > 0 else "sell",
-                    "price": price,
-                    "size": abs(delta),
-                    "pnl": net_pnl,
-                    "commission": abs(delta) * price * commission,
-                    "slippage": abs(delta) * price * slippage,
-                })
+                trades.append(
+                    {
+                        "timestamp": idx,
+                        "symbol": sym,
+                        "side": "buy" if delta > 0 else "sell",
+                        "price": price,
+                        "size": abs(delta),
+                        "pnl": net_pnl,
+                        "commission": abs(delta) * price * commission,
+                        "slippage": abs(delta) * price * slippage,
+                    }
+                )
 
                 positions[sym] = target
 
-        total_equity = cash + sum(
-            positions[sym] * float(closes[sym].iloc[i]) for sym in symbols
-        )
+        total_equity = cash + sum(positions[sym] * float(closes[sym].iloc[i]) for sym in symbols)
         equity.append(total_equity)
         timestamps.append(idx)
 

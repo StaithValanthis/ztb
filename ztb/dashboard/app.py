@@ -94,6 +94,7 @@ if selected_label:
 
     risk_aware = bool(run_info.get("risk_aware", 0)) if run_info else False
     if risk_aware:
+        assert run_info is not None  # narrow type for mypy
         st.subheader("Risk Info")
         risk_d = data.get_risk_decisions(run_id)
         rc1, rc2, rc3 = st.columns(3)
@@ -106,7 +107,7 @@ if selected_label:
         )
         rc3.metric(
             "Max DD Realized",
-            f"{float(run_info['max_portfolio_dd_realized'])*100:.2f}%"
+            f"{float(run_info['max_portfolio_dd_realized']) * 100:.2f}%"
             if run_info.get("max_portfolio_dd_realized") is not None
             else "N/A",
         )

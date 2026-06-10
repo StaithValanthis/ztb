@@ -33,9 +33,7 @@ def _sample_df(n: int = 200) -> DataFrame:
     )
 
 
-def _gap_down_df(
-    n: int = 200, gap_idx: int = 100, gap_pct: float = -0.50
-) -> DataFrame:
+def _gap_down_df(n: int = 200, gap_idx: int = 100, gap_pct: float = -0.50) -> DataFrame:
     prices = [100.0 + i * 0.1 for i in range(n)]
     for j in range(gap_idx, n):
         prices[j] = prices[gap_idx - 1] * (1.0 + gap_pct)
@@ -92,7 +90,10 @@ def test_integration_wide_thresholds_match_no_risk() -> None:
     cfg_yes = BacktestConfig(risk_enabled=True, risk_config=rc, min_trades=0)
     r_no = run_backtest(strat, df, cfg_no)
     r_yes = run_backtest(strat, df, cfg_yes)
-    assert abs(r_no.full.total_return - r_yes.full.total_return) < 1e-9
+    tr_no = r_no.full.total_return
+    tr_yes = r_yes.full.total_return
+    assert tr_no is not None and tr_yes is not None
+    assert abs(tr_no - tr_yes) < 1e-9
     assert r_no.full.num_trades == r_yes.full.num_trades
 
 
@@ -136,9 +137,7 @@ def test_integration_kill_switch_triggers_on_massive_drop() -> None:
     )
     strat = LongStrat()
     rc = RiskConfig(account_killswitch_dd=0.05, max_portfolio_dd=0.50)
-    cfg = BacktestConfig(
-        risk_enabled=True, risk_config=rc, min_trades=0, initial_cash=200.0
-    )
+    cfg = BacktestConfig(risk_enabled=True, risk_config=rc, min_trades=0, initial_cash=200.0)
     result = run_backtest(strat, df, cfg)
     assert result.risk_aware
     halt_actions = [d for d in result.risk_decisions if d["action"] == "halt"]
@@ -149,9 +148,7 @@ def test_integration_backtest_forwardtest_risk_parity() -> None:
     df = _sample_df(200)
     strat = LongStrat()
     bt = run_backtest(strat, df, BacktestConfig(risk_enabled=True, min_trades=0))
-    ft = run_forwardtest(
-        strat, df, ForwardtestConfig(warmup_bars=0, min_trades=0)
-    )
+    ft = run_forwardtest(strat, df, ForwardtestConfig(warmup_bars=0, min_trades=0))
     assert bt.risk_aware
     assert ft.risk_aware
     assert bt.full.num_trades == ft.metrics.num_trades
