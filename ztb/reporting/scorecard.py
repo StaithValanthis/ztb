@@ -10,6 +10,7 @@ def build_scorecard(
     metrics: list[dict[str, Any]],
     trades: list[dict[str, Any]],
     equity: list[dict[str, Any]],
+    risk_decisions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     generated_at = run.get("created_at", "unknown")
 
@@ -58,6 +59,14 @@ def build_scorecard(
 
     import json
 
+    risk_block: dict[str, Any] = {
+        "risk_aware": bool(run.get("risk_aware", 0)),
+        "max_portfolio_dd_realized": run.get("max_portfolio_dd_realized"),
+        "kill_count": int(run.get("kill_count", 0)),
+        "mean_gross_leverage": run.get("mean_gross_leverage"),
+        "risk_decisions": risk_decisions or [],
+    }
+
     return {
         "generated_at": generated_at,
         "strategy_name": run.get("strategy_name", ""),
@@ -71,4 +80,5 @@ def build_scorecard(
         "metrics": metrics_by_scope,
         "trades_summary": trades_summary,
         "equity_summary": equity_summary,
+        "risk": risk_block,
     }
