@@ -303,9 +303,7 @@ class Executor:
 
         if self.config.once:
             if len(data) <= warmup:
-                raise ExecutionError(
-                    f"Data length {len(data)} <= warmup {warmup}, cannot run"
-                )
+                raise ExecutionError(f"Data length {len(data)} <= warmup {warmup}, cannot run")
             self.step(data)
         else:
             for i in range(warmup, len(data)):

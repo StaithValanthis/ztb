@@ -94,12 +94,8 @@ def test_reconcile_actual_only() -> None:
 
 
 def test_reconcile_no_positions() -> None:
-    expected = AccountState(
-        total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0
-    )
-    actual = AccountState(
-        total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0
-    )
+    expected = AccountState(total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0)
+    actual = AccountState(total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0)
     report = reconcile_account(expected, actual, "BTCUSDT")
     assert report.matched is True
 

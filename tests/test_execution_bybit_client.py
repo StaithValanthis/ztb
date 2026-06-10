@@ -35,9 +35,7 @@ def test_signing_golden_vector() -> None:
     body = json.dumps({"symbol": "BTCUSDT", "side": "Buy", "qty": "0.01"})
     sig = client._sign(ts, method, path, body)
     expected_payload = f"{ts}test_key5000{body}"
-    expected_sig = hmac.new(
-        b"test_secret", expected_payload.encode(), hashlib.sha256
-    ).hexdigest()
+    expected_sig = hmac.new(b"test_secret", expected_payload.encode(), hashlib.sha256).hexdigest()
     assert sig == expected_sig
 
 
