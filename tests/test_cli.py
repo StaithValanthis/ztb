@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from click.testing import CliRunner
 
 from ztb.cli import cli
@@ -208,5 +210,6 @@ def test_backtest_persist(tmp_path) -> None:
 
 def test_dashboard_no_streamlit(tmp_path) -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["dashboard", "--db", str(tmp_path / "none.db")])
+    with patch("subprocess.run", side_effect=FileNotFoundError):
+        result = runner.invoke(cli, ["dashboard", "--db", str(tmp_path / "none.db")])
     assert result.exit_code == 1
