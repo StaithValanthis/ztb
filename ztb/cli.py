@@ -21,7 +21,6 @@ from ztb.store.results import (
     get_metrics,
     get_run,
     get_trades,
-    list_forward_runs,
     list_runs,
     save_forward_run,
     save_run,

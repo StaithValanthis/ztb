@@ -55,16 +55,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    version = conn.execute(
-        "SELECT COALESCE(MAX(version), 0) FROM schema_meta"
-    ).fetchone()[0]
-    if version < 2:
-        try:
-            conn.execute("ALTER TABLE runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'backtest'")
-            conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (2)")
-            conn.commit()
-        except sqlite3.OperationalError:
-            conn.rollback()
+    from contextlib import suppress
+
+    try:
+        conn.execute("SELECT run_type FROM runs LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'backtest'")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (2)")
+    conn.commit()
 
 
 def _generate_run_id(strategy_name: str, symbol: str) -> str:
@@ -180,7 +179,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                (run_id, scope, total_return, sharpe, sortino, max_drawdown,
                 max_drawdown_duration, num_trades, profit_factor, win_rate,
                 turnover, exposure_time, credible, reason)
-               VALUES (?, 'forward', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id,
                 m.total_return,
@@ -245,27 +244,23 @@ def get_metrics(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+_RUN_COLS = "run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible"
+
+
 def list_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
-        "FROM runs ORDER BY created_at DESC"
-    ).fetchall()
+    rows = conn.execute(f"SELECT {_RUN_COLS} FROM runs ORDER BY created_at DESC").fetchall()
     return [dict(r) for r in rows]
 
 
 def list_forward_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
-        "FROM runs WHERE run_type = 'forward' ORDER BY created_at DESC"
+        f"SELECT {_RUN_COLS} FROM runs WHERE run_type = 'forward' ORDER BY created_at DESC"
     ).fetchall()
     return [dict(r) for r in rows]
 
 
 def latest_run(conn: sqlite3.Connection) -> dict[str, Any] | None:
-    row = conn.execute(
-        "SELECT run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible "
-        "FROM runs ORDER BY created_at DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute(f"SELECT {_RUN_COLS} FROM runs ORDER BY created_at DESC LIMIT 1").fetchone()
     if row is None:
         return None
     return dict(row)
@@ -316,7 +311,8 @@ def get_oos_metric(conn: sqlite3.Connection, run_id: str, name: str) -> float | 
     ).fetchone()
     if row is None:
         return None
-    return row[0]
+    val = row[0]
+    return float(val) if val is not None else None
 
 
 def get_oos_sharpe(conn: sqlite3.Connection, run_id: str) -> float | None:

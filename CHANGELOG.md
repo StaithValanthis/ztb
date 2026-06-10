@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0 (2026-06-10)
+
+- M4 forward-test runner core: `engine/forwardtest.py` (ForwardtestConfig, ForwardtestResult, run_forwardtest)
+- Store: schema migration v2 (adds `run_type` column), `save_forward_run`, `list_forward_runs` accessors
+- CLI: `ztb forwardtest <strategy> <symbol> [--cash] [--commission] [--slippage] [--warmup] [--persist]`
+- Report command shows `run_type` column in listing
+- Dashboard: run-type filter (All / Backtest / Forward), shows `run_type` in run info
+- Reporting: `format_forwardtest_result` for forward-test output formatting
+- **Tests:** 224/224 pass, ruff/mypy clean
+- **PR:** —
+- **Merge commit:** —
+- **Tag:** v0.5.0
+
 ## v0.4.0 (2026-06-10)
 
 - M3 result store: `store/schema.sql` (additive, versioned), `store/results.py` (connect, save_run, accessors)
