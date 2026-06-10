@@ -8,9 +8,10 @@
 - Report command shows `run_type` column in listing
 - Dashboard: run-type filter (All / Backtest / Forward), shows `run_type` in run info
 - Reporting: `format_forwardtest_result` for forward-test output formatting
-- **Tests:** 224/224 pass, ruff/mypy clean
-- **PR:** —
-- **Merge commit:** —
+- **Tests:** 322/322 pass, 3 deselected, 95% coverage, ruff/mypy clean, deterministic + idempotent proven
+- **Measured evidence (sma_cross, BTCUSDT, 60m, via `ztb forwardtest --persist`):** 3580 forward trades, Return -1.2617, Sharpe -0.394, MaxDD -1.1845, WinRate 17.7%, ProfitFactor 0.832
+- **PR:** [#7](https://github.com/StaithValanthis/ztb/pull/7)
+- **Merge commit:** `aad2e3e` — two-key merge (CI green + V&R PASS on SHA `5256049`)
 - **Tag:** v0.5.0
 
 ## v0.4.0 (2026-06-10)
