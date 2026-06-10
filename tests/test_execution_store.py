@@ -228,8 +228,6 @@ def test_save_exec_error(conn: sqlite3.Connection) -> None:
             "message": "timeout placing order",
         },
     )
-    rows = conn.execute(
-        "SELECT * FROM exec_errors WHERE exec_run_id = ?", ("exec1",)
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM exec_errors WHERE exec_run_id = ?", ("exec1",)).fetchall()
     assert len(rows) == 1
     assert rows[0]["error_type"] == "client_error"

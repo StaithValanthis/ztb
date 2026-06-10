@@ -61,8 +61,13 @@ def test_run_once_flag() -> None:
     result = runner.invoke(
         cli,
         [
-            "run", "sma_cross", "BTCUSDT", "--dry-run", "--once",
-            "--start=2026-01-01", "--end=2026-01-10",
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--once",
+            "--start=2026-01-01",
+            "--end=2026-01-10",
         ],
     )
     assert "blocked" not in result.output.lower()
@@ -73,8 +78,13 @@ def test_run_no_risk_flag() -> None:
     result = runner.invoke(
         cli,
         [
-            "run", "sma_cross", "BTCUSDT", "--dry-run", "--no-risk",
-            "--start=2026-01-01", "--end=2026-01-02",
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--no-risk",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
         ],
     )
     assert "blocked" not in result.output.lower()
@@ -85,8 +95,12 @@ def test_run_with_db() -> None:
     result = runner.invoke(
         cli,
         [
-            "run", "sma_cross", "BTCUSDT", "--dry-run",
-            "--start=2026-01-01", "--end=2026-01-02",
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
             "--db=:memory:",
         ],
     )

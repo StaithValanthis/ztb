@@ -151,9 +151,7 @@ def update_exec_order(conn: sqlite3.Connection, order_id: str, status: str, **kw
             fields.append(f"{key} = ?")
             values.append(val)
     values.append(order_id)
-    conn.execute(
-        f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_id = ?", tuple(values)
-    )
+    conn.execute(f"UPDATE exec_orders SET {', '.join(fields)} WHERE order_id = ?", tuple(values))
     conn.commit()
 
 
@@ -229,16 +227,12 @@ def save_exec_error(conn: sqlite3.Connection, error: dict[str, Any]) -> None:
 
 
 def get_exec_run(conn: sqlite3.Connection, exec_run_id: str) -> dict[str, Any] | None:
-    row = conn.execute(
-        "SELECT * FROM exec_runs WHERE exec_run_id = ?", (exec_run_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM exec_runs WHERE exec_run_id = ?", (exec_run_id,)).fetchone()
     return dict(row) if row else None
 
 
 def list_exec_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM exec_runs ORDER BY started_at DESC"
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM exec_runs ORDER BY started_at DESC").fetchall()
     return [dict(r) for r in rows]
 
 

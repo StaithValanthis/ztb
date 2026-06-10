@@ -435,6 +435,7 @@ def reconcile(exec_run_id: str | None, db: str | None) -> None:
 
     conn = connect(db)
     from ztb.store.exec_io import ensure_exec_tables
+
     ensure_exec_tables(conn)
 
     if exec_run_id:
