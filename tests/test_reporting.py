@@ -311,3 +311,39 @@ def test_no_secret_in_scorecard() -> None:
     assert "ZTB_" not in serialized
     assert "sk-" not in serialized
     assert "api_key" not in serialized.lower()
+
+
+# RP-8: fmt_pct formatting
+def test_fmt_pct() -> None:
+    from ztb.reporting.format import fmt_pct
+
+    assert fmt_pct(0.0) == "0.00%"
+    assert fmt_pct(0.0513) == "5.13%"
+    assert fmt_pct(-0.05) == "-5.00%"
+    assert fmt_pct(1.0) == "100.00%"
+    assert fmt_pct(0.5, 1) == "50.0%"
+    assert fmt_pct(None) == "N/A"
+
+
+# RP-9: Discord payload with pass_fail data in full scope
+def test_discord_payload_with_pass_fail() -> None:
+    sc = build_scorecard(_sample_run(), _sample_metrics(), _sample_trades(), _sample_equity())
+    sc["metrics"]["full"]["pass_fail"] = {"oos_sharpe": "PASS", "max_dd": "FAIL"}
+    payload = format_discord_payload(sc)
+    assert len(payload) == 1
+    fields = payload[0]["fields"]
+    assert len(fields) == 8
+    assert any(f["name"] == "oos_sharpe" for f in fields)
+
+
+# RP-10: send_discord success path (mocked)
+def test_send_discord_success(monkeypatch) -> None:
+    class MockResponse:
+        is_success = True
+
+    def mock_post(*args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr("httpx.post", mock_post)
+    result = send_discord([{"title": "test"}], "http://example.com/webhook")
+    assert result is True

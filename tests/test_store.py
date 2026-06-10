@@ -228,3 +228,48 @@ def test_get_equity_curve(conn: sqlite3.Connection, sample_result: BacktestResul
     assert len(eq) == 5
     assert eq[0]["equity"] == 100000.0
     assert eq[-1]["equity"] == 104000.0
+
+
+# ST-9: ZTB_STORE_PATH env var
+def test_store_path_env_var(monkeypatch, tmp_path) -> None:
+    import os
+
+    from ztb.store.results import connect, list_runs
+
+    db_path = str(tmp_path / "env_test.db")
+    monkeypatch.setenv("ZTB_STORE_PATH", db_path)
+    conn = connect()
+    assert list_runs(conn) == []
+    conn.close()
+    assert os.path.exists(db_path)
+
+
+# ST-10: get_run returns None for missing run
+def test_get_run_missing(conn: sqlite3.Connection) -> None:
+    assert get_run(conn, "nonexistent") is None
+
+
+# ST-11: get_oos_metric returns None for missing run
+def test_get_oos_metric_missing(conn: sqlite3.Connection) -> None:
+    assert get_oos_metric(conn, "nonexistent", "sharpe") is None
+
+
+# ST-12: best_runs with invalid scope/metric defaults
+def test_best_runs_invalid_args(conn: sqlite3.Connection, sample_result: BacktestResult) -> None:
+    save_run(conn, sample_result)
+    result = best_runs(conn, metric="invalid_metric", scope="bad_scope", limit=5)
+    assert len(result) >= 1
+    assert "metric_value" in result[0]
+
+
+# ST-13: save_run atomicity — rollback on failure
+def test_save_run_rollback(conn: sqlite3.Connection, sample_result: BacktestResult) -> None:
+    from contextlib import suppress
+
+    orig_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    with suppress(Exception):
+        conn.execute("DROP TABLE equity_curve")
+    with suppress(Exception):
+        save_run(conn, sample_result)
+    final_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    assert final_count == orig_count, "rollback should keep run count unchanged"
