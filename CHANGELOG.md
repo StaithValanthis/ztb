@@ -18,6 +18,8 @@
   Risk-aware:      Full Return +0.0673, Sharpe +0.190, MaxDD -0.2500, Trades 29,928
   **MaxDD reduction: 78.9%** (from -118% to -25%, capped at configured 25% DD budget)
 - **PR:** [#8](https://github.com/StaithValanthis/ztb/pull/8)
+- **Merge commit:** `149dd38` — two-key merge (CI green + V&R PASS on SHA `bf10ea1`)
+- **Tag:** v0.6.0
 
 ## v0.5.0 (2026-06-10)
 
