@@ -11,6 +11,9 @@ from ztb.data.errors import CacheError, DataError, FetchError
 from ztb.data.integrity import check_integrity
 from ztb.data.loader import load
 from ztb.data.timeframes import interval_to_ms
+from ztb.engine.backtest import BacktestConfig, run_backtest
+from ztb.strategies.registry import get as get_strategy
+from ztb.strategies.registry import list_names
 
 
 @click.group()
@@ -144,8 +147,76 @@ def instruments(category: str) -> None:
 
 
 @cli.command()
-def backtest() -> None:
-    click.echo("backtest: not yet implemented")
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval (1, 5, 15, 60, D, W, M)")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--commission", default=0.0005, type=float, help="Commission rate")
+@click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+def backtest(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    cash: float,
+    commission: float,
+    slippage: float,
+) -> None:
+    """Run a backtest for a strategy on a symbol."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    cfg = BacktestConfig(
+        initial_cash=cash,
+        commission=commission,
+        slippage=slippage,
+    )
+
+    result = run_backtest(strategy, df, cfg)
+
+    def _fmt(v: float | None, decimals: int = 4) -> str:
+        if v is None:
+            return "N/A"
+        return f"{v:.{decimals}f}"
+
+    click.echo(f"\n{'=' * 60}")
+    click.echo(f"Backtest: {strategy_name} on {symbol} [{timeframe}]")
+    click.echo(f"{'=' * 60}")
+    click.echo(
+        f"  {'Scope':12s} {'Return':>10s} {'Sharpe':>10s} "
+        f"{'MaxDD':>10s} {'Trades':>8s} {'Win%':>8s}"
+    )
+    click.echo(f"  {'-' * 58}")
+    for label, m in [("FULL", result.full), ("IS", result.is_), ("OOS", result.oos)]:
+        credible = "✓" if m.credible else "✗"
+        click.echo(
+            f"  {label:12s} {_fmt(m.total_return, 4):>10s} "
+            f"{_fmt(m.sharpe, 3):>10s} {_fmt(m.max_drawdown, 4):>10s} "
+            f"{str(m.num_trades):>8s} {_fmt(m.win_rate, 3):>8s}  {credible}"
+        )
+    if not result.full.credible:
+        click.echo(f"\n  Not credible: {result.full.reason}")
+    if not result.oos.credible:
+        click.echo(f"\n  OOS not credible: {result.oos.reason}")
+    click.echo(f"{'=' * 60}\n")
 
 
 @cli.command()
@@ -174,8 +245,30 @@ def dashboard() -> None:
 
 
 @cli.command(name="list")
-def _list() -> None:
-    click.echo("list: not yet implemented")
+@click.option("--verbose", is_flag=True, help="Show detailed strategy info")
+def _list(verbose: bool) -> None:
+    """List available strategies."""
+    try:
+        names = list_names()
+    except Exception as exc:
+        click.echo(f"Error listing strategies: {exc}", err=True)
+        sys.exit(1)
+
+    if not names:
+        click.echo("No strategies found.")
+        return
+
+    click.echo("Available strategies:")
+    for name in names:
+        if verbose:
+            cls = get_strategy(name)
+            inst = cls()
+            click.echo(f"  {name}")
+            click.echo(f"    params:    {inst.params}")
+            click.echo(f"    timeframe: {inst.timeframe}")
+            click.echo(f"    warmup:    {inst.warmup}")
+        else:
+            click.echo(f"  {name}")
 
 
 def main() -> None:

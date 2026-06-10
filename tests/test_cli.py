@@ -48,11 +48,10 @@ def test_data_fetch_no_symbol_fails() -> None:
     assert result.exit_code != 0
 
 
-def test_backtest_stub() -> None:
+def test_backtest_no_args_fails() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["backtest"])
-    assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert result.exit_code != 0
 
 
 def test_data_group_usage() -> None:
@@ -96,8 +95,8 @@ def test_dashboard_stub() -> None:
     assert "not yet implemented" in result.output
 
 
-def test_list_stub() -> None:
+def test_list_shows_strategies() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["list"])
     assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert "sma_cross" in result.output
