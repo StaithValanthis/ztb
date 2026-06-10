@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0 (2026-06-10)
+
+- M3 result store: `store/schema.sql` (additive, versioned), `store/results.py` (connect, save_run, accessors)
+- M3 reporting: `reporting/scorecard.py` (score + grade A–D, 9 checks), `reporting/thresholds.py`, `reporting/format.py`
+- M3 dashboard: `dashboard/app.py` (Streamlit, read-only, 127.0.0.1:8501), `dashboard/data_access.py`, `dashboard/components.py`
+- CLI: `ztb backtest --persist` saves to store, `ztb report --run-id <id>`, `ztb report --scorecard`, `ztb dashboard`
+- Dependency: `streamlit>=1.28` (optional `[dashboard]` extra)
+- **PR:** [#5](https://github.com/StaithValanvis/ztb/pull/5)
+
 ## v0.3.0 (2026-06-10)
 
 - M2 engine core: `features/indicators.py` (SMA, EMA, RSI, ATR, crossover)
