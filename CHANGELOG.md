@@ -7,7 +7,11 @@
 - M3 dashboard: `dashboard/app.py` (Streamlit, read-only, 127.0.0.1:8501), `dashboard/data_access.py`, `dashboard/components.py`
 - CLI: `ztb backtest --persist` saves to store, `ztb report --run-id <id>`, `ztb report --scorecard`, `ztb dashboard`
 - Dependency: `streamlit>=1.28` (optional `[dashboard]` extra)
-- **PR:** [#5](https://github.com/StaithValanvis/ztb/pull/5)
+- **Tests:** 265/265 pass, 95% coverage, determinism proven, credibility guard, cost-exactness round-trip, dashboard fail-soft
+- **Measured evidence (sma_cross, 5000 bars, synthetic, via `ztb backtest --persist`):** 3588 trades, full return -1.2612 / Sharpe -0.394, IS return -0.3018 / Sharpe -0.354, OOS return -1.3741 / Sharpe -0.718, MaxDD -1.1845, WinRate 17.7%, ProfitFactor 0.831
+- **PR:** [#6](https://github.com/StaithValanthis/ztb/pull/6)
+- **Merge commit:** `5791d95` — two-key merge (CI green + V&R PASS on SHA `36683a7`)
+- **Tag:** v0.4.0
 
 ## v0.3.0 (2026-06-10)
 
