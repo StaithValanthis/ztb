@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from ztb.reporting.format import MAX_DD_LIMIT, MIN_TRADES, OOS_SHARPE_FLOOR, pass_fail
+from ztb.engine.backtest import BacktestResult
+from ztb.engine.metrics import MetricsResult
+from ztb.engine.portfolio import PortfolioState
+from ztb.reporting.format import (
+    MAX_DD_LIMIT,
+    MIN_TRADES,
+    OOS_SHARPE_FLOOR,
+    format_backtest_result,
+    pass_fail,
+)
 from ztb.reporting.notify import format_discord_payload, send_discord
 from ztb.reporting.scorecard import build_scorecard
 
@@ -129,6 +138,142 @@ def test_default_thresholds() -> None:
     assert OOS_SHARPE_FLOOR == 0.5
     assert MAX_DD_LIMIT == -0.25
     assert MIN_TRADES == 30
+
+
+# RP-3b: pass_fail with higher_is_better=False (drawdown)
+def test_pass_fail_lower_is_better() -> None:
+    r = pass_fail(-0.25, -0.25, higher_is_better=False)
+    assert r == (True, "PASS")
+    r = pass_fail(-0.20, -0.25, higher_is_better=False)
+    assert r == (False, "FAIL: -0.2 > -0.25")
+    r = pass_fail(-0.30, -0.25, higher_is_better=False)
+    assert r == (True, "PASS")
+
+
+# RP-3c: format_backtest_result produces correct output
+def test_format_backtest_result() -> None:
+    m_full = MetricsResult(
+        total_return=0.15,
+        sharpe=1.5,
+        sortino=2.0,
+        max_drawdown=-0.05,
+        max_drawdown_duration=3,
+        num_trades=50,
+        profit_factor=2.0,
+        win_rate=0.55,
+        turnover=100.0,
+        exposure_time=200.0,
+        credible=True,
+    )
+    m_is = MetricsResult(
+        total_return=0.20,
+        sharpe=2.0,
+        sortino=2.5,
+        max_drawdown=-0.03,
+        max_drawdown_duration=2,
+        num_trades=35,
+        profit_factor=2.5,
+        win_rate=0.60,
+        turnover=70.0,
+        exposure_time=140.0,
+        credible=True,
+    )
+    m_oos = MetricsResult(
+        total_return=0.10,
+        sharpe=1.0,
+        sortino=1.5,
+        max_drawdown=-0.05,
+        max_drawdown_duration=3,
+        num_trades=15,
+        profit_factor=1.5,
+        win_rate=0.50,
+        turnover=30.0,
+        exposure_time=60.0,
+        credible=True,
+    )
+    ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
+    result = BacktestResult(
+        strategy_name="sma_cross",
+        symbol="BTCUSDT",
+        timeframe="60",
+        full=m_full,
+        is_=m_is,
+        oos=m_oos,
+        portfolio=ps,
+        trades=[],
+        splits={},
+        parameters={},
+    )
+    output = format_backtest_result(result)
+    assert "sma_cross" in output
+    assert "BTCUSDT" in output
+    assert "FULL" in output
+    assert "IS" in output
+    assert "OOS" in output
+    assert "0.1500" in output  # total_return formatted with 4 decimals
+    assert "1.500" in output  # sharpe formatted with 3 decimals
+
+
+# RP-3d: format_backtest_result with non-credible
+def test_format_backtest_result_non_credible() -> None:
+    m_full = MetricsResult(
+        total_return=None,
+        sharpe=None,
+        sortino=None,
+        max_drawdown=None,
+        max_drawdown_duration=0,
+        num_trades=2,
+        profit_factor=None,
+        win_rate=None,
+        turnover=0.0,
+        exposure_time=0.0,
+        credible=False,
+        reason="not enough trades",
+    )
+    m_oos = MetricsResult(
+        total_return=None,
+        sharpe=None,
+        sortino=None,
+        max_drawdown=None,
+        max_drawdown_duration=0,
+        num_trades=0,
+        profit_factor=None,
+        win_rate=None,
+        turnover=0.0,
+        exposure_time=0.0,
+        credible=False,
+        reason="no trades in OOS",
+    )
+    m_is = MetricsResult(
+        total_return=0.0,
+        sharpe=0.0,
+        sortino=0.0,
+        max_drawdown=0.0,
+        max_drawdown_duration=0,
+        num_trades=0,
+        profit_factor=0.0,
+        win_rate=0.0,
+        turnover=0.0,
+        exposure_time=0.0,
+        credible=True,
+    )
+    ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
+    result = BacktestResult(
+        strategy_name="test",
+        symbol="X",
+        timeframe="60",
+        full=m_full,
+        is_=m_is,
+        oos=m_oos,
+        portfolio=ps,
+        trades=[],
+        splits={},
+        parameters={},
+    )
+    output = format_backtest_result(result)
+    assert "N/A" in output
+    assert "not enough trades" in output
+    assert "no trades in OOS" in output
 
 
 # RP-4: Discord payload shape

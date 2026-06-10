@@ -22,12 +22,9 @@ st.caption("Read-only view of backtest results from the ztb result store.")
 
 
 @st.cache_resource
-def get_data() -> DashboardData:  # pragma: no cover
+def get_data() -> DashboardData:
     return DashboardData()
 
-
-# --- Streamlit app (coverage excluded: requires Streamlit runtime) ---
-# coverage: no cover
 
 data = get_data()
 runs = data.list_runs()
@@ -77,4 +74,3 @@ if selected_label:
     if trades:
         st.subheader("Trades")
         render_trades_table(trades)
-    

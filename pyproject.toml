@@ -67,6 +67,9 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 check_untyped_defs = true
 
+[tool.coverage.run]
+omit = ["ztb/dashboard/app.py", "ztb/dashboard/components.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
