@@ -72,8 +72,15 @@ def test_idempotency_double_claim_rejected(ledger_conn: sqlite3.Connection) -> N
 def test_idempotency_lookup_order(ledger_conn: sqlite3.Connection) -> None:
     ledger = IdempotencyLedger(ledger_conn)
     ledger.try_claim("link1", "order1")
+    ledger.resolve("link1", "placed", "order1")
     oid = ledger.lookup_order("link1")
     assert oid == "order1"
+
+
+def test_idempotency_lookup_pending_returns_none(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("link1", "order1")
+    assert ledger.lookup_order("link1") is None
 
 
 def test_idempotency_lookup_missing(ledger_conn: sqlite3.Connection) -> None:

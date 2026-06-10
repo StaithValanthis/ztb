@@ -188,3 +188,50 @@ def test_executor_live_mode_blocked_via_client() -> None:
 
     with pytest.raises(Exception, match="Live mode is blocked"):
         BybitClient(ClientConfig(mode=Mode.LIVE))
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_signal_to_qty_conversion(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True)
+    exe = Executor(signal_strat, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.current_position == 1.0
+    assert result.avg_entry_price == 50000.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_reconcile_called_after_placement(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True)
+
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    mock_client.place_order.assert_called_once()
+    assert mock_client.get_positions.call_count >= 1
