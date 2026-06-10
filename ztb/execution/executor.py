@@ -111,20 +111,6 @@ class Executor:
             },
         )
 
-    def _save_error(self, error_type: str, message: str) -> None:
-        from ztb.store.exec_io import save_exec_error
-
-        assert self.state is not None
-        save_exec_error(
-            self._store_conn,
-            {
-                "exec_run_id": self.state.exec_run_id,
-                "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "error_type": error_type,
-                "message": message,
-            },
-        )
-
     def _compute_target_position(self, data: DataFrame) -> float:
         warmup = getattr(self.strategy, "warmup", 0)
         if len(data) <= warmup:

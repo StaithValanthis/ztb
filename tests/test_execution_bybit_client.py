@@ -114,3 +114,75 @@ def test_place_order_parameters(mock_client_cls: MagicMock) -> None:
     assert body["orderType"] == "Market"
     assert body["orderLinkId"] == "test_link_id"
     client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_cancel_order(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    client.cancel_order(symbol="BTCUSDT", order_id="oid1")
+    call_kwargs = mock_instance.request.call_args[1]
+    body = json.loads(call_kwargs["content"])
+    assert body["orderId"] == "oid1"
+    assert body["symbol"] == "BTCUSDT"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_open_orders(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"orderId": "oid1"}]}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    orders = client.get_open_orders(symbol="BTCUSDT")
+    assert len(orders) == 1
+    assert orders[0]["orderId"] == "oid1"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_positions(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {"list": [{"symbol": "BTCUSDT", "size": "0.1"}]},
+    }
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    positions = client.get_positions(symbol="BTCUSDT")
+    assert len(positions) == 1
+    assert positions[0]["symbol"] == "BTCUSDT"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_wallet_balance(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"totalEquity": "1000.0"}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.get_wallet_balance()
+    assert result["totalEquity"] == "1000.0"
+    client.close()
