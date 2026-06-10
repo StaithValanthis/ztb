@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.6.0 (2026-06-10)
+
+- M5 Risk Module: `ztb/risk/` (models, dd_budget, vol_sizing, heat, killswitch, manager)
+- RiskManager.evaluate() pipeline: KillSwitch → Leverage → Position Size → Heat → DD Budget Scalar
+- KillSwitch with HWM tracking, trip condition, cooldown, reset, serialization
+- Vol-target position sizing with annualized vol estimation
+- Correlation heat model with covariance-based portfolio std
+- Store: schema migration v3 (risk_decisions table, runs risk columns)
+- Scorecard: risk block (risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
+- Backtest: risk integration via `--risk-enabled` flag (default OFF to preserve baselines)
+- Forwardtest: risk integration enabled by default; `--no-risk` for A/B comparison
+- **Tests:** all green, ≥90% coverage, ruff/mypy clean, risk module tests, store migration tests, backtest/forwardtest integration
+- **PR:** [#8](https://github.com/StaithValanthis/ztb/pull/8)
+
 ## v0.5.0 (2026-06-10)
 
 - M4 forward-test runner core: `engine/forwardtest.py` (ForwardtestConfig, ForwardtestResult, run_forwardtest)

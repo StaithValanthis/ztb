@@ -61,5 +61,23 @@ CREATE TABLE IF NOT EXISTS equity_curve (
 
 CREATE INDEX IF NOT EXISTS idx_equity_run ON equity_curve(run_id);
 
+CREATE TABLE IF NOT EXISTS risk_decisions (
+    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    timestamp TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('proceed', 'reduce', 'halt')),
+    reason TEXT NOT NULL DEFAULT '',
+    max_pos_size REAL NOT NULL DEFAULT 0.0,
+    max_leverage REAL NOT NULL DEFAULT 0.0,
+    max_notional REAL NOT NULL DEFAULT 0.0,
+    current_dd REAL,
+    current_heat REAL,
+    hwm REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_decisions_run ON risk_decisions(run_id);
+
 INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
 INSERT OR IGNORE INTO schema_meta (version) VALUES (2);
+INSERT OR IGNORE INTO schema_meta (version) VALUES (3);

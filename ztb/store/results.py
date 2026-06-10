@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'backtest'")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (2)")
+
+    for col in ("risk_aware", "max_portfolio_dd_realized", "kill_count", "mean_gross_leverage"):
+        with suppress(sqlite3.OperationalError):
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col} TEXT")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (3)")
     conn.commit()
 
 
@@ -79,8 +86,10 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
         conn.execute(
             """INSERT OR IGNORE INTO runs
                (run_id, strategy_name, symbol, timeframe, run_type, parameters,
-                splits, code_version, credible)
-               VALUES (?, ?, ?, ?, 'backtest', ?, ?, ?, ?)""",
+                splits, code_version, credible,
+                risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
+               VALUES (?, ?, ?, ?, 'backtest', ?, ?, ?, ?,
+                ?, ?, ?, ?)""",
             (
                 run_id,
                 result.strategy_name,
@@ -88,8 +97,12 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 result.timeframe,
                 json.dumps(result.parameters),
                 json.dumps(result.splits),
-                "0.5.0",
+                "0.6.0",
                 1 if result.full.credible else 0,
+                1 if result.risk_aware else 0,
+                result.max_portfolio_dd_realized,
+                result.kill_count,
+                result.mean_gross_leverage,
             ),
         )
 
@@ -143,6 +156,28 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 (run_id, str(ts), float(eq)),
             )
 
+        for d in result.risk_decisions:
+            with suppress(sqlite3.OperationalError):
+                conn.execute(
+                    """INSERT OR IGNORE INTO risk_decisions
+                       (run_id, timestamp, symbol, action, reason, max_pos_size,
+                        max_leverage, max_notional, current_dd, current_heat, hwm)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        run_id,
+                        d.get("timestamp", ""),
+                        d.get("symbol", ""),
+                        d.get("action", ""),
+                        d.get("reason", ""),
+                        d.get("max_pos_size", 0.0),
+                        d.get("max_leverage", 0.0),
+                        d.get("max_notional", 0.0),
+                        d.get("current_dd"),
+                        d.get("current_heat"),
+                        d.get("hwm"),
+                    ),
+                )
+
         conn.execute("COMMIT")
     except BaseException:
         conn.execute("ROLLBACK")
@@ -172,8 +207,10 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
         conn.execute(
             """INSERT OR IGNORE INTO runs
                (run_id, strategy_name, symbol, timeframe, run_type, parameters,
-                splits, code_version, credible)
-               VALUES (?, ?, ?, ?, 'forward', ?, ?, ?, ?)""",
+                splits, code_version, credible,
+                risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
+               VALUES (?, ?, ?, ?, 'forward', ?, ?, ?, ?,
+                ?, ?, ?, ?)""",
             (
                 run_id,
                 result.strategy_name,
@@ -181,8 +218,12 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 result.timeframe,
                 json.dumps(result.parameters),
                 json.dumps(splits),
-                "0.5.0",
+                "0.6.0",
                 1 if result.metrics.credible else 0,
+                1 if result.risk_aware else 0,
+                result.max_portfolio_dd_realized,
+                result.kill_count,
+                result.mean_gross_leverage,
             ),
         )
 
@@ -234,6 +275,28 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 "INSERT INTO equity_curve (run_id, timestamp, equity) VALUES (?, ?, ?)",
                 (run_id, str(ts), float(eq)),
             )
+
+        for d in result.risk_decisions:
+            with suppress(sqlite3.OperationalError):
+                conn.execute(
+                    """INSERT OR IGNORE INTO risk_decisions
+                       (run_id, timestamp, symbol, action, reason, max_pos_size,
+                        max_leverage, max_notional, current_dd, current_heat, hwm)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        run_id,
+                        d.get("timestamp", ""),
+                        d.get("symbol", ""),
+                        d.get("action", ""),
+                        d.get("reason", ""),
+                        d.get("max_pos_size", 0.0),
+                        d.get("max_leverage", 0.0),
+                        d.get("max_notional", 0.0),
+                        d.get("current_dd"),
+                        d.get("current_heat"),
+                        d.get("hwm"),
+                    ),
+                )
 
         conn.execute("COMMIT")
     except BaseException:
@@ -330,3 +393,58 @@ def get_oos_metric(conn: sqlite3.Connection, run_id: str, name: str) -> float | 
 
 def get_oos_sharpe(conn: sqlite3.Connection, run_id: str) -> float | None:
     return get_oos_metric(conn, run_id, "sharpe")
+
+
+def save_risk_decisions(
+    conn: sqlite3.Connection,
+    run_id: str,
+    decisions: list[dict[str, Any]],
+    risk_aware: bool = False,
+    max_portfolio_dd_realized: float | None = None,
+    kill_count: int = 0,
+    mean_gross_leverage: float | None = None,
+) -> None:
+    for d in decisions:
+        conn.execute(
+            """INSERT OR IGNORE INTO risk_decisions
+               (run_id, timestamp, symbol, action, reason, max_pos_size,
+                max_leverage, max_notional, current_dd, current_heat, hwm)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                d.get("timestamp", ""),
+                d.get("symbol", ""),
+                d.get("action", ""),
+                d.get("reason", ""),
+                d.get("max_pos_size", 0.0),
+                d.get("max_leverage", 0.0),
+                d.get("max_notional", 0.0),
+                d.get("current_dd"),
+                d.get("current_heat"),
+                d.get("hwm"),
+            ),
+        )
+    with suppress(sqlite3.OperationalError):
+        conn.execute(
+            """UPDATE runs SET
+               risk_aware = ?,
+               max_portfolio_dd_realized = ?,
+               kill_count = ?,
+               mean_gross_leverage = ?
+               WHERE run_id = ?""",
+            (
+                1 if risk_aware else 0,
+                max_portfolio_dd_realized,
+                kill_count,
+                mean_gross_leverage,
+                run_id,
+            ),
+        )
+    conn.commit()
+
+
+def get_risk_decisions(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM risk_decisions WHERE run_id = ? ORDER BY decision_id", (run_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]

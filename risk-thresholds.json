@@ -1,1 +1,31 @@
-{"sharpe_min":1.0,"sharpe_preferred":1.5,"portfolio_max_drawdown_pct":25,"account_kill_switch_pct":25}
+{
+  "schema_version": 1,
+  "description": "V&R-owned risk thresholds — single source of truth. Hand to Engineering as spec; never edited in code.",
+  "sizing": {
+    "vol_target": 0.20,
+    "max_position_pct": 0.50,
+    "dd_budget_scalar": 3.0
+  },
+  "portfolio": {
+    "max_drawdown_pct": 25,
+    "max_heat": 1.0,
+    "max_correlation": 0.80
+  },
+  "account": {
+    "kill_switch_dd_pct": 25,
+    "max_leverage": 3.0
+  },
+  "killswitch": {
+    "cooldown_bars": 100
+  },
+  "decay": {
+    "min_sample": 504,
+    "sharpe_floor_frac": 0.5,
+    "maxdd_mult": 1.5
+  },
+  "scorecard": {
+    "oos_sharpe_floor": 0.5,
+    "max_dd_limit": -0.25,
+    "min_trades": 30
+  }
+}

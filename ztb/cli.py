@@ -170,6 +170,7 @@ def instruments(category: str) -> None:
 @click.option("--cash", default=100000.0, type=float, help="Initial cash")
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--risk-enabled", is_flag=True, help="Enable risk management")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def backtest(
@@ -182,6 +183,7 @@ def backtest(
     cash: float,
     commission: float,
     slippage: float,
+    risk_enabled: bool,
     persist: bool,
     db: str | None,
 ) -> None:
@@ -206,6 +208,7 @@ def backtest(
         initial_cash=cash,
         commission=commission,
         slippage=slippage,
+        risk_enabled=risk_enabled,
     )
 
     result = run_backtest(strategy, df, cfg)
@@ -230,6 +233,7 @@ def backtest(
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
 @click.option("--warmup", default=100, type=int, help="Warmup bars before forward test begins")
+@click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
 @click.option(
     "--baseline-run-id", default=None, help="Run ID for baseline metrics (decay computation)"
 )
@@ -246,6 +250,7 @@ def forwardtest(
     commission: float,
     slippage: float,
     warmup: int,
+    no_risk: bool,
     baseline_run_id: str | None,
     persist: bool,
     db: str | None,
@@ -272,6 +277,7 @@ def forwardtest(
         commission=commission,
         slippage=slippage,
         warmup_bars=warmup,
+        risk_enabled=not no_risk,
     )
 
     need_store = persist or baseline_run_id is not None

@@ -7,6 +7,9 @@ from pandas import DataFrame, Series
 
 from ztb.engine.metrics import MetricsResult, compute_metrics
 from ztb.engine.portfolio import PortfolioState, single_symbol_portfolio
+from ztb.risk.manager import RiskManager
+from ztb.risk.models import RiskConfig
+from ztb.risk.portfolio import risk_adjusted_signals
 from ztb.strategies.base import Strategy, StrategyError
 
 
@@ -22,6 +25,11 @@ class BacktestResult:
     trades: list[dict[str, Any]]
     splits: dict[str, Any] = field(default_factory=dict)
     parameters: dict[str, Any] = field(default_factory=dict)
+    risk_aware: bool = False
+    risk_decisions: list[dict[str, Any]] = field(default_factory=list)
+    kill_count: int = 0
+    mean_gross_leverage: float | None = None
+    max_portfolio_dd_realized: float | None = None
 
 
 @dataclass
@@ -32,6 +40,8 @@ class BacktestConfig:
     is_fraction: float = 0.7
     min_bars: int = 100
     min_trades: int = 30
+    risk_enabled: bool = False
+    risk_config: RiskConfig | None = None
 
 
 def run_backtest(
@@ -72,6 +82,31 @@ def run_backtest(
     clipped = signals.clip(-1.0, 1.0)
     shifted = clipped.shift(1, fill_value=0.0)
     shifted.iloc[: strategy.warmup] = 0.0
+
+    if config.risk_enabled:
+        risk_mgr = RiskManager(config=config.risk_config)
+        adj_signals, risk_decisions, adj_equity = risk_adjusted_signals(
+            shifted, close, risk_mgr,
+            initial_cash=config.initial_cash,
+            commission=config.commission,
+            slippage=config.slippage,
+        )
+        kill_count = sum(1 for d in risk_decisions if d["action"] == "halt")
+        total_gross_leverage = 0.0
+        leverage_samples = 0
+        for i, _idx in enumerate(adj_signals.index):
+            price = float(close.iloc[i])
+            sig = float(adj_signals.iloc[i])
+            eq = adj_equity[i]
+            if eq > 0 and abs(sig) * price > 0:
+                total_gross_leverage += abs(sig) * price / eq
+                leverage_samples += 1
+        shifted = adj_signals
+    else:
+        risk_decisions = []
+        kill_count = 0
+        total_gross_leverage = 0.0
+        leverage_samples = 0
 
     portfolio = single_symbol_portfolio(
         signals=shifted,
@@ -115,6 +150,16 @@ def run_backtest(
         min_trades=config.min_trades,
     )
 
+    trailing_dd = portfolio.equity[:]
+    peak = trailing_dd[0] if trailing_dd else 0.0
+    max_dd_realized = 0.0
+    for eq in trailing_dd:
+        if eq > peak:
+            peak = eq
+        dd = (peak - eq) / peak if peak > 0 else 0.0
+        if dd > max_dd_realized:
+            max_dd_realized = dd
+
     return BacktestResult(
         strategy_name=strategy.name,
         symbol=strategy.symbols[0] if strategy.symbols else "",
@@ -126,4 +171,11 @@ def run_backtest(
         trades=trades,
         splits={"is_end": split_idx, "n_bars": len(data)},
         parameters=dict(strategy.params),
+        risk_aware=config.risk_enabled,
+        risk_decisions=risk_decisions,
+        kill_count=kill_count,
+        mean_gross_leverage=(
+            total_gross_leverage / leverage_samples if leverage_samples > 0 else None
+        ),
+        max_portfolio_dd_realized=max_dd_realized,
     )
