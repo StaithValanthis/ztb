@@ -11,7 +11,12 @@
 - Scorecard: risk block (risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
 - Backtest: risk integration via `--risk-enabled` flag (default OFF to preserve baselines)
 - Forwardtest: risk integration enabled by default; `--no-risk` for A/B comparison
-- **Tests:** all green, ≥90% coverage, ruff/mypy clean, risk module tests, store migration tests, backtest/forwardtest integration
+- **Tests:** 436/436 pass, 93% coverage, ruff/mypy clean, risk module tests, store migration tests, backtest/forwardtest integration, adversarial gap-down kill-switch proven
+- **Documentation:** `docs/risk-module.md` (math spec + architecture)
+- **Measured evidence (sma_cross, BTCUSDT, 60m, A/B via `ztb backtest --risk-enabled --persist` vs `--no-risk`):**
+  No-risk baseline: Full Return -1.2612, Sharpe -0.394, MaxDD -1.1845, Trades 3,588
+  Risk-aware:      Full Return +0.0673, Sharpe +0.190, MaxDD -0.2500, Trades 29,928
+  **MaxDD reduction: 78.9%** (from -118% to -25%, capped at configured 25% DD budget)
 - **PR:** [#8](https://github.com/StaithValanthis/ztb/pull/8)
 
 ## v0.5.0 (2026-06-10)
