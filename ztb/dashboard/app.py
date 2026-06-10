@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from ztb.dashboard.components import (
@@ -60,12 +61,14 @@ if selected_label:
     if run_info:
         st.subheader("Run Info")
         rtype = run_info.get("run_type", "backtest").upper()
-        cols = st.columns(5)
+        cols = st.columns(6)
         cols[0].metric("Strategy", run_info["strategy_name"])
         cols[1].metric("Symbol", run_info["symbol"])
         cols[2].metric("Timeframe", run_info["timeframe"])
         cols[3].metric("Type", rtype)
         cols[4].metric("Run ID", run_info["run_id"][:12] + "...")
+        risk_aware = bool(run_info.get("risk_aware", 0))
+        cols[5].metric("Risk", "ON" if risk_aware else "OFF")
 
         if metrics:
             st.subheader("Performance Metrics")
@@ -88,3 +91,29 @@ if selected_label:
     if trades:
         st.subheader("Trades")
         render_trades_table(trades)
+
+    risk_aware = bool(run_info.get("risk_aware", 0)) if run_info else False
+    if risk_aware:
+        st.subheader("Risk Info")
+        risk_d = data.get_risk_decisions(run_id)
+        rc1, rc2, rc3 = st.columns(3)
+        rc1.metric("Kill Count", int(run_info.get("kill_count", 0)))
+        rc2.metric(
+            "Mean Gross Lev",
+            f"{float(run_info['mean_gross_leverage']):.4f}"
+            if run_info.get("mean_gross_leverage") is not None
+            else "N/A",
+        )
+        rc3.metric(
+            "Max DD Realized",
+            f"{float(run_info['max_portfolio_dd_realized'])*100:.2f}%"
+            if run_info.get("max_portfolio_dd_realized") is not None
+            else "N/A",
+        )
+        if risk_d:
+            st.dataframe(
+                pd.DataFrame(risk_d)[
+                    ["timestamp", "action", "reason", "current_dd", "current_heat"]
+                ],
+                use_container_width=True,
+            )

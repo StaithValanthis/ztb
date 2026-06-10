@@ -7,6 +7,7 @@ from ztb.store.results import (
     connect,
     get_equity_curve,
     get_metrics,
+    get_risk_decisions,
     get_run,
     get_trades,
     list_forward_runs,
@@ -35,3 +36,6 @@ class DashboardData:
 
     def get_equity(self, run_id: str) -> list[dict[str, Any]]:
         return get_equity_curve(self._conn, run_id)
+
+    def get_risk_decisions(self, run_id: str) -> list[dict[str, Any]]:
+        return get_risk_decisions(self._conn, run_id)
