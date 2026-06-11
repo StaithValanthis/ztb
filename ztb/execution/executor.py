@@ -262,21 +262,25 @@ class Executor:
         self, expected_position: float, close_price: float, bar_ts: str
     ) -> ReconcileReport:
         assert self.state is not None
+        if self.state.avg_entry_price == 0 or abs(expected_position) < 1e-12:
+            expected_upnl = 0.0
+        else:
+            expected_upnl = (close_price - self.state.avg_entry_price) * expected_position
         equity = (
             self.config.initial_cash
             + self.state.realized_pnl
-            + self._compute_unrealized_pnl(close_price)
+            + expected_upnl
         )
         expected = AccountState(
             total_equity=equity,
-            wallet_balance=equity - self._compute_unrealized_pnl(close_price),
-            unrealized_pnl=self._compute_unrealized_pnl(close_price),
+            wallet_balance=equity - abs(expected_position) * close_price,
+            unrealized_pnl=expected_upnl,
             positions={
                 self.state.symbol: Position(
                     symbol=self.state.symbol,
                     size=expected_position,
                     avg_price=self.state.avg_entry_price,
-                    unrealized_pnl=self._compute_unrealized_pnl(close_price),
+                    unrealized_pnl=expected_upnl,
                     realized_pnl=self.state.realized_pnl,
                     timestamp=bar_ts,
                 )

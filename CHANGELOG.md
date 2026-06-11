@@ -19,6 +19,15 @@
 - **Tests:** 639/639 pass, 92% coverage, ruff/mypy clean, full M7 integration: live_guard, killswitch, preflight, health, CLI hardening, executor killswitch integration, reconcile drift detection, rollback, dashboard live page, notify alert, integration tests (store consistency, strategy compatibility), CLI dogfood (preflight, risk-enable, run→pipeline, expected-version)
 - **Documentation:** `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
 - **Tag:** v1.0.0
+
+## v0.7.2 (2026-06-11)
+
+- Fix(executor): `_reconcile` equity formula now uses `expected_position` instead of `_compute_unrealized_pnl()` (which used `current_position`) — expected equity = initial_cash + realized_pnl + expected_position × (close_price − avg_entry_price). Prevents equity inflation when expected position differs from current position at reconcile time.
+- V&R PASS on SHA `bad7a26` ([ZTB-413](/ZTB/issues/ZTB-413))
+- **Tests:** 560/560 pass, 93% coverage, ruff/mypy clean
+- **PR:** [#15](https://github.com/StaithValanthis/ztb/pull/15) — `feat/fix-reconcile-equity`
+- **Merge commit:** `d6ffef3` — two-key merge (CI green + V&R PASS on SHA `bad7a26`)
+- **Tag:** v0.7.2
 ## v0.7.1 (2026-06-11)
 
 - Fix(executor): correct equity formula in `_reconcile` to use `_compute_unrealized_pnl()` helper (unrealized P&L = position × (current price − avg entry price)) instead of `expected_position * (close_price - avg_entry_price)` — consistent with `step()` which already used the helper
