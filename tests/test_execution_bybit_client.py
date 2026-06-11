@@ -6,6 +6,7 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from ztb.execution.bybit_client import BybitClient, ClientConfig
@@ -132,7 +133,200 @@ def test_place_order_parameters(mock_client_cls: MagicMock) -> None:
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
-def test_cancel_order(mock_client_cls: MagicMock) -> None:
+def test_retry_on_500(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    fail_resp = MagicMock()
+    fail_resp.status_code = 500
+    fail_resp.json.return_value = {"retCode": 500, "retMsg": "server error"}
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [fail_resp, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_retry_on_10028_and_recover(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    rate_resp = MagicMock()
+    rate_resp.status_code = 200
+    rate_resp.json.return_value = {"retCode": 10028, "retMsg": "rate limit"}
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [rate_resp, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_timeout_exception_then_retry(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_instance.request.side_effect = [
+        httpx.TimeoutException("timeout"),
+        httpx.TimeoutException("timeout"),
+        MagicMock(
+            status_code=200,
+            json=lambda: {"retCode": 0, "result": {"ok": True}},
+        ),
+    ]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=3)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 3
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_timeout_exception_exhausts_retries(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_instance.request.side_effect = httpx.TimeoutException("always timeout")
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="timeout"):
+        client._request("GET", "/v5/market/time")
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_status_error_500_retry_then_succeed(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    err_resp = MagicMock(status_code=500)
+    fail_exc = httpx.HTTPStatusError("500", request=MagicMock(), response=err_resp)
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [fail_exc, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_status_error_400_raises_immediately(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    err_resp = MagicMock(status_code=400)
+    exc = httpx.HTTPStatusError("400", request=MagicMock(), response=err_resp)
+    mock_instance.request.side_effect = exc
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError):
+        client._request("GET", "/v5/market/time")
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_max_retries_on_500_exhausted(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    fail_resp = MagicMock()
+    fail_resp.status_code = 500
+    fail_resp.json.return_value = {"retCode": 500, "retMsg": "server error"}
+    mock_instance.request.return_value = fail_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="server error"):
+        client._request("GET", "/v5/market/time")
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_generic_ret_code_raises(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 11007, "retMsg": "unknown error"}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="unknown error"):
+        client._request("GET", "/v5/market/time")
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_place_order_reduce_only(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_r"}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.place_order(
+        symbol="BTCUSDT",
+        side=OrderSide.SELL,
+        qty=0.01,
+        order_type=OrderType.MARKET,
+        reduce_only=True,
+    )
+    assert result["orderId"] == "oid_r"
+    call_kwargs = mock_instance.request.call_args[1]
+    body = json.loads(call_kwargs["content"])
+    assert body["reduceOnly"] is True
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_place_order_limit_with_price(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_l"}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.place_order(
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        qty=0.01,
+        order_type=OrderType.LIMIT,
+        price=49000.0,
+    )
+    assert result["orderId"] == "oid_l"
+    call_kwargs = mock_instance.request.call_args[1]
+    body = json.loads(call_kwargs["content"])
+    assert body["price"] == "49000.0"
+    assert body["timeInForce"] == "GTC"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_cancel_order_with_order_id(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
@@ -142,33 +336,85 @@ def test_cancel_order(mock_client_cls: MagicMock) -> None:
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    client.cancel_order(symbol="BTCUSDT", order_id="oid1")
+    client.cancel_order(symbol="BTCUSDT", order_id="ord123")
     call_kwargs = mock_instance.request.call_args[1]
     body = json.loads(call_kwargs["content"])
-    assert body["orderId"] == "oid1"
-    assert body["symbol"] == "BTCUSDT"
+    assert body["orderId"] == "ord123"
     client.close()
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
-def test_get_open_orders(mock_client_cls: MagicMock) -> None:
+def test_cancel_order_with_link_id(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"orderId": "oid1"}]}}
+    mock_resp.json.return_value = {"retCode": 0, "result": {}}
     mock_instance.request.return_value = mock_resp
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    orders = client.get_open_orders(symbol="BTCUSDT")
-    assert len(orders) == 1
-    assert orders[0]["orderId"] == "oid1"
+    client.cancel_order(symbol="BTCUSDT", order_link_id="link456")
+    call_kwargs = mock_instance.request.call_args[1]
+    body = json.loads(call_kwargs["content"])
+    assert body["orderLinkId"] == "link456"
     client.close()
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
-def test_get_positions(mock_client_cls: MagicMock) -> None:
+def test_get_open_orders_with_symbol(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"orderId": "o1"}]}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    items = client.get_open_orders(symbol="BTCUSDT")
+    assert items == [{"orderId": "o1"}]
+    call_kwargs = mock_instance.request.call_args[1]
+    assert call_kwargs["params"]["symbol"] == "BTCUSDT"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_open_orders_no_symbol(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": []}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    items = client.get_open_orders()
+    assert items == []
+    call_kwargs = mock_instance.request.call_args[1]
+    assert "symbol" not in call_kwargs["params"]
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_order_history_with_symbol(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"orderId": "h1"}]}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    items = client.get_order_history(symbol="BTCUSDT")
+    assert items == [{"orderId": "h1"}]
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_positions_with_symbol(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
@@ -181,9 +427,10 @@ def test_get_positions(mock_client_cls: MagicMock) -> None:
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    positions = client.get_positions(symbol="BTCUSDT")
-    assert len(positions) == 1
-    assert positions[0]["symbol"] == "BTCUSDT"
+    items = client.get_positions(symbol="BTCUSDT")
+    assert items == [{"symbol": "BTCUSDT", "size": "0.1"}]
+    call_kwargs = mock_instance.request.call_args[1]
+    assert call_kwargs["params"]["symbol"] == "BTCUSDT"
     client.close()
 
 
@@ -193,11 +440,64 @@ def test_get_wallet_balance(mock_client_cls: MagicMock) -> None:
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"retCode": 0, "result": {"totalEquity": "1000.0"}}
+    mock_resp.json.return_value = {"retCode": 0, "result": {"wallet": "info"}}
     mock_instance.request.return_value = mock_resp
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
     result = client.get_wallet_balance()
-    assert result["totalEquity"] == "1000.0"
+    assert result == {"wallet": "info"}
+    call_kwargs = mock_instance.request.call_args[1]
+    assert call_kwargs["params"]["accountType"] == "UNIFIED"
+    assert call_kwargs["params"]["coin"] == "USDT"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_executions_with_symbol(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": [{"execId": "e1"}]}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    items = client.get_executions(symbol="BTCUSDT")
+    assert items == [{"execId": "e1"}]
+    call_kwargs = mock_instance.request.call_args[1]
+    assert call_kwargs["params"]["symbol"] == "BTCUSDT"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_server_time(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"timeSecond": "1234567890"}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    ts = client.get_server_time()
+    assert ts == 1234567890
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_status_error_503_retry_then_raise(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    err_resp = MagicMock(status_code=503)
+    exc = httpx.HTTPStatusError("503", request=MagicMock(), response=err_resp)
+    mock_instance.request.side_effect = exc
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="Client error 503"):
+        client._request("GET", "/v5/market/time")
+    assert mock_instance.request.call_count == 2
     client.close()

@@ -19,6 +19,16 @@
 - **Tests:** 612/612 pass, 91% coverage, ruff/mypy clean, full M7 integration: live_guard, killswitch, preflight, health, CLI hardening, executor killswitch integration, reconcile drift detection, rollback, dashboard live page, notify alert, integration tests (store consistency, strategy compatibility), CLI dogfood (preflight, risk-enable, run→pipeline, expected-version)
 - **Documentation:** `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
 - **Tag:** v1.0.0
+## v0.7.1 (2026-06-11)
+
+- Fix(executor): correct equity formula in `_reconcile` to use `_compute_unrealized_pnl()` helper (unrealized P&L = position × (current price − avg entry price)) instead of `expected_position * (close_price - avg_entry_price)` — consistent with `step()` which already used the helper
+- 4 new tests verify equity is not inflated for long and short positions (3 from c0de969 + 1 strengthened in 3cdbb6a)
+- V&R PASS on SHA `3cdbb6a` (ZTB-367)
+- **Tests:** 560/560 pass, 93% coverage, ruff/mypy clean
+- **PR:** [#12](https://github.com/StaithValanthis/ztb/pull/12) — `feat/fix-equity-formula`
+- **Merge commit:** `bea0580` — two-key merge (CI green + V&R PASS on SHA `3cdbb6a`)
+- **Tag:** v0.7.1
+
 
 ## v0.7.0 (2026-06-10)
 
@@ -28,12 +38,13 @@
 - Reconciler: `reconcile_account()` detects position drift between expected and actual exchange state
 - Executor pipeline: closed-bar → signal → risk gate (M5) → diff → round → idempotent place → persist
 - Store migration v4: `exec_runs`, `exec_orders`, `exec_fills`, `exec_positions_snapshots`, `exec_pnl_ledger`, `exec_errors` tables
+- Executor: `_save_error` logging for structured error capture on placement failures
 - CLI: `ztb run <strategy> <symbol> [--mode demo] [--dry-run] [--once]`, `ztb reconcile [--exec-run-id]`
 - Docs: `docs/m6_execution.md` (architecture, idempotency design, CLI reference)
-- **Tests:** 517/517 pass, 91.72% coverage, ruff/mypy clean, secret scan clean, hermetic (mocked transport), signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path
+- **Tests:** 560/560 pass, 93% coverage (execution/ 95-100%), ruff/mypy clean, secret scan clean, hermetic (mocked transport), signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path, error logging coverage
 - **Documentation:** `docs/m6_execution.md`
-- **PR:** [#9](https://github.com/StaithValanthis/ztb/pull/9)
-- **Merge commit:** `286c3ea` — two-key merge (CI green + V&R PASS on SHA `fb10d0c`)
+- **PR:** [#10](https://github.com/StaithValanthis/ztb/pull/10)
+- **Two-key merge:** CI green + V&R PASS on SHA `6825d08` (ZTB-302)
 - **Tag:** v0.7.0
 
 ## v0.6.0 (2026-06-10)

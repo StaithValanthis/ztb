@@ -169,6 +169,20 @@ class Executor:
                 },
             )
 
+    def _save_error(self, error_type: str, message: str) -> None:
+        from ztb.store.exec_io import save_exec_error
+
+        assert self.state is not None
+        save_exec_error(
+            self._store_conn,
+            {
+                "exec_run_id": self.state.exec_run_id,
+                "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "error_type": error_type,
+                "message": message,
+            },
+        )
+
     def _compute_target_position(self, data: DataFrame) -> float:
         warmup = getattr(self.strategy, "warmup", 0)
         if len(data) <= warmup:
@@ -251,11 +265,11 @@ class Executor:
         equity = (
             self.config.initial_cash
             + self.state.realized_pnl
-            + abs(expected_position) * close_price
+            + self._compute_unrealized_pnl(close_price)
         )
         expected = AccountState(
             total_equity=equity,
-            wallet_balance=equity - abs(expected_position) * close_price,
+            wallet_balance=equity - self._compute_unrealized_pnl(close_price),
             unrealized_pnl=self._compute_unrealized_pnl(close_price),
             positions={
                 self.state.symbol: Position(
@@ -332,7 +346,11 @@ class Executor:
         target_signal = self._compute_target_position(data)
         current_position = self.state.current_position
 
-        equity = self.config.initial_cash + self.state.realized_pnl + current_position * close_price
+        equity = (
+            self.config.initial_cash
+            + self.state.realized_pnl
+            + self._compute_unrealized_pnl(close_price)
+        )
 
         if self._killswitch is not None:
             self._killswitch.check_account_dd(equity)
