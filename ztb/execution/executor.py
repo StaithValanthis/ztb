@@ -193,7 +193,7 @@ class Executor:
         equity = (
             self.config.initial_cash
             + self.state.realized_pnl
-            + abs(expected_position) * close_price
+            + expected_position * (close_price - self.state.avg_entry_price)
         )
         expected = AccountState(
             total_equity=equity,
@@ -241,7 +241,7 @@ class Executor:
         target_signal = self._compute_target_position(data)
         current_position = self.state.current_position
 
-        equity = self.config.initial_cash + self.state.realized_pnl + current_position * close_price
+        equity = self.config.initial_cash + self.state.realized_pnl + self._compute_unrealized_pnl(close_price)
 
         target_signal, risk_decision = self._apply_risk(
             target_signal, current_position, close_price, equity, bar_ts
