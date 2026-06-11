@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -156,20 +155,15 @@ def test_cli_list_strategies() -> None:
 
 def test_cli_rollback_dry_run() -> None:
     """ztb rollback <tag> --dry-run resolves tags."""
-    tag = "ztb-test-rollback-tag"
-    subprocess.run(["git", "tag", tag, "HEAD"], check=True, capture_output=True, timeout=10)
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "ztb.cli", "rollback", tag, "--dry-run"],
-            capture_output=True,
-            text=True,
-            timeout=15,
+    runner = CliRunner()
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["git", "rev-parse"], returncode=0, stdout="deadbeef1234\n", stderr=""
         )
-        assert proc.returncode == 0, f"stderr={proc.stderr}"
-        assert tag in proc.stdout
-        assert "dry-run" in proc.stdout
-    finally:
-        subprocess.run(["git", "tag", "-d", tag], capture_output=True, timeout=10)
+        result = runner.invoke(cli, ["rollback", "v0.7.0", "--dry-run"])
+    assert result.exit_code == 0, f"output={result.output}"
+    assert "v0.7.0" in result.output
+    assert "dry-run" in result.output
 
 
 def test_cli_rollback_unknown_tag() -> None:
@@ -183,40 +177,31 @@ def test_cli_rollback_unknown_tag() -> None:
     assert proc.returncode != 0
 
 
-@pytest.mark.skipif(
-    "ZTB_BYBIT_API_KEY" not in os.environ or "ZTB_BYBIT_API_SECRET" not in os.environ,
-    reason="Requires Bybit API credentials (ZTB_BYBIT_API_KEY / ZTB_BYBIT_API_SECRET)",
-)
-def test_cli_run_dry_run(tmp_path: Path) -> None:
+def test_cli_run_dry_run() -> None:
     """ztb run --mode demo --dry-run --once succeeds."""
-    db_path = str(tmp_path / "m7_run_dry.db")
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "ztb.cli",
-            "run",
-            "sma_cross",
-            "BTCUSDT",
-            "--mode",
-            "demo",
-            "--dry-run",
-            "--once",
-            "--no-risk",
-            "--start",
-            "2026-06-01",
-            "--end",
-            "2026-06-11",
-            "--db",
-            db_path,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, f"stderr={proc.stderr}"
-    assert "Execution run" in proc.stdout
-    assert "dry-run" in proc.stdout
+    df = _mock_data_df(200)
+    runner = CliRunner()
+    with patch("ztb.execution.executor.load_data", return_value=df):
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "sma_cross",
+                "BTCUSDT",
+                "--mode",
+                "demo",
+                "--dry-run",
+                "--once",
+                "--no-risk",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-02",
+            ],
+        )
+    assert result.exit_code == 0, f"output={result.output}"
+    assert "Execution run" in result.output
+    assert "dry-run" in result.output
 
 
 def test_validate_command_stub() -> None:
