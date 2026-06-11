@@ -416,7 +416,14 @@ def test_cli_run_with_preflight(tmp_path: Path) -> None:
     with (
         patch("subprocess.run") as mock_run,
         patch("ztb.execution.executor.load_data", return_value=df),
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test_key_12345678", "ZTB_BYBIT_API_SECRET": "test_secret_12345678"}, clear=False),
+        patch.dict(
+            os.environ,
+            {
+                "ZTB_BYBIT_API_KEY": "test_key_12345678",
+                "ZTB_BYBIT_API_SECRET": "test_secret_12345678",
+            },
+            clear=False,
+        ),
     ):
         mock_run.return_value = subprocess.CompletedProcess(
             args=["git", "describe"], returncode=0, stdout="v0.7.0\n", stderr=""
@@ -475,7 +482,6 @@ def test_cli_run_with_risk_enabled(tmp_path: Path) -> None:
 
 def test_cli_run_to_report_pipeline(tmp_path: Path) -> None:
     """Full pipeline: ztb run --dry-run --once then verify exec store."""
-    import re
     from click.testing import CliRunner
     df = _mock_data_df(200)
     db_path = str(tmp_path / "m7_pipeline.db")
