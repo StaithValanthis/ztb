@@ -5,6 +5,7 @@
 - Fix(executor): correct equity formula in `_reconcile` to use `_compute_unrealized_pnl()` helper (unrealized P&L = position × (current price − avg entry price)) instead of `expected_position * (close_price - avg_entry_price)` — consistent with `step()` which already used the helper
 - 4 new tests verify equity is not inflated for long and short positions (3 from c0de969 + 1 strengthened in 3cdbb6a)
 - V&R PASS on SHA `3cdbb6a` (ZTB-367)
+- **Tests:** 560/560 pass, 93% coverage, ruff/mypy clean
 - **PR:** [#12](https://github.com/StaithValanthis/ztb/pull/12) — `feat/fix-equity-formula`
 - **Merge commit:** `bea0580` — two-key merge (CI green + V&R PASS on SHA `3cdbb6a`)
 - **Tag:** v0.7.1
