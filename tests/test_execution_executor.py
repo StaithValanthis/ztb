@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -7,7 +8,8 @@ import pandas as pd
 import pytest
 
 from ztb.execution.executor import ExecRunConfig, Executor
-from ztb.execution.models import Mode
+from ztb.execution.models import AccountState, Mode
+from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
 @pytest.fixture
@@ -663,9 +665,23 @@ def test_executor_reconcile_equity_no_inflation(
     exe.state.current_position = 1.0
     exe.state.avg_entry_price = 30000.0
     exe.state.realized_pnl = 5000.0
-    report = exe._reconcile(1.0, 40000.0, "2026-01-01T00:00:00Z")
-    assert report.expected_position == pytest.approx(1.0)
-    assert report.matched is True
+
+    import ztb.execution.executor as _exec_mod
+
+    captured: dict[str, object] = {}
+
+    def capture_expected(exp: object, act: object, sym: str) -> object:
+        captured["expected"] = exp
+        return _real_reconcile(exp, act, sym)
+
+    with patch.object(_exec_mod, "reconcile_account", capture_expected):
+        exe._reconcile(1.0, 40000.0, "2026-01-01T00:00:00Z")
+
+    expected_upnl = (40000.0 - 30000.0) * 1.0
+    expected_equity = config.initial_cash + 5000.0 + expected_upnl
+    cap = cast("AccountState", captured["expected"])
+    assert cap.total_equity == pytest.approx(expected_equity)
+    assert cap.total_equity < config.initial_cash + 5000.0 + 1.0 * 40000.0
 
 
 @patch("ztb.execution.executor.load_data")
