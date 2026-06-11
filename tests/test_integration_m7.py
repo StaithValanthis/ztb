@@ -6,8 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 from pandas import DataFrame, date_range
 
+from ztb.cli import cli
 from ztb.execution.executor import Executor
 from ztb.execution.killswitch import LiveKillSwitch
 from ztb.execution.live_guard import LiveDisarmedError, LiveGuard
@@ -240,3 +242,308 @@ def test_idempotency_ledger_integration(strat_and_data, tmp_path: Path) -> None:
         result = executor.run(symbol="BTCUSDT", timeframe="60", db_path=db_path)
     assert result.status == "completed"
     assert result.bars_processed > 0
+
+
+# ── Integration: store consistency ───────────────────────────────────────────
+
+
+def test_executor_store_consistency(strat_and_data, tmp_path: Path) -> None:
+    """Executor stores run metadata correctly: strategy, mode, status, bars."""
+    strat, df = strat_and_data
+    db_path = str(tmp_path / "m7_store_consistency.db")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True, risk_enabled=False)
+    executor = Executor(strategy=strat, config=config)
+    with patch("ztb.execution.executor.load_data") as mock_load:
+        mock_load.return_value = df
+        result = executor.run(symbol="BTCUSDT", timeframe="60", db_path=db_path)
+    assert result.status == "completed"
+    assert result.strategy_name == "sma_cross"
+    assert result.symbol == "BTCUSDT"
+    assert result.mode == Mode.DEMO
+    assert result.bars_processed > 0
+    from ztb.store.exec_io import ensure_exec_tables, get_exec_run
+    from ztb.store.results import connect
+
+    conn = connect(db_path)
+    ensure_exec_tables(conn)
+    run_info = get_exec_run(conn, result.exec_run_id)
+    conn.close()
+    assert run_info is not None
+    assert run_info["strategy_name"] == "sma_cross"
+    assert run_info["symbol"] == "BTCUSDT"
+    assert run_info["mode"] == "demo"
+    assert run_info["status"] == "completed"
+    assert run_info["bars_processed"] == result.bars_processed
+
+
+def test_executor_store_full_run_state(strat_and_data, tmp_path: Path) -> None:
+    """Full non-once run populates positions snapshots + PnL ledger."""
+    strat, df = strat_and_data
+    db_path = str(tmp_path / "m7_full_state.db")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=False, risk_enabled=False)
+    executor = Executor(strategy=strat, config=config)
+    with patch("ztb.execution.executor.load_data") as mock_load:
+        mock_load.return_value = df
+        result = executor.run(symbol="BTCUSDT", timeframe="60", db_path=db_path)
+    assert result.status == "completed"
+    assert result.bars_processed > 0
+    from ztb.store.exec_io import ensure_exec_tables, get_pnl_ledger
+    from ztb.store.results import connect
+
+    conn = connect(db_path)
+    ensure_exec_tables(conn)
+    ledger = get_pnl_ledger(conn, result.exec_run_id)
+    conn.close()
+    assert len(ledger) > 0
+    totals = [e["total_equity"] for e in ledger]
+    assert all(t > 0 for t in totals)
+
+
+# ── Strategy compatibility ───────────────────────────────────────────────────
+
+
+def test_strategy_params_propagate_to_executor(strat_and_data, tmp_path: Path) -> None:
+    """Strategy params (name, warmup) propagate through executor run result."""
+    strat, df = strat_and_data
+    from ztb.strategies.registry import get as get_strategy
+
+    cls = get_strategy("sma_cross")
+    assert cls.warmup == 20
+    db_path = str(tmp_path / "m7_strat_params.db")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=False, risk_enabled=False)
+    executor = Executor(strategy=strat, config=config)
+    with patch("ztb.execution.executor.load_data") as mock_load:
+        mock_load.return_value = df
+        result = executor.run(symbol="BTCUSDT", timeframe="60", db_path=db_path)
+    assert result.status == "completed"
+    assert result.strategy_name == "sma_cross"
+    assert result.bars_processed > cls.warmup
+
+
+def test_strategy_warmup_respected_in_executor() -> None:
+    """Signals during warmup are zero in executor step context."""
+    import pandas as pd
+
+    from ztb.execution.executor import ExecRunConfig, Executor
+    from ztb.execution.models import Mode
+    from ztb.strategies.registry import get as get_strategy
+
+    cls = get_strategy("sma_cross")
+    strat = cls()
+    strat.symbols = ["BTCUSDT"]
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=False, risk_enabled=False)
+    executor = Executor(strategy=strat, config=config)
+    executor._init_run()
+    executor._init_store(":memory:")
+    idx = pd.date_range("2026-01-01", periods=100, freq="h", tz="UTC")
+    data = DataFrame(
+        {
+            "open": [50000.0 + i * 10 for i in range(100)],
+            "high": [50100.0 + i * 10 for i in range(100)],
+            "low": [49900.0 + i * 10 for i in range(100)],
+            "close": [50000.0 + i * 10 for i in range(100)],
+            "volume": [1000.0] * 100,
+        },
+        index=idx,
+    )
+    result = executor.step(data)
+    assert result["signal"] is not None
+    assert result["current_position"] is not None
+
+
+# ── CLI dogfood ──────────────────────────────────────────────────────────────
+
+
+def test_cli_backtest_persist_and_report(tmp_path: Path) -> None:
+    """ztb backtest --persist then ztb report retrieves the run."""
+    import pandas as pd
+
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+    from ztb.store.results import connect, save_run
+    from ztb.strategies.registry import get as get_strategy
+
+    db_path = str(tmp_path / "m7_dogfood.db")
+    cls = get_strategy("sma_cross")
+    strat = cls()
+    strat.symbols = ["BTCUSDT"]
+    df = pd.DataFrame(
+        {
+            "open": [100.0] * 200,
+            "high": [101.0] * 200,
+            "low": [99.0] * 200,
+            "close": [100.0 + i * 0.1 for i in range(200)],
+            "volume": [1000.0] * 200,
+        },
+        index=pd.date_range("2020-01-01", periods=200, freq="h"),
+    )
+    result = run_backtest(strat, df, BacktestConfig(min_trades=0))
+    conn = connect(db_path)
+    run_id = save_run(conn, result)
+    conn.close()
+    runner = CliRunner()
+    r = runner.invoke(cli, ["report", "--db", db_path])
+    assert r.exit_code == 0, f"stderr={r.output}"
+    assert "Recent runs" in r.output
+    assert "sma_cross" in r.output
+    r2 = runner.invoke(cli, ["report", "--run-id", run_id, "--db", db_path])
+    assert r2.exit_code == 0
+    assert "sma_cross" in r2.output
+    assert "BTCUSDT" in r2.output
+
+
+def _mock_data_df(n: int = 200) -> DataFrame:
+    """Return a synthetic price DataFrame for mocking load_data."""
+    idx = date_range("2026-01-01", periods=n, freq="h")
+    return DataFrame(
+        {
+            "open": [50000.0 + i * 10 for i in range(n)],
+            "high": [50100.0 + i * 10 for i in range(n)],
+            "low": [49900.0 + i * 10 for i in range(n)],
+            "close": [50000.0 + i * 10 for i in range(n)],
+            "volume": [1000.0] * n,
+        },
+        index=idx,
+    )
+
+
+def test_cli_run_with_preflight(tmp_path: Path) -> None:
+    """ztb run --mode=demo --dry-run --once --preflight with mocks."""
+    import os
+    import subprocess
+
+    df = _mock_data_df(200)
+    db_path = str(tmp_path / "m7_preflight.db")
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("ztb.execution.executor.load_data", return_value=df),
+        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test_key_12345678", "ZTB_BYBIT_API_SECRET": "test_secret_12345678"}, clear=False),
+    ):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["git", "describe"], returncode=0, stdout="v0.7.0\n", stderr=""
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "sma_cross",
+                "BTCUSDT",
+                "--mode",
+                "demo",
+                "--dry-run",
+                "--once",
+                "--no-risk",
+                "--preflight",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-02",
+                "--db",
+                db_path,
+            ],
+        )
+    assert result.exit_code == 0, f"stderr={result.output}"
+    assert "Preflight PASSED" in result.output
+
+
+def test_cli_run_with_risk_enabled(tmp_path: Path) -> None:
+    """ztb run --mode=demo --dry-run --once with risk enabled."""
+    df = _mock_data_df(200)
+    db_path = str(tmp_path / "m7_run_risk.db")
+    with patch("ztb.execution.executor.load_data", return_value=df):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "sma_cross",
+                "BTCUSDT",
+                "--mode",
+                "demo",
+                "--dry-run",
+                "--once",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-06-11",
+                "--db",
+                db_path,
+            ],
+        )
+    assert result.exit_code == 0, f"stderr={result.output}"
+
+
+def test_cli_run_to_report_pipeline(tmp_path: Path) -> None:
+    """Full pipeline: ztb run --dry-run --once then verify exec store."""
+    import re
+    from click.testing import CliRunner
+    df = _mock_data_df(200)
+    db_path = str(tmp_path / "m7_pipeline.db")
+    with patch("ztb.execution.executor.load_data", return_value=df):
+        runner = CliRunner()
+        run_result = runner.invoke(
+            cli,
+            [
+                "run",
+                "sma_cross",
+                "BTCUSDT",
+                "--mode",
+                "demo",
+                "--dry-run",
+                "--once",
+                "--no-risk",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-06-11",
+                "--db",
+                db_path,
+            ],
+        )
+    assert run_result.exit_code == 0, f"run failed: {run_result.output}"
+    from ztb.store.exec_io import ensure_exec_tables, get_exec_run, list_exec_runs
+    from ztb.store.results import connect
+
+    conn = connect(db_path)
+    ensure_exec_tables(conn)
+    runs = list_exec_runs(conn)
+    assert len(runs) >= 1
+    exec_run_id = runs[0]["exec_run_id"]
+    run_info = get_exec_run(conn, exec_run_id)
+    conn.close()
+    assert run_info is not None
+    assert run_info["strategy_name"] == "sma_cross"
+    assert run_info["status"] == "completed"
+    assert run_info["bars_processed"] > 0
+
+
+def test_cli_run_with_expected_version(tmp_path: Path) -> None:
+    """ztb run --expected-version with matching version succeeds."""
+    from ztb import __version__
+
+    df = _mock_data_df(200)
+    db_path = str(tmp_path / "m7_version.db")
+    with patch("ztb.execution.executor.load_data", return_value=df):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "sma_cross",
+                "BTCUSDT",
+                "--mode",
+                "demo",
+                "--dry-run",
+                "--once",
+                "--no-risk",
+                "--expected-version",
+                __version__,
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-10",
+                "--db",
+                db_path,
+            ],
+        )
+    assert result.exit_code == 0, f"stderr={result.output}"

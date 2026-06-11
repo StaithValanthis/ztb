@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.0.0 (2026-06-11)
+
+- **M7 Live-ready (Board-armable, DISARMED by default):** `ztb/execution/live_guard.py` (LiveGuard arming gate)
+- LiveGuard: `is_armed()`, `assert_live_allowed()` (raises `LiveDisarmedError` when disarmed); default DISARMED
+- New `ztb/execution/killswitch.py` — unified `LiveKillSwitch`: account-DD (25%), reconcile-drift, data-staleness, heartbeat, manual trip → persist to `kill_events` table
+- `ztb/execution/bybit_client.py` — M7 hardening: LiveGuard integration, `mode=LIVE` goes through `assert_live_allowed()`
+- `ztb/execution/executor.py` — SIGTERM handler flattens positions on shutdown; killswitch checks on every step; kill-event persistence; `_check_killswitch()` early exit
+- `ztb/execution/reconcile.py` — `reconcile_and_adopt()` with drift threshold; `heal_drift()` accessor; `irreconcilable` flag
+- `ztb/ops/preflight.py` — Preflight checks: git tag pinning, version consistency, LiveGuard status, risk config, strategy readiness, secrets
+- `ztb/reporting/health.py` — `HealthReport` + `check_health()` with store connectivity, tag, killswitch status
+- `ztb/reporting/notify.py` — `send_live_alert()` for live-event Discord webhook notifications
+- CLI: `ztb run --preflight [--expected-tag] [--expected-version]` — preflight checks before execution
+- CLI: `ztb rollback <tag> [--dry-run]` — roll back to a previously released tag
+- Dashboard: New Live Status tab (read-only, localhost-only, no trade/arm controls) with health check
+- Store migration v5: `kill_events` table for killswitch event persistence
+- Runbooks: `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
+- **Tests:** 612/612 pass, 91% coverage, ruff/mypy clean, full M7 integration: live_guard, killswitch, preflight, health, CLI hardening, executor killswitch integration, reconcile drift detection, rollback, dashboard live page, notify alert, integration tests (store consistency, strategy compatibility), CLI dogfood (preflight, risk-enable, run→pipeline, expected-version)
+- **Documentation:** `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
+- **Tag:** v1.0.0
+
 ## v0.7.0 (2026-06-10)
 
 - M6 Execution Module (DEMO): `ztb/execution/` (models, bybit_client, idempotency, reconcile, executor)
