@@ -5,6 +5,11 @@ class ExecutionError(Exception):
     pass
 
 
+class LiveDisarmedError(ExecutionError):
+    def __init__(self) -> None:
+        super().__init__("Live trading disarmed — set ZTB_LIVE_ARMED=1 to arm")
+
+
 class LiveModeBlockedError(ExecutionError):
     def __init__(self) -> None:
         super().__init__("Live mode is blocked in M6 — use --mode demo")

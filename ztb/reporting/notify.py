@@ -48,3 +48,20 @@ def send_discord(payload: list[dict[str, Any]], webhook_url: str | None = None) 
         return resp.is_success
     except Exception:
         return False
+
+
+def send_live_alert(event_type: str, message: str, webhook_url: str | None = None) -> bool:
+    if not webhook_url:
+        return False
+    try:
+        import httpx
+
+        embed: dict[str, Any] = {
+            "title": f"LIVE ALERT: {event_type}",
+            "description": message,
+            "color": 0xFF0000,
+        }
+        resp = httpx.post(webhook_url, json={"embeds": [embed]}, timeout=10.0)
+        return resp.is_success
+    except Exception:
+        return False

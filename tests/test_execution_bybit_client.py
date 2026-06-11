@@ -9,14 +9,29 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ztb.execution.bybit_client import BybitClient, ClientConfig
-from ztb.execution.errors import ClientAuthError, LiveModeBlockedError
+from ztb.execution.errors import ClientAuthError
+from ztb.execution.live_guard import LiveDisarmedError
 from ztb.execution.models import Mode, OrderSide, OrderType
 
 
-def test_live_mode_blocked() -> None:
+def test_live_mode_blocked_when_disarmed() -> None:
+    from ztb.execution.live_guard import LiveGuard
+
+    LiveGuard.disarm()
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
-    with pytest.raises(LiveModeBlockedError):
+    with pytest.raises(LiveDisarmedError):
         BybitClient(cfg)
+
+
+def test_live_mode_allowed_when_armed() -> None:
+    from ztb.execution.live_guard import LiveGuard
+
+    LiveGuard.arm("1")
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
+    client = BybitClient(cfg)
+    assert client._base_url == "https://api.bybit.com"
+    client.close()
+    LiveGuard.disarm()
 
 
 def test_demo_mode_ok() -> None:

@@ -9,7 +9,8 @@ from typing import Any
 
 import httpx
 
-from ztb.execution.errors import ClientAuthError, ClientError, LiveModeBlockedError
+from ztb.execution.errors import ClientAuthError, ClientError
+from ztb.execution.live_guard import LiveGuard
 from ztb.execution.models import (
     Mode,
     OrderSide,
@@ -32,12 +33,18 @@ class ClientConfig:
 
 
 class BybitClient:
-    def __init__(self, config: ClientConfig) -> None:
+    def __init__(self, config: ClientConfig, live_guard: type[LiveGuard] = LiveGuard) -> None:
         if config.mode == Mode.LIVE:
-            raise LiveModeBlockedError()
+            live_guard.assert_live_allowed()
         self._config = config
-        self._base_url = _DEMO_BASE
+        self._base_url = _LIVE_BASE if config.mode == Mode.LIVE else _DEMO_BASE
         self._client = httpx.Client(timeout=config.timeout)
+        self._time_synced = 0
+        if config.mode == Mode.LIVE:
+            try:
+                self._time_synced = self.get_server_time()
+            except Exception:
+                self._time_synced = 0
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
         payload = f"{timestamp}{self._config.api_key}{_RECV_WINDOW}{body}"
@@ -63,7 +70,10 @@ class BybitClient:
         path: str,
         params: dict[str, Any] | None = None,
         body: dict[str, Any] | None = None,
+        live_guard: type[LiveGuard] | None = None,
     ) -> dict[str, Any]:
+        if live_guard is not None and self._config.mode == Mode.LIVE:
+            live_guard.assert_live_allowed()
         url = f"{self._base_url}{path}"
         ts = str(int(time.time() * 1000))
         body_str = json.dumps(body) if body else ""

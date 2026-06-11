@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import signal
+import sys
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +13,7 @@ from ztb.execution.errors import (
     ExecutionError,
 )
 from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
+from ztb.execution.killswitch import LiveKillSwitch
 from ztb.execution.models import (
     AccountState,
     ExecRunConfig,
@@ -32,6 +35,7 @@ class Executor:
         config: ExecRunConfig | None = None,
         client: BybitClient | None = None,
         risk_config: RiskConfig | None = None,
+        killswitch: LiveKillSwitch | None = None,
     ) -> None:
         self.strategy = strategy
         self.config = config or ExecRunConfig()
@@ -43,6 +47,8 @@ class Executor:
         self._idempotency: IdempotencyLedger | None = None
         self._run_id: str = ""
         self._exec_run_id: str = ""
+        self._killswitch = killswitch
+        self._original_sigterm: Any = None
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -59,6 +65,34 @@ class Executor:
             exec_run_id=self._exec_run_id,
         )
         self.risk_mgr = RiskManager(config=self.risk_config) if self.config.risk_enabled else None
+
+    def _setup_sigterm(self) -> None:
+        def _handler(signum: int, _frame: Any) -> None:
+            if self._killswitch and not self._killswitch.is_tripped:
+                self._killswitch.manual_trip("SIGTERM received — flattening positions")
+            if self.state and self.client and self.config and not self.config.dry_run:
+                try:
+                    pos_size = self.state.current_position
+                    if abs(pos_size) > 1e-12:
+                        side = OrderSide.SELL if pos_size > 0 else OrderSide.BUY
+                        self.client.place_order(
+                            symbol=self.state.symbol,
+                            side=side,
+                            qty=abs(pos_size),
+                            order_type=OrderType.MARKET,
+                            reduce_only=True,
+                        )
+                except Exception:
+                    pass
+            if self._store_conn:
+                self._store_conn.close()
+            sys.exit(128 + signum)
+
+        self._original_sigterm = signal.signal(signal.SIGTERM, _handler)
+
+    def _restore_sigterm(self) -> None:
+        if self._original_sigterm is not None:
+            signal.signal(signal.SIGTERM, self._original_sigterm)
 
     def _init_store(self, db_path: str | None = None) -> None:
         self._store_conn = store_connect(db_path)
@@ -110,6 +144,30 @@ class Executor:
                 "total_equity": equity,
             },
         )
+
+    def _check_killswitch(self) -> bool:
+        if self._killswitch is None:
+            return False
+        return bool(self._killswitch.is_tripped)
+
+    def _save_kill_events(self) -> None:
+        if self._killswitch is None or self._store_conn is None:
+            return
+        assert self.state is not None
+        for t in self._killswitch.get_triggers():
+            from ztb.store.exec_io import save_kill_event
+
+            save_kill_event(
+                self._store_conn,
+                {
+                    "exec_run_id": self.state.exec_run_id,
+                    "source": t.source,
+                    "reason": t.reason,
+                    "value": t.value,
+                    "threshold": t.threshold,
+                    "timestamp": t.timestamp or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            )
 
     def _compute_target_position(self, data: DataFrame) -> float:
         warmup = getattr(self.strategy, "warmup", 0)
@@ -234,6 +292,39 @@ class Executor:
         assert self._store_conn is not None
         assert self._idempotency is not None
 
+        if self._check_killswitch():
+            return {
+                "killswitch_tripped": True,
+                "bar_ts": str(data.index[-1] if len(data) > 0 else ""),
+            }
+
+        try:
+            return self._step_impl(data)
+        except Exception as exc:
+            error_msg = f"step error: {exc}"
+            assert self.state is not None
+            self.state.errors.append(error_msg)
+            from ztb.store.exec_io import save_exec_error
+
+            save_exec_error(
+                self._store_conn,
+                {
+                    "exec_run_id": self.state.exec_run_id,
+                    "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "error_type": type(exc).__name__,
+                    "message": error_msg,
+                },
+            )
+            raise
+
+    def _step_impl(
+        self,
+        data: DataFrame,
+    ) -> dict[str, Any]:
+        assert self.state is not None
+        assert self._store_conn is not None
+        assert self._idempotency is not None
+
         symbol = self.state.symbol
         bar_ts = str(data.index[-1])
         close_price = float(data["close"].iloc[-1])
@@ -242,6 +333,11 @@ class Executor:
         current_position = self.state.current_position
 
         equity = self.config.initial_cash + self.state.realized_pnl + current_position * close_price
+
+        if self._killswitch is not None:
+            self._killswitch.check_account_dd(equity)
+            if self._killswitch.check_data_staleness(bar_ts):
+                self._save_kill_events()
 
         target_signal, risk_decision = self._apply_risk(
             target_signal, current_position, close_price, equity, bar_ts
@@ -304,7 +400,14 @@ class Executor:
             if self.client is None:
                 raise ExecutionError("No BybitClient configured for live trading")
 
-            self._reconcile(current_position, close_price, bar_ts)
+            reconcile_report = self._reconcile(current_position, close_price, bar_ts)
+
+            if self._killswitch is not None:
+                self._killswitch.check_reconcile_drift(reconcile_report.position_drift)
+                if self._killswitch.is_tripped:
+                    self._save_kill_events()
+                    result["killswitch_tripped"] = True
+                    return result
 
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
@@ -370,6 +473,10 @@ class Executor:
         self._init_run()
         self._init_store(db_path)
 
+        if self._killswitch is not None:
+            self._killswitch.heartbeat()
+        self._setup_sigterm()
+
         data = load_data(
             symbol=symbol,
             timeframe=timeframe,
@@ -384,14 +491,32 @@ class Executor:
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
 
+        if not self.config.dry_run and self.client is not None and len(data) > warmup:
+            try:
+                warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
+                close_price = float(warmup_data["close"].iloc[-1])
+                self._reconcile(0.0, close_price, str(warmup_data.index[-1]))
+            except Exception:
+                pass
+
         if self.config.once:
             if len(data) <= warmup:
                 raise ExecutionError(f"Data length {len(data)} <= warmup {warmup}, cannot run")
-            self.step(data)
+            result = self.step(data)
+            if result.get("killswitch_tripped"):
+                self._save_kill_events()
         else:
             for i in range(warmup, len(data)):
+                if self._check_killswitch():
+                    self._save_kill_events()
+                    break
                 chunk = data.iloc[: i + 1]
-                self.step(chunk)
+                result = self.step(chunk)
+                if result.get("killswitch_tripped"):
+                    self._save_kill_events()
+                    break
+                if self._killswitch is not None:
+                    self._killswitch.heartbeat()
 
         from ztb.store.exec_io import update_exec_run_status
 
@@ -402,6 +527,8 @@ class Executor:
             self.state.status,
             self.state.bars_processed,
         )
+
+        self._restore_sigterm()
 
         if self._store_conn:
             self._store_conn.close()

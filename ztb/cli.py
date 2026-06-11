@@ -343,12 +343,15 @@ def validate() -> None:
 @click.option("--category", default="linear", help="Market category")
 @click.option("--start", default=None, help="Start date (ISO format)")
 @click.option("--end", default=None, help="End date (ISO format)")
-@click.option("--mode", default="demo", help="Execution mode (demo only in M6)")
+@click.option("--mode", default="demo", help="Execution mode (demo/live)")
 @click.option("--cash", default=100000.0, type=float, help="Initial cash")
 @click.option("--dry-run", is_flag=True, help="Simulate without placing orders")
 @click.option("--once", is_flag=True, help="Process only the last bar")
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
 @click.option("--db", default=None, help="Path to result database")
+@click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
+@click.option("--expected-tag", default=None, help="Expected git tag for pinning")
+@click.option("--expected-version", default=None, help="Expected installed version")
 def run(
     strategy_name: str,
     symbol: str,
@@ -362,12 +365,33 @@ def run(
     once: bool,
     no_risk: bool,
     db: str | None,
+    preflight: bool,
+    expected_tag: str | None,
+    expected_version: str | None,
 ) -> None:
-    """Execute a strategy on live/demo data (M6 — demo only)."""
-    from ztb.execution.errors import LiveModeBlockedError
+    """Execute a strategy on live/demo data."""
     from ztb.execution.executor import Executor
+    from ztb.execution.killswitch import LiveKillSwitch
     from ztb.execution.models import ExecRunConfig
     from ztb.execution.models import Mode as ExecMode
+
+    if preflight:
+        click.echo("Running preflight checks...")
+        from ztb.ops.preflight import run_preflight
+
+        report = run_preflight(
+            expected_tag=expected_tag,
+            expected_version=expected_version or __version__,
+            strategy_name=strategy_name,
+            check_secrets_enabled=True,
+        )
+        for item in report.items:
+            status = "\u2713" if item.passed else "\u2717"
+            click.echo(f"  {status} {item.name}: {item.detail}")
+        if not report.passed:
+            click.echo("Preflight FAILED — aborting.", err=True)
+            sys.exit(1)
+        click.echo("Preflight PASSED.\n")
 
     try:
         strat_cls = get_strategy(strategy_name)
@@ -376,9 +400,6 @@ def run(
         sys.exit(1)
 
     exec_mode = ExecMode(mode)
-    if exec_mode == ExecMode.LIVE:
-        click.echo("Error: --mode=live is blocked in M6. Use --mode=demo.", err=True)
-        sys.exit(1)
 
     strategy = strat_cls()
     strategy.symbols = [symbol]
@@ -392,7 +413,9 @@ def run(
         risk_enabled=not no_risk,
     )
 
-    executor = Executor(strategy, config=config)
+    killswitch = LiveKillSwitch() if exec_mode == ExecMode.LIVE and not dry_run else None
+
+    executor = Executor(strategy, config=config, killswitch=killswitch)
 
     try:
         result = executor.run(
@@ -403,9 +426,6 @@ def run(
             end=end,
             db_path=db,
         )
-    except LiveModeBlockedError:
-        click.echo("Error: --mode=live is blocked in M6. Use --mode=demo.", err=True)
-        sys.exit(1)
     except Exception as exc:
         click.echo(f"Execution error: {exc}", err=True)
         sys.exit(1)
@@ -471,6 +491,47 @@ def reconcile(exec_run_id: str | None, db: str | None) -> None:
     for sym, pos in actual.positions.items():
         click.echo(f"  Position {sym}: {pos.size:.6f} @ {pos.avg_price:.4f}")
     conn.close()
+
+
+@cli.command()
+@click.argument("tag")
+@click.option("--dry-run", is_flag=True, help="Validate without checking out")
+def rollback(tag: str, dry_run: bool) -> None:
+    """Roll back to a previously released tag."""
+    import subprocess
+
+    click.echo(f"Rollback requested: {tag}")
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"refs/tags/{tag}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            click.echo(f"Error: tag {tag} not found.", err=True)
+            sys.exit(1)
+
+        target_sha = result.stdout.strip()
+        click.echo(f"  Tag {tag} resolves to {target_sha[:12]}")
+
+        if dry_run:
+            click.echo("  (dry-run — no checkout performed)")
+            return
+
+        subprocess.run(
+            ["git", "checkout", f"tags/{tag}"],
+            check=True,
+            timeout=30,
+        )
+        click.echo(f"  Checked out {tag}. Restart ztb run to use this version.")
+    except subprocess.TimeoutExpired:
+        click.echo("Error: git operation timed out.", err=True)
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        click.echo(f"Error: failed to check out {tag}.", err=True)
+        sys.exit(1)
 
 
 @cli.command()

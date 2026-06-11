@@ -268,9 +268,22 @@ def test_compute_target_position_short_data(fake_strategy: FakeStrategy) -> None
 
 def test_executor_live_mode_blocked_via_client() -> None:
     from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.live_guard import LiveDisarmedError, LiveGuard
 
-    with pytest.raises(Exception, match="Live mode is blocked"):
+    LiveGuard.disarm()
+    with pytest.raises(LiveDisarmedError):
         BybitClient(ClientConfig(mode=Mode.LIVE))
+
+
+def test_executor_live_mode_allowed_when_armed() -> None:
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.live_guard import LiveGuard
+
+    LiveGuard.arm("1")
+    client = BybitClient(ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE))
+    assert client._base_url == "https://api.bybit.com"
+    client.close()
+    LiveGuard.disarm()
 
 
 @patch("ztb.execution.executor.load_data")

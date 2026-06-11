@@ -82,8 +82,21 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             message TEXT NOT NULL DEFAULT ''
         )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS kill_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
+            source TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            value REAL NOT NULL DEFAULT 0.0,
+            threshold REAL NOT NULL DEFAULT 0.0,
+            timestamp TEXT NOT NULL
+        )"""
+    )
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (4)")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (5)")
     conn.commit()
 
 
@@ -260,5 +273,29 @@ def get_exec_fills(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str,
 def get_pnl_ledger(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM exec_pnl_ledger WHERE exec_run_id = ? ORDER BY entry_id", (exec_run_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_kill_event(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
+    conn.execute(
+        """INSERT INTO kill_events
+           (exec_run_id, source, reason, value, threshold, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            event["exec_run_id"],
+            event.get("source", ""),
+            event.get("reason", ""),
+            event.get("value", 0.0),
+            event.get("threshold", 0.0),
+            event.get("timestamp", ""),
+        ),
+    )
+    conn.commit()
+
+
+def get_kill_events(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM kill_events WHERE exec_run_id = ? ORDER BY event_id", (exec_run_id,)
     ).fetchall()
     return [dict(r) for r in rows]

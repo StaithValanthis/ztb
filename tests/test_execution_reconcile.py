@@ -3,8 +3,10 @@ from __future__ import annotations
 from ztb.execution.models import AccountState, Position
 from ztb.execution.reconcile import (
     compute_account_state,
+    heal_drift,
     parse_fills,
     reconcile_account,
+    reconcile_and_adopt,
 )
 
 
@@ -175,3 +177,64 @@ def test_parse_fills() -> None:
     assert fills[0].price == 50000.0
     assert fills[0].qty == 0.1
     assert fills[0].commission == 2.5
+
+
+def _make_state(pos_size: float = 0.0, avg_price: float = 0.0) -> AccountState:
+    return AccountState(
+        total_equity=100000.0,
+        wallet_balance=100000.0,
+        unrealized_pnl=0.0,
+        positions={
+            "BTCUSDT": Position(
+                symbol="BTCUSDT",
+                size=pos_size,
+                avg_price=avg_price,
+                unrealized_pnl=0.0,
+                realized_pnl=0.0,
+                timestamp="2026-06-11T00:00:00Z",
+            )
+        },
+        timestamp="2026-06-11T00:00:00Z",
+    )
+
+
+def test_reconcile_and_adopt_matched() -> None:
+    exp = _make_state(pos_size=1.0, avg_price=50000.0)
+    act = _make_state(pos_size=1.0, avg_price=50000.0)
+    report = reconcile_and_adopt(exp, act, "BTCUSDT")
+    assert report.matched
+    assert not report.irreconcilable
+    assert report.reconciled is False
+
+
+def test_reconcile_and_adopt_small_drift() -> None:
+    exp = _make_state(pos_size=1.0, avg_price=50000.0)
+    act = _make_state(pos_size=1.000001, avg_price=50000.0)
+    report = reconcile_and_adopt(exp, act, "BTCUSDT", tolerance=1e-6)
+    assert not report.matched
+    assert not report.irreconcilable
+    assert report.reconciled
+
+
+def test_reconcile_and_adopt_large_drift() -> None:
+    exp = _make_state(pos_size=1.0, avg_price=50000.0)
+    act = _make_state(pos_size=1.5, avg_price=50000.0)
+    report = reconcile_and_adopt(exp, act, "BTCUSDT")
+    assert not report.matched
+    assert report.irreconcilable
+
+
+def test_heal_drift() -> None:
+    exp = _make_state(pos_size=1.0, avg_price=50000.0)
+    act = _make_state(pos_size=1.5, avg_price=50000.0)
+    report = reconcile_account(exp, act, "BTCUSDT")
+    drift = heal_drift(report)
+    assert drift == 0.5
+
+
+def test_heal_drift_zero() -> None:
+    exp = _make_state(pos_size=1.0, avg_price=50000.0)
+    act = _make_state(pos_size=1.0, avg_price=50000.0)
+    report = reconcile_account(exp, act, "BTCUSDT")
+    drift = heal_drift(report)
+    assert drift == 0.0

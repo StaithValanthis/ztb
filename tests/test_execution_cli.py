@@ -12,14 +12,15 @@ def test_run_command_exists() -> None:
     assert "Execute a strategy" in result.output or "Usage" in result.output
 
 
-def test_run_rejects_live_mode() -> None:
+def test_run_accepts_live_mode() -> None:
+    """--mode=live is no longer blocked at CLI level in M7 (LiveGuard instead)."""
     runner = CliRunner()
     result = runner.invoke(
         cli,
         ["run", "sma_cross", "BTCUSDT", "--mode=live"],
     )
-    assert result.exit_code != 0
-    assert "blocked" in result.output.lower() or "demo" in result.output.lower()
+    assert result.exit_code == 0
+    assert "Mode:        live" in result.output
 
 
 def test_run_rejects_unknown_strategy() -> None:

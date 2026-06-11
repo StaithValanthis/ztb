@@ -20,6 +20,26 @@ class ReconcileReport:
     actual_pnl: float = 0.0
     issues: list[str] = field(default_factory=list)
     reconciled: bool = False
+    irreconcilable: bool = False
+
+
+def reconcile_and_adopt(
+    expected: AccountState,
+    actual: AccountState,
+    symbol: str,
+    tolerance: float = 1e-8,
+) -> ReconcileReport:
+    report = reconcile_account(expected, actual, symbol, tolerance)
+    if not report.matched and abs(report.position_drift) > tolerance * 100:
+        report.irreconcilable = True
+        report.issues.append("DRIFT EXCEEDS ADOPT THRESHOLD — manual intervention required")
+    elif not report.matched:
+        report.reconciled = True
+    return report
+
+
+def heal_drift(report: ReconcileReport) -> float:
+    return report.actual_position - report.expected_position
 
 
 def reconcile_account(
