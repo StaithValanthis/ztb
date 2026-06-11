@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import os
 
-from ztb.execution.errors import ExecutionError
-
-
-class LiveDisarmedError(ExecutionError):
-    def __init__(self) -> None:
-        super().__init__("Live trading disarmed — set ZTB_LIVE_ARMED=1 to arm")
+from ztb.execution.errors import LiveDisarmedError
 
 
 class LiveGuard:
