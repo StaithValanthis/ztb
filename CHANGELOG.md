@@ -16,7 +16,7 @@
 - Dashboard: New Live Status tab (read-only, localhost-only, no trade/arm controls) with health check
 - Store migration v5: `kill_events` table for killswitch event persistence
 - Runbooks: `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
-- **Tests:** 636/636 pass, 92% coverage, ruff/mypy clean, full M7 integration: live_guard, killswitch, preflight, health, CLI hardening, executor killswitch integration, reconcile drift detection, rollback, dashboard live page, notify alert, integration tests (store consistency, strategy compatibility), CLI dogfood (preflight, risk-enable, run→pipeline, expected-version)
+- **Tests:** 639/639 pass, 92% coverage, ruff/mypy clean, full M7 integration: live_guard, killswitch, preflight, health, CLI hardening, executor killswitch integration, reconcile drift detection, rollback, dashboard live page, notify alert, integration tests (store consistency, strategy compatibility), CLI dogfood (preflight, risk-enable, run→pipeline, expected-version)
 - **Documentation:** `docs/runbooks/go-live.md`, `docs/runbooks/incident-rollback.md`
 - **Tag:** v1.0.0
 ## v0.7.1 (2026-06-11)
