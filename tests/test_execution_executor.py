@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -7,7 +8,8 @@ import pandas as pd
 import pytest
 
 from ztb.execution.executor import ExecRunConfig, Executor
-from ztb.execution.models import Mode
+from ztb.execution.models import AccountState, Mode
+from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
 @pytest.fixture
@@ -646,6 +648,92 @@ def test_executor_reconcile_api_path_exception(
     exe.client = mock_client
     report = exe._reconcile(0.0, 50000.0, "2026-01-01T00:00:00Z")
     assert report.matched is True
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_reconcile_equity_no_inflation(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Equity = initial_cash + realized_pnl + unrealized_pnl, not abs(pos)*price."""
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    assert exe.state is not None
+    exe.state.current_position = 1.0
+    exe.state.avg_entry_price = 30000.0
+    exe.state.realized_pnl = 5000.0
+
+    import ztb.execution.executor as _exec_mod
+
+    captured: dict[str, object] = {}
+
+    def capture_expected(exp: object, act: object, sym: str) -> object:
+        captured["expected"] = exp
+        return _real_reconcile(exp, act, sym)
+
+    with patch.object(_exec_mod, "reconcile_account", capture_expected):
+        exe._reconcile(1.0, 40000.0, "2026-01-01T00:00:00Z")
+
+    expected_upnl = (40000.0 - 30000.0) * 1.0
+    expected_equity = config.initial_cash + 5000.0 + expected_upnl
+    cap = cast("AccountState", captured["expected"])
+    assert cap.total_equity == pytest.approx(expected_equity)
+    assert cap.total_equity < config.initial_cash + 5000.0 + 1.0 * 40000.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_step_equity_no_inflation(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Step equity uses unrealized PnL, not position*price, for position sizing."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe.state.current_position = 1.0
+    exe.state.avg_entry_price = 30000.0
+    result = exe.step(sample_data)
+    expected_upnl = (50000.0 - 30000.0) * 1.0
+    expected_equity = config.initial_cash + expected_upnl
+    assert expected_equity == pytest.approx(120000.0)
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * expected_equity / close_price, config.asset_precision)
+    assert result["target_position"] == pytest.approx(target_qty)
+    assert result["target_position"] < round(
+        0.5 * (config.initial_cash + 1.0 * close_price) / close_price,
+        config.asset_precision,
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_equity_short_position_no_inflation(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Short position equity uses unrealized PnL (negative), not abs(pos)*price."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe.state.current_position = -1.0
+    exe.state.avg_entry_price = 30000.0
+    exe.step(sample_data)
+    expected_upnl = (50000.0 - 30000.0) * -1.0
+    expected_equity = config.initial_cash + expected_upnl
+    assert expected_equity == pytest.approx(80000.0)
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * expected_equity / close_price, config.asset_precision)
+    assert exe.state.current_position == pytest.approx(target_qty)
 
 
 @patch("ztb.execution.executor.load_data")

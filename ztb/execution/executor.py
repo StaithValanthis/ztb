@@ -207,7 +207,7 @@ class Executor:
         equity = (
             self.config.initial_cash
             + self.state.realized_pnl
-            + expected_position * (close_price - self.state.avg_entry_price)
+            + self._compute_unrealized_pnl(close_price)
         )
         expected = AccountState(
             total_equity=equity,
