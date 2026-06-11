@@ -66,4 +66,8 @@ def test_health_report_unhealthy_on_store_issue() -> None:
 def test_health_issues_list_includes_unhealthy_store() -> None:
     r = check_health("exec_test_fail")
     if not r.store_connected:
-        assert any("Store" in i for i in r.issues) or any("store" in i.lower() for i in r.issues) or len(r.issues) > 0
+        assert (
+            any("Store" in i for i in r.issues)
+            or any("store" in i.lower() for i in r.issues)
+            or len(r.issues) > 0
+        )

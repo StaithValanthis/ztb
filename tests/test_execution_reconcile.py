@@ -209,7 +209,7 @@ def test_reconcile_and_adopt_matched() -> None:
 
 def test_reconcile_and_adopt_small_drift() -> None:
     exp = _make_state(pos_size=1.0, avg_price=50000.0)
-    act = _make_state(pos_size=1.000001, avg_price=50000.0)
+    act = _make_state(pos_size=1.00001, avg_price=50000.0)
     report = reconcile_and_adopt(exp, act, "BTCUSDT", tolerance=1e-6)
     assert not report.matched
     assert not report.irreconcilable
