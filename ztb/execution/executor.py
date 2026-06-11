@@ -266,11 +266,7 @@ class Executor:
             expected_upnl = 0.0
         else:
             expected_upnl = (close_price - self.state.avg_entry_price) * expected_position
-        equity = (
-            self.config.initial_cash
-            + self.state.realized_pnl
-            + expected_upnl
-        )
+        equity = self.config.initial_cash + self.state.realized_pnl + expected_upnl
         expected = AccountState(
             total_equity=equity,
             wallet_balance=equity - abs(expected_position) * close_price,
