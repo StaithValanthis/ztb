@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -155,15 +156,20 @@ def test_cli_list_strategies() -> None:
 
 def test_cli_rollback_dry_run() -> None:
     """ztb rollback <tag> --dry-run resolves tags."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "ztb.cli", "rollback", "v0.7.0", "--dry-run"],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    assert proc.returncode == 0, f"stderr={proc.stderr}"
-    assert "v0.7.0" in proc.stdout
-    assert "dry-run" in proc.stdout
+    tag = "ztb-test-rollback-tag"
+    subprocess.run(["git", "tag", tag, "HEAD"], check=True, capture_output=True, timeout=10)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "ztb.cli", "rollback", tag, "--dry-run"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert proc.returncode == 0, f"stderr={proc.stderr}"
+        assert tag in proc.stdout
+        assert "dry-run" in proc.stdout
+    finally:
+        subprocess.run(["git", "tag", "-d", tag], capture_output=True, timeout=10)
 
 
 def test_cli_rollback_unknown_tag() -> None:
@@ -177,6 +183,10 @@ def test_cli_rollback_unknown_tag() -> None:
     assert proc.returncode != 0
 
 
+@pytest.mark.skipif(
+    "ZTB_BYBIT_API_KEY" not in os.environ or "ZTB_BYBIT_API_SECRET" not in os.environ,
+    reason="Requires Bybit API credentials (ZTB_BYBIT_API_KEY / ZTB_BYBIT_API_SECRET)",
+)
 def test_cli_run_dry_run(tmp_path: Path) -> None:
     """ztb run --mode demo --dry-run --once succeeds."""
     db_path = str(tmp_path / "m7_run_dry.db")
