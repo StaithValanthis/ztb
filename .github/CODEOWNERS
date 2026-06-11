@@ -1,0 +1,29 @@
+# CODEOWNERS — path ownership of record for ztb.
+#
+# NOTE on enforcement: the 10 firm agents currently commit through ONE shared GitHub
+# account, so GitHub's "require review from Code Owners" cannot enforce PER-AGENT review.
+# This file is therefore the documented OWNERSHIP MAP; the *mechanical* enforcement of
+# "engine edits = Platform Engineer only" now runs in .github/workflows/governance-advisory.yml,
+# which checks commit AUTHOR identity (each agent now commits under its own role identity) against
+# the same map below. See docs/governance/ownership.md for the staged V&R-PASS-as-required-status plan.
+#
+# Technical owner (the only GitHub account) is the repo owner; logical role owners are in comments.
+
+*                       @StaithValanthis
+
+# Engine core — Platform Engineer builds; Head of Engineering reviews/merges. No strategy code here.
+/ztb/engine/            @StaithValanthis   # owner: Platform Engineer (+ Head of Engineering)
+/ztb/execution/         @StaithValanthis   # owner: Platform Engineer (+ Head of Engineering)
+/ztb/data/              @StaithValanthis   # owner: Platform Engineer (+ Head of Engineering)
+/ztb/store/             @StaithValanthis   # owner: Platform Engineer (+ Head of Engineering)
+
+# Risk: Platform Engineer owns the CODE; the Head of Validation & Risk owns the THRESHOLD NUMBERS
+# (co-signed before any code — see docs/governance/ownership.md and the add-ztb-module skill).
+/ztb/risk/              @StaithValanthis   # code: Platform Engineer; thresholds: Head of V&R (co-sign)
+
+# Strategies are plugins — Strategy Engineer only, never engine edits.
+/ztb/strategies/        @StaithValanthis   # owner: Strategy Engineer (+ Head of Engineering)
+
+# Release/versioning + CI: Head of Engineering (version/CHANGELOG) and Head of Operations (CI).
+/CHANGELOG.md           @StaithValanthis   # owner: Head of Engineering
+/.github/               @StaithValanthis   # owner: Head of Operations
