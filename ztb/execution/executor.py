@@ -241,7 +241,11 @@ class Executor:
         target_signal = self._compute_target_position(data)
         current_position = self.state.current_position
 
-        equity = self.config.initial_cash + self.state.realized_pnl + self._compute_unrealized_pnl(close_price)
+        equity = (
+            self.config.initial_cash
+            + self.state.realized_pnl
+            + self._compute_unrealized_pnl(close_price)
+        )
 
         target_signal, risk_decision = self._apply_risk(
             target_signal, current_position, close_price, equity, bar_ts
