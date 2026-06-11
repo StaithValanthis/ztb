@@ -8,12 +8,13 @@
 - Reconciler: `reconcile_account()` detects position drift between expected and actual exchange state
 - Executor pipeline: closed-bar → signal → risk gate (M5) → diff → round → idempotent place → persist
 - Store migration v4: `exec_runs`, `exec_orders`, `exec_fills`, `exec_positions_snapshots`, `exec_pnl_ledger`, `exec_errors` tables
+- Executor: `_save_error` logging for structured error capture on placement failures
 - CLI: `ztb run <strategy> <symbol> [--mode demo] [--dry-run] [--once]`, `ztb reconcile [--exec-run-id]`
 - Docs: `docs/m6_execution.md` (architecture, idempotency design, CLI reference)
-- **Tests:** 517/517 pass, 91.72% coverage, ruff/mypy clean, secret scan clean, hermetic (mocked transport), signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path
+- **Tests:** 560/560 pass, 93% coverage (execution/ 95-100%), ruff/mypy clean, secret scan clean, hermetic (mocked transport), signing golden vector, demo URL pin, `mode=LIVE` raises, idempotency replay safety, risk gate enforced, reconcile drift detection, executor happy path, error logging coverage
 - **Documentation:** `docs/m6_execution.md`
-- **PR:** [#9](https://github.com/StaithValanthis/ztb/pull/9)
-- **Merge commit:** `286c3ea` — two-key merge (CI green + V&R PASS on SHA `fb10d0c`)
+- **PR:** [#10](https://github.com/StaithValanthis/ztb/pull/10)
+- **Two-key merge:** CI green + V&R PASS on SHA `6825d08` (ZTB-302)
 - **Tag:** v0.7.0
 
 ## v0.6.0 (2026-06-10)
