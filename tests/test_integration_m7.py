@@ -10,9 +10,10 @@ from click.testing import CliRunner
 from pandas import DataFrame, date_range
 
 from ztb.cli import cli
+from ztb.execution.errors import LiveDisarmedError
 from ztb.execution.executor import Executor
 from ztb.execution.killswitch import LiveKillSwitch
-from ztb.execution.live_guard import LiveDisarmedError, LiveGuard
+from ztb.execution.live_guard import LiveGuard
 from ztb.execution.models import ExecRunConfig, Mode
 from ztb.strategies.registry import get as get_strategy
 
@@ -483,6 +484,7 @@ def test_cli_run_with_risk_enabled(tmp_path: Path) -> None:
 def test_cli_run_to_report_pipeline(tmp_path: Path) -> None:
     """Full pipeline: ztb run --dry-run --once then verify exec store."""
     from click.testing import CliRunner
+
     df = _mock_data_df(200)
     db_path = str(tmp_path / "m7_pipeline.db")
     with patch("ztb.execution.executor.load_data", return_value=df):

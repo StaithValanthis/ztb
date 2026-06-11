@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from ztb.execution.bybit_client import BybitClient, ClientConfig
-from ztb.execution.errors import ClientAuthError
+from ztb.execution.errors import ClientAuthError, ClientError
 from ztb.execution.live_guard import LiveDisarmedError
 from ztb.execution.models import Mode, OrderSide, OrderType
 
