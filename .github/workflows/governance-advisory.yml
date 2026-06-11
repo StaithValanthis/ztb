@@ -1,0 +1,45 @@
+name: governance-advisory
+# Advisory (non-blocking) governance checks. Surfaces ownership violations without gating merge,
+# per the Board-directed staged rollout (docs/governance/ownership.md). Promote to required later.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  ownership-advisory:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit authorship vs path ownership (advisory)
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 - <<'EOF'
+          import subprocess, os
+          base = os.environ.get('BASE_SHA') or 'origin/main'
+          rng = f"{base}..HEAD"
+          OWN = [
+            ('ztb/engine/',     {'ZTB Platform Engineer', 'ZTB Head of Engineering'}),
+            ('ztb/execution/',  {'ZTB Platform Engineer', 'ZTB Head of Engineering'}),
+            ('ztb/data/',       {'ZTB Platform Engineer', 'ZTB Head of Engineering'}),
+            ('ztb/store/',      {'ZTB Platform Engineer', 'ZTB Head of Engineering'}),
+            ('ztb/risk/',       {'ZTB Platform Engineer', 'ZTB Head of Engineering'}),
+            ('ztb/strategies/', {'ZTB Strategy Engineer', 'ZTB Head of Engineering'}),
+          ]
+          out = subprocess.run(['git', 'log', rng, '--format=%H|%an'], capture_output=True, text=True).stdout.strip()
+          commits = [l for l in out.split('\n') if l.strip()]
+          warns = 0
+          for line in commits:
+              sha, an = line.split('|', 1)
+              files = subprocess.run(['git', 'show', '--name-only', '--format=', sha], capture_output=True, text=True).stdout.split('\n')
+              files = [f for f in files if f.strip()]
+              for pre, allowed in OWN:
+                  if any(f.startswith(pre) for f in files) and an not in allowed:
+                      print(f"::warning::commit {sha[:8]} touches {pre} but is authored by '{an}', not an owner ({', '.join(sorted(allowed))})")
+                      warns += 1
+          print(f"ownership-advisory: scanned {len(commits)} commit(s), {warns} ownership warning(s) (advisory — does not block merge).")
+          EOF
