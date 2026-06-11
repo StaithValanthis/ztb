@@ -2,10 +2,11 @@
 
 ## v0.7.1 (2026-06-11)
 
-- Fix(executor): correct equity formula to compute unrealized P&L as position × (current price − avg entry price) instead of `abs(position) × price`
-- Removed unused `_save_error` method from executor
-- **PR:** [#13](https://github.com/StaithValanthis/ztb/pull/13)
-- **Merge commit:** `083a7d7` — two-key merge (CI green on `da5d220` + V&R PASS on `9f209c4` on identical logic; cosmetic-only ruff format between the two)
+- Fix(executor): correct equity formula in `_reconcile` to use `_compute_unrealized_pnl()` helper (unrealized P&L = position × (current price − avg entry price)) instead of `expected_position * (close_price - avg_entry_price)` — consistent with `step()` which already used the helper
+- 4 new tests verify equity is not inflated for long and short positions (3 from c0de969 + 1 strengthened in 3cdbb6a)
+- V&R PASS on SHA `3cdbb6a` (ZTB-367)
+- **PR:** [#12](https://github.com/StaithValanthis/ztb/pull/12) — `feat/fix-equity-formula`
+- **Merge commit:** `bea0580` — two-key merge (CI green + V&R PASS on SHA `3cdbb6a`)
 - **Tag:** v0.7.1
 
 ## v0.7.0 (2026-06-10)
@@ -24,14 +25,6 @@
 - **PR:** [#10](https://github.com/StaithValanthis/ztb/pull/10)
 - **Two-key merge:** CI green + V&R PASS on SHA `6825d08` (ZTB-302)
 - **Tag:** v0.7.0
-
-## v0.7.1 (2026-06-11)
-
-- M6 Patch: Equity formula fix in `_reconcile` — `self._compute_unrealized_pnl(close_price)` replaces `abs(expected_position) * close_price` (ZTB-371)
-- Cherry-picked from `feat/execution` @ `da5d220` (V&R PASS ZTB-364 on same SHA)
-- **Tests:** 563/563 pass, 92% coverage, ruff/mypy clean
-- **Two-key merge:** CI green + V&R PASS on SHA `da5d220` (ZTB-364)
-- **Tag:** v0.7.1
 
 ## v0.6.0 (2026-06-10)
 
