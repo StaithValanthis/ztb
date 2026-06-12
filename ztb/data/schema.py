@@ -4,6 +4,7 @@ import pandas as pd
 from pandas import DataFrame
 
 from ztb.data.errors import SchemaError
+from ztb.data.ohlc_validator import validate_ohlc_values
 
 OHLCV_COLUMNS: list[str] = ["open", "high", "low", "close", "volume", "turnover"]
 
@@ -65,6 +66,8 @@ def validate_schema(df: DataFrame) -> DataFrame:
     for col in ("open", "high", "low", "close"):
         if df[col].isna().any():
             raise SchemaError(f"Column '{col}' contains NaN values")
+
+    validate_ohlc_values(df)
 
     if (df["volume"] < 0).any():
         raise SchemaError("Column 'volume' contains negative values")

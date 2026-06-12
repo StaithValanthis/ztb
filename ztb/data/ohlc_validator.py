@@ -17,6 +17,7 @@ def validate_ohlc_values(df: DataFrame) -> DataFrame:
       - missing required columns
       - Infinity / -Infinity in any OHLCV column
       - NaN in any OHLCV column
+      - close <= 0, open <= 0, high <= 0, or low <= 0 in any row
       - High < Low in any row
       - High < Open in any row
       - High < Close in any row
@@ -40,6 +41,14 @@ def validate_ohlc_values(df: DataFrame) -> DataFrame:
     low = df["low"]
     open_ = df["open"]
     close = df["close"]
+
+    for col_name, col_series in [("open", open_), ("high", high), ("low", low), ("close", close)]:
+        mask = col_series <= 0
+        if mask.any():
+            indices = df.index[mask].tolist()
+            violations.append(
+                f"{col_name.capitalize()} <= 0 at {len(indices)} row(s): {_fmt_indices(indices)}"
+            )
 
     mask = high < low
     if mask.any():
