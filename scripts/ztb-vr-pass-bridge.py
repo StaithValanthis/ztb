@@ -80,7 +80,7 @@ def get_repo_owner_repo() -> tuple[str, str]:
 
 def get_ci_conclusion(owner: str, repo: str, sha: str) -> str | None:
     """Check combined CI check-runs for the given SHA.
-    
+
     Returns 'success', 'failure', 'neutral', 'cancelled', 'timed_out', or
     None if no check runs found for this SHA.
     """
@@ -118,7 +118,7 @@ def post_commit_status(
     state: str, description: str,
 ) -> None:
     """Post a commit status via GitHub API.
-    
+
     state: 'success', 'failure', 'pending', 'error'
     """
     body = json.dumps({
@@ -127,7 +127,10 @@ def post_commit_status(
         "description": description,
         "context": "ztb/vr-pass",
     })
-    gh([f"/repos/{owner}/{repo}/statuses/{sha}", "--method", "POST", "--input", "-"], input_data=body)
+    gh(
+        [f"/repos/{owner}/{repo}/statuses/{sha}", "--method", "POST", "--input", "-"],
+        input_data=body,
+    )
 
 
 def main() -> None:
