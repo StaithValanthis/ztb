@@ -44,7 +44,6 @@ def _make_valid_single_value(open_v=100.0, high=110.0, low=90.0, close=105.0) ->
 
 
 class TestValidateOHLCValues:
-
     def test_valid_ohlc_round_trip(self) -> None:
         df = _make_valid_df(10)
         result = validate_ohlc_values(df)
@@ -128,9 +127,7 @@ class TestValidateOHLCValues:
 
     def test_empty_df_passes(self) -> None:
         cols = ["open", "high", "low", "close", "volume", "turnover"]
-        df = DataFrame(columns=cols).set_index(
-            pd.DatetimeIndex([], tz="UTC", name="open_time")
-        )
+        df = DataFrame(columns=cols).set_index(pd.DatetimeIndex([], tz="UTC", name="open_time"))
         for c in cols:
             df[c] = df[c].astype("float64")
         result = validate_ohlc_values(df)
@@ -138,7 +135,6 @@ class TestValidateOHLCValues:
 
 
 class TestCheckNanInf:
-
     def test_pass_on_valid_data(self) -> None:
         df = _make_valid_df(10)
         result = check_nan_inf(df)
@@ -207,9 +203,7 @@ class TestCheckNanInf:
 
     def test_empty_df_passes(self) -> None:
         cols = ["open", "high", "low", "close", "volume", "turnover"]
-        df = DataFrame(columns=cols).set_index(
-            pd.DatetimeIndex([], tz="UTC", name="open_time")
-        )
+        df = DataFrame(columns=cols).set_index(pd.DatetimeIndex([], tz="UTC", name="open_time"))
         for c in cols:
             df[c] = df[c].astype("float64")
         result = check_nan_inf(df)
