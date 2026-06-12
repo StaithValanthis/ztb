@@ -58,7 +58,9 @@ def get_repo_owner_repo() -> tuple[str, str]:
     try:
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode != 0:
             fail("not a git repo or no 'origin' remote")
@@ -80,7 +82,7 @@ def get_repo_owner_repo() -> tuple[str, str]:
 
 def get_ci_conclusion(owner: str, repo: str, sha: str) -> str | None:
     """Check combined CI check-runs for the given SHA.
-    
+
     Returns 'success', 'failure', 'neutral', 'cancelled', 'timed_out', or
     None if no check runs found for this SHA.
     """
@@ -114,20 +116,28 @@ def get_ci_conclusion(owner: str, repo: str, sha: str) -> str | None:
 
 
 def post_commit_status(
-    owner: str, repo: str, sha: str,
-    state: str, description: str,
+    owner: str,
+    repo: str,
+    sha: str,
+    state: str,
+    description: str,
 ) -> None:
     """Post a commit status via GitHub API.
-    
+
     state: 'success', 'failure', 'pending', 'error'
     """
-    body = json.dumps({
-        "state": state,
-        "target_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
-        "description": description,
-        "context": "ztb/vr-pass",
-    })
-    gh([f"/repos/{owner}/{repo}/statuses/{sha}", "--method", "POST", "--input", "-"], input_data=body)
+    body = json.dumps(
+        {
+            "state": state,
+            "target_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
+            "description": description,
+            "context": "ztb/vr-pass",
+        }
+    )
+    gh(
+        [f"/repos/{owner}/{repo}/statuses/{sha}", "--method", "POST", "--input", "-"],
+        input_data=body,
+    )
 
 
 def main() -> None:
@@ -135,11 +145,14 @@ def main() -> None:
         description="Set ztb/vr-pass GitHub commit status for a V&R verdict."
     )
     parser.add_argument(
-        "--sha", required=True,
+        "--sha",
+        required=True,
         help="Commit SHA to set status on",
     )
     parser.add_argument(
-        "--outcome", required=True, choices=["PASS", "FAIL"],
+        "--outcome",
+        required=True,
+        choices=["PASS", "FAIL"],
         help="V&R validation outcome",
     )
     parser.add_argument(
@@ -172,12 +185,14 @@ def main() -> None:
     if ci_conclusion is None:
         # No CI checks found — warn and post pending
         print(
-            f"WARNING: No CI check runs found for {sha[:12]}. "
-            f"Posting pending status.",
+            f"WARNING: No CI check runs found for {sha[:12]}. Posting pending status.",
             file=sys.stderr,
         )
         post_commit_status(
-            owner, repo, sha, "pending",
+            owner,
+            repo,
+            sha,
+            "pending",
             "V&R PASS pending CI verification — no CI checks found (yet)",
         )
         print(f"ztb/vr-pass = pending on {sha[:12]} (no CI checks found)")
@@ -185,13 +200,13 @@ def main() -> None:
 
     if ci_conclusion == "failure":
         post_commit_status(
-            owner, repo, sha, "failure",
+            owner,
+            repo,
+            sha,
+            "failure",
             "V&R PASS VOIDED — CI FAIL on same SHA (void-on-FAIL rule)",
         )
-        print(
-            f"ztb/vr-pass = failure on {sha[:12]} "
-            f"(V&R PASS voided: CI has failures on this SHA)"
-        )
+        print(f"ztb/vr-pass = failure on {sha[:12]} (V&R PASS voided: CI has failures on this SHA)")
         return
 
     # CI is green (success)
