@@ -6,13 +6,16 @@ from pathlib import Path
 import pytest
 
 from ztb.store.exec_io import (
+    count_quarantined_rows,
     create_exec_run,
     ensure_exec_tables,
+    get_credible_pnl_ledger,
     get_exec_fills,
     get_exec_orders,
     get_exec_run,
     get_pnl_ledger,
     list_exec_runs,
+    quarantine_corrupt_ledger_rows,
     save_exec_error,
     save_exec_fill,
     save_exec_order,
@@ -46,6 +49,15 @@ def test_ensure_exec_tables(conn: sqlite3.Connection) -> None:
     assert "exec_pnl_ledger" in table_names
     assert "exec_errors" in table_names
     assert "idempotency" not in table_names  # separate table
+
+
+def test_schema_v6_columns_exist(conn: sqlite3.Connection) -> None:
+    ensure_exec_tables(conn)
+    for tbl in ("exec_orders", "exec_fills", "exec_positions_snapshots", "exec_pnl_ledger"):
+        cols = conn.execute(f"PRAGMA table_info({tbl})").fetchall()
+        col_names = [c["name"] for c in cols]
+        assert "credible" in col_names, f"{tbl} missing credible"
+        assert "code_version" in col_names, f"{tbl} missing code_version"
 
 
 def test_create_and_get_exec_run(conn: sqlite3.Connection) -> None:
@@ -112,6 +124,36 @@ def test_save_and_get_exec_order(conn: sqlite3.Connection) -> None:
     assert len(orders) == 1
     assert orders[0]["order_id"] == "oid1"
     assert orders[0]["side"] == "Buy"
+    assert orders[0]["credible"] == 1
+    assert orders[0]["code_version"] is None
+
+
+def test_save_exec_order_with_credible_and_code_version(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec1", "run1", "s", "BTCUSDT", "60")
+    save_exec_order(
+        conn,
+        {
+            "order_id": "oid1",
+            "exec_run_id": "exec1",
+            "order_link_id": "olid1",
+            "symbol": "BTCUSDT",
+            "side": "Sell",
+            "order_type": "Limit",
+            "price": 60000.0,
+            "qty": 0.2,
+            "status": "New",
+            "created_at": "2026-01-01T00:00:00Z",
+            "cum_exec_qty": 0.0,
+            "cum_exec_value": 0.0,
+            "cum_exec_fee": 0.0,
+            "credible": 0,
+            "code_version": "0.7.0",
+        },
+    )
+    orders = get_exec_orders(conn, "exec1")
+    assert len(orders) == 1
+    assert orders[0]["credible"] == 0
+    assert orders[0]["code_version"] == "0.7.0"
 
 
 def test_update_exec_order_status(conn: sqlite3.Connection) -> None:
@@ -178,6 +220,52 @@ def test_save_exec_fill(conn: sqlite3.Connection) -> None:
     fills = get_exec_fills(conn, "exec1")
     assert len(fills) == 1
     assert fills[0]["fill_id"] == "fill1"
+    assert fills[0]["credible"] == 1
+    assert fills[0]["code_version"] is None
+
+
+def test_save_exec_fill_with_credible(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec2", "run2", "s", "BTCUSDT", "60")
+    save_exec_order(
+        conn,
+        {
+            "order_id": "oid2",
+            "exec_run_id": "exec2",
+            "order_link_id": "olid2",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "order_type": "Market",
+            "price": 50000.0,
+            "qty": 0.1,
+            "status": "Filled",
+            "created_at": "",
+            "cum_exec_qty": 0.1,
+            "cum_exec_value": 5000.0,
+            "cum_exec_fee": 2.5,
+        },
+    )
+    save_exec_fill(
+        conn,
+        {
+            "fill_id": "fill2",
+            "order_link_id": "olid2",
+            "order_id": "oid2",
+            "exec_run_id": "exec2",
+            "symbol": "BTCUSDT",
+            "side": "Sell",
+            "price": 51000.0,
+            "qty": 0.1,
+            "commission": 2.5,
+            "realized_pnl": 100.0,
+            "filled_at": "2026-01-01T00:00:05Z",
+            "credible": 0,
+            "code_version": "0.7.0",
+        },
+    )
+    fills = get_exec_fills(conn, "exec2")
+    assert len(fills) == 1
+    assert fills[0]["credible"] == 0
+    assert fills[0]["code_version"] == "0.7.0"
 
 
 def test_save_position_snapshot(conn: sqlite3.Connection) -> None:
@@ -198,6 +286,31 @@ def test_save_position_snapshot(conn: sqlite3.Connection) -> None:
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["position"] == 0.5
+    assert rows[0]["credible"] == 1
+    assert rows[0]["code_version"] is None
+
+
+def test_save_position_snapshot_with_credible(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec1", "run1", "s", "BTCUSDT", "60")
+    save_position_snapshot(
+        conn,
+        {
+            "exec_run_id": "exec1",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-01-01T00:01:00Z",
+            "position": 1.0,
+            "avg_price": 60000.0,
+            "unrealized_pnl": 0.0,
+            "credible": 0,
+            "code_version": "0.7.0",
+        },
+    )
+    rows = conn.execute(
+        "SELECT * FROM exec_positions_snapshots WHERE exec_run_id = ?", ("exec1",)
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["credible"] == 0
+    assert rows[0]["code_version"] == "0.7.0"
 
 
 def test_save_pnl_entry(conn: sqlite3.Connection) -> None:
@@ -216,6 +329,116 @@ def test_save_pnl_entry(conn: sqlite3.Connection) -> None:
     ledger = get_pnl_ledger(conn, "exec1")
     assert len(ledger) == 1
     assert ledger[0]["realized_pnl"] == 10.0
+    assert ledger[0]["credible"] == 1
+    assert ledger[0]["code_version"] is None
+
+
+def test_save_pnl_entry_with_credible(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec1", "run1", "s", "BTCUSDT", "60")
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec1",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": -50.0,
+            "unrealized_pnl": 25.0,
+            "total_equity": 99975.0,
+            "credible": 0,
+            "code_version": "0.7.0",
+        },
+    )
+    ledger = get_pnl_ledger(conn, "exec1")
+    assert len(ledger) == 1
+    assert ledger[0]["credible"] == 0
+    assert ledger[0]["code_version"] == "0.7.0"
+
+
+def test_get_credible_pnl_ledger(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec1", "run1", "s", "BTCUSDT", "60")
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec1",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": 10.0,
+            "unrealized_pnl": 5.0,
+            "total_equity": 100015.0,
+            "credible": 1,
+        },
+    )
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec1",
+            "timestamp": "2026-01-01T00:01:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "total_equity": 5000.0,
+            "credible": 0,
+            "code_version": "0.7.0",
+        },
+    )
+    full = get_pnl_ledger(conn, "exec1")
+    assert len(full) == 2
+    credible = get_credible_pnl_ledger(conn, "exec1")
+    assert len(credible) == 1
+    assert credible[0]["realized_pnl"] == 10.0
+
+
+def test_quarantine_corrupt_ledger_rows(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec_corrupt", "run_c", "s", "BTCUSDT", "60")
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec_corrupt",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "total_equity": 100_000.0,
+        },
+    )
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec_corrupt",
+            "timestamp": "2026-01-01T00:01:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 5.0,
+            "total_equity": 100_005.0,
+        },
+    )
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec_corrupt",
+            "timestamp": "2026-01-01T00:02:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "total_equity": 5000.0,
+        },
+    )
+    save_pnl_entry(
+        conn,
+        {
+            "exec_run_id": "exec_corrupt",
+            "timestamp": "2026-01-01T00:03:00Z",
+            "symbol": "BTCUSDT",
+            "realized_pnl": -50.0,
+            "unrealized_pnl": 25.0,
+            "total_equity": 99975.0,
+        },
+    )
+    count_before = count_quarantined_rows(conn)
+    assert count_before == 0
+    n = quarantine_corrupt_ledger_rows(conn, "exec_corrupt", initial_cash=100_000.0, threshold=0.01)
+    assert n == 1
+    assert count_quarantined_rows(conn) == 1
 
 
 def test_save_exec_error(conn: sqlite3.Connection) -> None:
