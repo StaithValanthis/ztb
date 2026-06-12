@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 from ztb.risk.killswitch import KillSwitch
 
 
@@ -141,3 +143,46 @@ def test_no_trip_when_equity_above_hwm() -> None:
     ks.update(100.0)
     tripped = ks.check_trip(120.0)
     assert tripped is False
+
+
+def test_no_hwm_update_on_nan_equity() -> None:
+    ks = KillSwitch()
+    ks.update(100.0)
+    assert ks.hwm == 100.0
+    ks.update(np.nan)
+    assert ks.hwm == 100.0
+
+
+def test_no_hwm_update_on_inf_equity() -> None:
+    ks = KillSwitch()
+    ks.update(100.0)
+    assert ks.hwm == 100.0
+    ks.update(np.inf)
+    assert ks.hwm == 100.0
+
+
+def test_check_trip_on_nan_equity() -> None:
+    ks = KillSwitch(account_killswitch_dd=0.25)
+    ks.update(100.0)
+    tripped = ks.check_trip(np.nan)
+    assert tripped is True
+    assert ks.tripped is True
+    assert "non-finite" in ks.trip_reason
+
+
+def test_check_trip_on_inf_equity() -> None:
+    ks = KillSwitch(account_killswitch_dd=0.25)
+    ks.update(100.0)
+    tripped = ks.check_trip(np.inf)
+    assert tripped is True
+    assert ks.tripped is True
+    assert "non-finite" in ks.trip_reason
+
+
+def test_check_trip_on_neg_inf_equity() -> None:
+    ks = KillSwitch(account_killswitch_dd=0.25)
+    ks.update(100.0)
+    tripped = ks.check_trip(-np.inf)
+    assert tripped is True
+    assert ks.tripped is True
+    assert "non-finite" in ks.trip_reason

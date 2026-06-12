@@ -133,6 +133,46 @@ class TestValidateOHLCValues:
         result = validate_ohlc_values(df)
         assert len(result) == 0
 
+    def test_negative_close_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=110.0, low=90.0, close=-1.0)
+        with pytest.raises(SchemaError, match="Close <= 0"):
+            validate_ohlc_values(df)
+
+    def test_zero_close_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=110.0, low=90.0, close=0.0)
+        with pytest.raises(SchemaError, match="Close <= 0"):
+            validate_ohlc_values(df)
+
+    def test_negative_open_raises(self) -> None:
+        df = _make_valid_single_value(open_v=-1.0, high=110.0, low=90.0, close=105.0)
+        with pytest.raises(SchemaError, match="Open <= 0"):
+            validate_ohlc_values(df)
+
+    def test_zero_open_raises(self) -> None:
+        df = _make_valid_single_value(open_v=0.0, high=110.0, low=90.0, close=105.0)
+        with pytest.raises(SchemaError, match="Open <= 0"):
+            validate_ohlc_values(df)
+
+    def test_negative_high_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=-1.0, low=90.0, close=105.0)
+        with pytest.raises(SchemaError, match="High <= 0"):
+            validate_ohlc_values(df)
+
+    def test_zero_high_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=0.0, low=90.0, close=105.0)
+        with pytest.raises(SchemaError, match="High <= 0"):
+            validate_ohlc_values(df)
+
+    def test_negative_low_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=110.0, low=-1.0, close=105.0)
+        with pytest.raises(SchemaError, match="Low <= 0"):
+            validate_ohlc_values(df)
+
+    def test_zero_low_raises(self) -> None:
+        df = _make_valid_single_value(open_v=100.0, high=110.0, low=0.0, close=105.0)
+        with pytest.raises(SchemaError, match="Low <= 0"):
+            validate_ohlc_values(df)
+
 
 class TestCheckNanInf:
     def test_pass_on_valid_data(self) -> None:

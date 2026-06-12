@@ -12,18 +12,26 @@ from pandas import DataFrame
 
 from ztb.cli import cli
 from ztb.data.cache import write_cache
-from ztb.data.schema import OHLCV_COLUMNS
 
 
 def _make_df(n: int = 10) -> DataFrame:
     idx = pd.date_range("2025-01-01", periods=n, freq="1h", tz="UTC", name="open_time")
-    data = {col: np.random.randn(n) * 100 + 50000 for col in OHLCV_COLUMNS}
-    data["volume"] = np.abs(data["volume"]) + 1
-    data["turnover"] = np.abs(data["turnover"]) + 1
+    rng = np.random.default_rng(42)
+    base = 50000.0
+    opens = base + rng.random(n) * 100
+    closes = opens + rng.random(n) * 50 - 25
+    lows = np.minimum(opens, closes) - rng.random(n) * 20
+    highs = np.maximum(opens, closes) + rng.random(n) * 20
+    data = {
+        "open": opens.astype("float64"),
+        "high": highs.astype("float64"),
+        "low": lows.astype("float64"),
+        "close": closes.astype("float64"),
+        "volume": (np.abs(rng.random(n)) + 1).astype("float64"),
+        "turnover": (np.abs(rng.random(n)) + 1).astype("float64"),
+    }
     df = DataFrame(data, index=idx)
     df.index.name = "open_time"
-    for col in OHLCV_COLUMNS:
-        df[col] = df[col].astype("float64")
     return df
 
 
@@ -89,13 +97,22 @@ def test_data_verify_gaps_fails(runner: CliRunner) -> None:
         extra_idx = pd.date_range(
             "2025-01-01 10:00", periods=3, freq="1h", tz="UTC", name="open_time"
         )
-        extra_data = {col: np.random.randn(3) * 100 + 50000 for col in OHLCV_COLUMNS}
-        extra_data["volume"] = np.abs(extra_data["volume"]) + 1
-        extra_data["turnover"] = np.abs(extra_data["turnover"]) + 1
+        rng = np.random.default_rng(99)
+        px = 50000.0
+        opens = px + rng.random(3) * 100
+        closes = opens + rng.random(3) * 50 - 25
+        lows = np.minimum(opens, closes) - rng.random(3) * 20
+        highs = np.maximum(opens, closes) + rng.random(3) * 20
+        extra_data = {
+            "open": opens.astype("float64"),
+            "high": highs.astype("float64"),
+            "low": lows.astype("float64"),
+            "close": closes.astype("float64"),
+            "volume": (np.abs(rng.random(3)) + 1).astype("float64"),
+            "turnover": (np.abs(rng.random(3)) + 1).astype("float64"),
+        }
         extra = DataFrame(extra_data, index=extra_idx)
         extra.index.name = "open_time"
-        for col in OHLCV_COLUMNS:
-            extra[col] = extra[col].astype("float64")
         df = pd.concat([df, extra])
         df = df[~df.index.duplicated(keep="first")].sort_index()
         write_cache(df, "linear", "BTCUSDT", "60", base=base)
