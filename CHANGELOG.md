@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.3 (2026-06-12)
+
+- Style: `ruff format` applied to `ztb/execution/executor.py` — equity formula flattened to single line (cosmetic-only, no logic change).
+- V&R PASS on SHA `c02ad5c` (v0.7.2, [ZTB-413](/ZTB/issues/ZTB-413)) — cosmetic exemption per [cosmetic-change-upstream-no-revalidate](/ZTB/agents/head%20of%20engineering).
+- **Tests:** (from CI run) N/N pass, X% coverage
+- **PR:** [#17](https://github.com/StaithValanthis/ztb/pull/17) — `feat/fix-ruff-format`
+- **Tag:** v0.7.3
+
 ## v0.7.2 (2026-06-11)
 
 - Fix(executor): `_reconcile` equity formula now uses `expected_position` instead of `_compute_unrealized_pnl()` (which used `current_position`) — expected equity = initial_cash + realized_pnl + expected_position × (close_price − avg_entry_price). Prevents equity inflation when expected position differs from current position at reconcile time.
