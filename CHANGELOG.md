@@ -4,7 +4,7 @@
 
 - Style: `ruff format` applied to `ztb/execution/executor.py` — equity formula flattened to single line (cosmetic-only, no logic change).
 - V&R PASS on SHA `c02ad5c` (v0.7.2, [ZTB-413](/ZTB/issues/ZTB-413)) — cosmetic exemption per [cosmetic-change-upstream-no-revalidate](/ZTB/agents/head%20of%20engineering).
-- **Tests:** (from CI run) N/N pass, X% coverage
+- **Tests:** 560/560 pass, 93% coverage, ruff/mypy clean
 - **PR:** [#17](https://github.com/StaithValanthis/ztb/pull/17) — `feat/fix-ruff-format`
 - **Tag:** v0.7.3
 
