@@ -33,46 +33,46 @@ def single_symbol_portfolio(
 
     for i, idx in enumerate(signals.index):
         price = float(close.iloc[i])
-        target = float(signals.iloc[i])
+        target_frac = float(signals.iloc[i])
+
+        equity_before = cash + pos * price
+        target_qty = target_frac * equity_before / price if price > 0 else 0.0
 
         pnl = 0.0
+        delta = target_qty - pos
 
-        if i == 0:
-            if abs(target) > 0:
-                avg_price = price
-            pos = target
-        elif abs(target - pos) > 1e-12:
-            delta = target - pos
-
+        if i == 0 and abs(target_qty) > 0:
+            avg_price = price
+        elif abs(delta) > 1e-12:
             if pos > 0:
-                if target > 0:
+                if target_qty > 0:
                     if delta > 0:
-                        avg_price = (avg_price * pos + delta * price) / target
+                        avg_price = (avg_price * pos + delta * price) / target_qty
                     else:
                         pnl = (price - avg_price) * abs(delta)
                 else:
                     pnl = (price - avg_price) * pos
-                    avg_price = price if target < 0 else 0.0
+                    avg_price = price if target_qty < 0 else 0.0
             elif pos < 0:
-                if target < 0:
+                if target_qty < 0:
                     if delta < 0:
-                        avg_price = (avg_price * abs(pos) + abs(delta) * price) / abs(target)
+                        avg_price = (avg_price * abs(pos) + abs(delta) * price) / abs(target_qty)
                     else:
                         pnl = (avg_price - price) * abs(delta)
                 else:
                     pnl = (avg_price - price) * abs(pos)
-                    avg_price = price if target > 0 else 0.0
+                    avg_price = price if target_qty > 0 else 0.0
             else:
                 avg_price = price
 
+        if abs(delta) > 1e-12:
             costs = abs(delta) * price * (commission + slippage)
             net_pnl = pnl - costs
 
-            if abs(delta) > 0:
-                if delta > 0:
-                    cash -= delta * price * (1 + commission + slippage)
-                else:
-                    cash += abs(delta) * price * (1 - commission - slippage)
+            if delta > 0:
+                cash -= delta * price * (1 + commission + slippage)
+            else:
+                cash += abs(delta) * price * (1 - commission - slippage)
 
             trades.append(
                 {
@@ -86,7 +86,7 @@ def single_symbol_portfolio(
                 }
             )
 
-            pos = target
+            pos = target_qty
 
         equity.append(cash + pos * price)
         timestamps.append(idx)
@@ -121,52 +121,55 @@ def multi_symbol_portfolio(
     timestamps: list[pd.Timestamp] = []
 
     for i, idx in enumerate(index):
+        pre_trade_equity = cash + sum(
+            positions[sym] * float(closes[sym].iloc[i]) for sym in symbols
+        )
+
         for sym in symbols:
             price = float(closes[sym].iloc[i])
-            target = float(signals[sym].iloc[i])
+            target_frac = float(signals[sym].iloc[i])
+            target_qty = target_frac * pre_trade_equity / price if price > 0 else 0.0
+
             pos = positions[sym]
             avg_price = avg_prices[sym]
 
             pnl = 0.0
+            delta = target_qty - pos
 
-            if i == 0:
-                if abs(target) > 0:
-                    avg_prices[sym] = price
-                positions[sym] = target
-            elif abs(target - pos) > 1e-12:
-                delta = target - pos
-
+            if i == 0 and abs(target_qty) > 0:
+                avg_prices[sym] = price
+            elif abs(delta) > 1e-12:
                 if pos > 0:
-                    if target > 0:
+                    if target_qty > 0:
                         if delta > 0:
-                            avg_prices[sym] = (avg_price * pos + delta * price) / target
+                            avg_prices[sym] = (avg_price * pos + delta * price) / target_qty
                         else:
                             pnl = (price - avg_price) * abs(delta)
                     else:
                         pnl = (price - avg_price) * pos
-                        avg_prices[sym] = price if target < 0 else 0.0
+                        avg_prices[sym] = price if target_qty < 0 else 0.0
                 elif pos < 0:
-                    if target < 0:
+                    if target_qty < 0:
                         if delta < 0:
                             avg_prices[sym] = (avg_price * abs(pos) + abs(delta) * price) / abs(
-                                target
+                                target_qty
                             )
                         else:
                             pnl = (avg_price - price) * abs(delta)
                     else:
                         pnl = (avg_price - price) * abs(pos)
-                        avg_prices[sym] = price if target > 0 else 0.0
+                        avg_prices[sym] = price if target_qty > 0 else 0.0
                 else:
                     avg_prices[sym] = price
 
+            if abs(delta) > 1e-12:
                 costs = abs(delta) * price * (commission + slippage)
                 net_pnl = pnl - costs
 
-                if abs(delta) > 0:
-                    if delta > 0:
-                        cash -= delta * price * (1 + commission + slippage)
-                    else:
-                        cash += abs(delta) * price * (1 - commission - slippage)
+                if delta > 0:
+                    cash -= delta * price * (1 + commission + slippage)
+                else:
+                    cash += abs(delta) * price * (1 - commission - slippage)
 
                 trades.append(
                     {
@@ -181,7 +184,7 @@ def multi_symbol_portfolio(
                     }
                 )
 
-                positions[sym] = target
+                positions[sym] = target_qty
 
         total_equity = cash + sum(positions[sym] * float(closes[sym].iloc[i]) for sym in symbols)
         equity.append(total_equity)

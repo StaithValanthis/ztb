@@ -98,11 +98,10 @@ def run_forwardtest(
         total_gross_leverage = 0.0
         leverage_samples = 0
         for i, _idx in enumerate(adj_signals.index):
-            price = float(close.iloc[i])
             sig = float(adj_signals.iloc[i])
             eq = adj_equity[i]
-            if eq > 0 and abs(sig) * price > 0:
-                total_gross_leverage += abs(sig) * price / eq
+            if eq > 0 and abs(sig) > 0:
+                total_gross_leverage += abs(sig)
                 leverage_samples += 1
         shifted = adj_signals
     else:
