@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1 (2026-06-12)
+
+- **Release process documented:** `docs/release-process.md` — two-key merge gate: CI-green AND V&R PASS must be on the identical SHA before tagging. Version bump + CHANGELOG update must be in the PR head BEFORE validation (no post-merge commits). Fixes ZTB-512, implements ZTB-536.
+- **PR:** [#17](https://github.com/StaithValanthis/ztb/pull/17) — `feat/ztb-551-ruff-format-changelog`
+- **Tag:** v1.0.1
+
 ## v1.0.0 (2026-06-11)
 
 - **M7 Live-ready (Board-armable, DISARMED by default):** `ztb/execution/live_guard.py` (LiveGuard arming gate)
