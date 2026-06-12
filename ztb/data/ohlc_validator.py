@@ -105,6 +105,4 @@ def check_nan_inf(df: DataFrame, *, columns: tuple[str, ...] = OHLCV_COLS) -> Da
 def _fmt_indices(indices: list[pd.Timestamp]) -> str:
     if len(indices) <= 5:
         return ", ".join(str(ts) for ts in indices)
-    return (
-        ", ".join(str(ts) for ts in indices[:5]) + f", ... ({len(indices) - 5} more)"
-    )
+    return ", ".join(str(ts) for ts in indices[:5]) + f", ... ({len(indices) - 5} more)"
