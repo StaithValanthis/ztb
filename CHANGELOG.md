@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.3 (2026-06-12)
+
+- **Feat(data):** OHLC value validation — `validate_ohlc_values()` checks `Hi>=Lo`, `Hi>=Op`, `Hi>=Cl`, `Lo<=Op`, `Lo<=Cl` with multi-violation `SchemaError`
+- **Feat(data):** NaN/Inf killswitch fail-safe — `check_nan_inf()` standalone pre-pipeline gate; integrated into `killswitch.py` and `risk/manager.py`
+- **Feat(schema):** Schema import `validate_ohlc_values` and `check_nan_inf` in `ztb/data/__init__.py` and `ztb/data/schema.py`
+- **Tests:** 30 new OHLC validator tests; existing test suite adapted (test_cache, test_cli_data, test_risk_killswitch, test_risk_manager, test_schema)
+- V&R PASS on SHA `b633d47` ([ZTB-769](/ZTB/issues/ZTB-769), [ZTB-779](/ZTB/issues/ZTB-779))
+- **PR:** [#26](https://github.com/StaithValanthis/ztb/pull/26) — `feat/ohlc-validation`
+- **Merge commit:** `8160109` — two-key merge (CI green + V&R PASS on SHA `b633d47`)
+- **Tag:** v1.0.3
+
 ## v1.0.2 (2026-06-12)
 
 - **docs/release-process.md:** Fix CI table to match actual workflow (`-m "not network"`, `--cov-report=term-missing`); move version bump before validation (no post-merge bumps); tag validated SHA directly (see ZTB-512)
