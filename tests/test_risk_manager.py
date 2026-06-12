@@ -189,7 +189,21 @@ def test_compute_current_dd_when_hwm_zero() -> None:
     mgr = RiskManager()
     mgr.kill_switch.hwm = 0.0
     dd = mgr._compute_current_dd(100.0)
-    assert dd == 0.0
+    assert dd == 1.0
+
+
+def test_compute_current_dd_returns_1_when_hwm_nan() -> None:
+    mgr = RiskManager()
+    mgr.kill_switch.hwm = np.nan
+    dd = mgr._compute_current_dd(100.0)
+    assert dd == 1.0
+
+
+def test_compute_current_dd_returns_1_when_hwm_inf() -> None:
+    mgr = RiskManager()
+    mgr.kill_switch.hwm = np.inf
+    dd = mgr._compute_current_dd(100.0)
+    assert dd == 1.0
 
 
 def test_evaluate_heat_computed_for_multi_asset() -> None:

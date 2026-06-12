@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 
 @dataclass
 class KillSwitch:
@@ -14,9 +16,15 @@ class KillSwitch:
     cooldown_bars: int = 100
 
     def update(self, current_equity: float) -> None:
+        if not np.isfinite(current_equity):
+            return
         self.hwm = max(self.hwm, current_equity)
 
     def check_trip(self, current_equity: float) -> bool:
+        if not np.isfinite(current_equity):
+            self.tripped = True
+            self.trip_reason = "non-finite equity"
+            return True
         if self.hwm <= 0:
             self.hwm = current_equity
             return False

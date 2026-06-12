@@ -41,8 +41,8 @@ class RiskManager:
 
     def _compute_current_dd(self, current_equity: float) -> float:
         hwm = self.kill_switch.hwm
-        if hwm <= 0:
-            return 0.0
+        if hwm <= 0 or not np.isfinite(hwm):
+            return 1.0
         return max(0.0, (hwm - current_equity) / hwm)
 
     def evaluate(

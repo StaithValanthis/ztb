@@ -30,13 +30,22 @@ def _make_df(n: int = 10, start_hour: int = 0) -> DataFrame:
     idx = pd.date_range(
         f"2025-01-01 {start_hour:02d}:00", periods=n, freq="1h", tz="UTC", name="open_time"
     )
-    data = {col: np.random.randn(n) * 100 + 50000 for col in OHLCV_COLUMNS}
-    data["volume"] = np.abs(data["volume"]) + 1
-    data["turnover"] = np.abs(data["turnover"]) + 1
+    rng = np.random.default_rng(42)
+    base = 50000.0
+    opens = base + rng.random(n) * 100
+    closes = opens + rng.random(n) * 50 - 25
+    lows = np.minimum(opens, closes) - rng.random(n) * 20
+    highs = np.maximum(opens, closes) + rng.random(n) * 20
+    data = {
+        "open": opens.astype("float64"),
+        "high": highs.astype("float64"),
+        "low": lows.astype("float64"),
+        "close": closes.astype("float64"),
+        "volume": (np.abs(rng.random(n)) + 1).astype("float64"),
+        "turnover": (np.abs(rng.random(n)) + 1).astype("float64"),
+    }
     df = DataFrame(data, index=idx)
     df.index.name = "open_time"
-    for col in OHLCV_COLUMNS:
-        df[col] = df[col].astype("float64")
     return df
 
 
