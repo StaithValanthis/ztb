@@ -18,6 +18,7 @@ from ztb.execution.models import (
     AccountState,
     ExecRunConfig,
     ExecRunState,
+    Mode,
     OrderSide,
     OrderType,
     Position,
@@ -152,7 +153,19 @@ class Executor:
     def _check_killswitch(self) -> bool:
         if self._killswitch is None:
             return False
-        return bool(self._killswitch.is_tripped)
+        tripped = self._killswitch.is_tripped
+        if tripped and self._store_conn is not None:
+            persist = self._killswitch.to_persistable_state()
+            from ztb.store.exec_io import save_killswitch_state
+
+            save_killswitch_state(
+                self._store_conn,
+                self.state.exec_run_id,
+                persist["tripped"],
+                persist["hwm_equity"],
+                persist["last_heartbeat"],
+            )
+        return bool(tripped)
 
     def _save_kill_events(self) -> None:
         if self._killswitch is None or self._store_conn is None:
@@ -497,6 +510,28 @@ class Executor:
         self._init_run()
         self._init_store(db_path)
 
+        if (
+            self._killswitch is not None
+            and self._store_conn is not None
+            and self.config.mode == Mode.LIVE
+            and not self.config.dry_run
+        ):
+            from ztb.store.exec_io import load_killswitch_state, save_killswitch_state
+
+            state = load_killswitch_state(self._store_conn, self.state.exec_run_id)
+            if state is not None:
+                equity = self.config.initial_cash
+                self._killswitch.restore_from_state(state, current_equity=equity)
+            else:
+                persist = self._killswitch.to_persistable_state()
+                save_killswitch_state(
+                    self._store_conn,
+                    self.state.exec_run_id,
+                    persist["tripped"],
+                    persist["hwm_equity"],
+                    persist["last_heartbeat"],
+                )
+
         if self._killswitch is not None:
             self._killswitch.heartbeat()
         self._setup_sigterm()
@@ -541,6 +576,17 @@ class Executor:
                     break
                 if self._killswitch is not None:
                     self._killswitch.heartbeat()
+                    if self._store_conn is not None:
+                        persist = self._killswitch.to_persistable_state()
+                        from ztb.store.exec_io import save_killswitch_state
+
+                        save_killswitch_state(
+                            self._store_conn,
+                            self.state.exec_run_id,
+                            persist["tripped"],
+                            persist["hwm_equity"],
+                            persist["last_heartbeat"],
+                        )
 
         from ztb.store.exec_io import update_exec_run_status
 

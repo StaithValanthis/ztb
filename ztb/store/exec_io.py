@@ -104,8 +104,19 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN credible INTEGER NOT NULL DEFAULT 1")
         with suppress(sqlite3.OperationalError):
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN code_version TEXT DEFAULT NULL")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS killswitch_state (
+            exec_run_id TEXT PRIMARY KEY,
+            tripped INTEGER NOT NULL DEFAULT 0,
+            hwm_equity REAL NOT NULL DEFAULT 0.0,
+            last_heartbeat REAL NOT NULL DEFAULT 0.0,
+            updated_at TEXT NOT NULL
+        )"""
+    )
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (6)")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
     conn.commit()
 
 
@@ -360,3 +371,49 @@ def quarantine_corrupt_ledger_rows(
 def count_quarantined_rows(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COUNT(*) AS cnt FROM exec_pnl_ledger WHERE credible = 0").fetchone()
     return row["cnt"] if row else 0
+
+
+def save_killswitch_state(
+    conn: sqlite3.Connection,
+    exec_run_id: str,
+    tripped: bool,
+    hwm_equity: float,
+    last_heartbeat: float,
+) -> None:
+    from datetime import UTC, datetime
+
+    conn.execute(
+        """INSERT OR REPLACE INTO killswitch_state
+           (exec_run_id, tripped, hwm_equity, last_heartbeat, updated_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            exec_run_id,
+            1 if tripped else 0,
+            hwm_equity,
+            last_heartbeat,
+            datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        ),
+    )
+    conn.commit()
+
+
+def load_killswitch_state(conn: sqlite3.Connection, exec_run_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM killswitch_state WHERE exec_run_id = ?", (exec_run_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["tripped"] = bool(d["tripped"])
+    return d
+
+
+def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict | None:
+    rows = conn.execute(
+        """SELECT ke.* FROM kill_events ke
+           WHERE ke.exec_run_id NOT IN (
+               SELECT exec_run_id FROM kill_events WHERE source = 'manual_reset'
+           )
+           ORDER BY ke.event_id DESC LIMIT 1"""
+    ).fetchall()
+    return dict(rows[0]) if rows else None
