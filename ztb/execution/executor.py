@@ -155,6 +155,7 @@ class Executor:
             return False
         tripped = self._killswitch.is_tripped
         if tripped and self._store_conn is not None:
+            assert self.state is not None
             persist = self._killswitch.to_persistable_state()
             from ztb.store.exec_io import save_killswitch_state
 
@@ -518,6 +519,7 @@ class Executor:
         ):
             from ztb.store.exec_io import load_killswitch_state, save_killswitch_state
 
+            assert self.state is not None
             state = load_killswitch_state(self._store_conn, self.state.exec_run_id)
             if state is not None:
                 equity = self.config.initial_cash
@@ -577,6 +579,7 @@ class Executor:
                 if self._killswitch is not None:
                     self._killswitch.heartbeat()
                     if self._store_conn is not None:
+                        assert self.state is not None
                         persist = self._killswitch.to_persistable_state()
                         from ztb.store.exec_io import save_killswitch_state
 

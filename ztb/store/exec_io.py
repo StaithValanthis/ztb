@@ -397,7 +397,7 @@ def save_killswitch_state(
     conn.commit()
 
 
-def load_killswitch_state(conn: sqlite3.Connection, exec_run_id: str) -> dict | None:
+def load_killswitch_state(conn: sqlite3.Connection, exec_run_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         "SELECT * FROM killswitch_state WHERE exec_run_id = ?", (exec_run_id,)
     ).fetchone()
@@ -408,7 +408,7 @@ def load_killswitch_state(conn: sqlite3.Connection, exec_run_id: str) -> dict | 
     return d
 
 
-def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict | None:
+def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any] | None:
     rows = conn.execute(
         """SELECT ke.* FROM kill_events ke
            WHERE ke.exec_run_id NOT IN (
