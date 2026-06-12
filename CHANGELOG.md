@@ -1,9 +1,26 @@
 # Changelog
 
+## v1.0.2 (2026-06-12)
+
+- **docs/release-process.md:** Fix CI table to match actual workflow (`-m "not network"`, `--cov-report=term-missing`); move version bump before validation (no post-merge bumps); tag validated SHA directly (see ZTB-512)
+- V&R PASS on SHA `f18f012` ([ZTB-590](/ZTB/issues/ZTB-590))
+- **Tests:** existing — docs only, no code change
+- **PR:** [#18](https://github.com/StaithValanthis/ztb/pull/18) — `feat/release-process-fix`
+- **Merge commit:** `8b9c466` — two-key merge (CI green + V&R PASS on SHA `f18f012`)
+- **Tag:** v1.0.2
+
 ## v1.0.1 (2026-06-12)
 
 - **Release process documented:** `docs/release-process.md` — two-key merge gate: CI-green AND V&R PASS must be on the identical SHA before tagging. Version bump + CHANGELOG update must be in the PR head BEFORE validation (no post-merge commits). Fixes ZTB-512, implements ZTB-536.
+- Fix(store): Add `credible INTEGER NOT NULL DEFAULT 1` and `code_version TEXT DEFAULT NULL` columns to exec_orders, exec_fills, exec_positions_snapshots, exec_pnl_ledger via guarded additive migration
+- Quarantine 117 corrupt v0.7.0 exec_pnl_ledger rows (`credible=0`, `code_version=0.7.0`) — equity diverged from `initial_cash + realized_pnl + unrealized_pnl`
+- New accessor `get_credible_pnl_ledger(exec_run_id)` filters to credible=1 only, safe for aggregations
+- Executor integration: all new writes auto-populate credible=1 + code_version from `ztb.__version__`
+- V&R PASS on SHA `5719676` ([ZTB-600](/ZTB/issues/ZTB-600))
+- **Tests:** all existing pass, 223 new test lines in test_execution_store.py verify schema, save, accessor, quarantine
 - **PR:** [#17](https://github.com/StaithValanthis/ztb/pull/17) — `feat/ztb-551-ruff-format-changelog`
+- **PR:** [#20](https://github.com/StaithValanthis/ztb/pull/20) — `feat/quarantine-corrupt-ledger`
+- **Merge commit:** `2a5745d` — two-key merge (CI green + V&R PASS on SHA `5719676`)
 - **Tag:** v1.0.1
 
 ## v1.0.0 (2026-06-11)

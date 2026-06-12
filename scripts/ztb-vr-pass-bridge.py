@@ -134,10 +134,8 @@ def post_commit_status(
             "context": "ztb/vr-pass",
         }
     )
-    gh(
-        [f"/repos/{owner}/{repo}/statuses/{sha}", "--method", "POST", "--input", "-"],
-        input_data=body,
-    )
+    url = f"/repos/{owner}/{repo}/statuses/{sha}"
+    gh([url, "--method", "POST", "--input", "-"], input_data=body)
 
 
 def main() -> None:

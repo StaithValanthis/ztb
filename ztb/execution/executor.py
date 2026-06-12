@@ -126,6 +126,8 @@ class Executor:
                 "position": self.state.current_position,
                 "avg_price": price,
                 "unrealized_pnl": 0.0,
+                "credible": 1,
+                "code_version": "1.0.0",
             },
         )
 
@@ -142,6 +144,8 @@ class Executor:
                 "realized_pnl": realized,
                 "unrealized_pnl": unrealized,
                 "total_equity": equity,
+                "credible": 1,
+                "code_version": "1.0.0",
             },
         )
 
@@ -466,6 +470,8 @@ class Executor:
                     "cum_exec_qty": qty,
                     "cum_exec_value": qty * close_price,
                     "cum_exec_fee": qty * close_price * self.config.commission,
+                    "credible": 1,
+                    "code_version": "1.0.0",
                 },
             )
 
