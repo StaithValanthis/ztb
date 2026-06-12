@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.1 (2026-06-12)
+
+- Fix(store): Add `credible INTEGER NOT NULL DEFAULT 1` and `code_version TEXT DEFAULT NULL` columns to exec_orders, exec_fills, exec_positions_snapshots, exec_pnl_ledger via guarded additive migration
+- Quarantine 117 corrupt v0.7.0 exec_pnl_ledger rows (`credible=0`, `code_version=0.7.0`) — equity diverged from `initial_cash + realized_pnl + unrealized_pnl`
+- New accessor `get_credible_pnl_ledger(exec_run_id)` filters to credible=1 only, safe for aggregations
+- Executor integration: all new writes auto-populate credible=1 + code_version from `ztb.__version__`
+- V&R PASS on SHA `5719676` ([ZTB-600](/ZTB/issues/ZTB-600))
+- **Tests:** all existing pass, 223 new test lines in test_execution_store.py verify schema, save, accessor, quarantine
+- **PR:** [#20](https://github.com/StaithValanthis/ztb/pull/20) — `feat/quarantine-corrupt-ledger`
+- **Merge commit:** `2a5745d` — two-key merge (CI green + V&R PASS on SHA `5719676`)
+- **Tag:** v1.0.1
+
 ## v1.0.0 (2026-06-11)
 
 - **M7 Live-ready (Board-armable, DISARMED by default):** `ztb/execution/live_guard.py` (LiveGuard arming gate)
