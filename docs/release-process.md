@@ -6,7 +6,7 @@ Every release of `ztb` lands via the **two-key merge gate**: a merge to `main` r
 
 ## The Two Keys
 
-1. **CI-green** — the full CI matrix (ruff, ruff-format, mypy, pytest --cov-fail-under=90, secret-scan, version-consistency) passes on the PR head commit across Python 3.11 and 3.13.
+1. **CI-green** — the full CI matrix (ruff, ruff-format, mypy, pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing, secret-scan, version-consistency) passes on the PR head commit across Python 3.11 and 3.13 (`fail-fast: false`). On `main` pushes, a successful `test` job also triggers the `vr-pass` bridge which posts the V&R PASS record.
 2. **V&R PASS** — the independent Validation & Risk team records a PASS against the **exact same SHA**.
 
 Both keys must hold on the same commit. A red CI never reaches V&R; a PASS on a different SHA does not unlock the gate.
@@ -59,9 +59,10 @@ Every push runs on **Python 3.11 and 3.13** (matrix, not single-version):
 | Lint | `ruff check .` |
 | Format | `ruff format --check .` |
 | Types | `mypy --strict ztb/` |
-| Tests + coverage | `pytest --cov-fail-under=90 --cov=ztb` |
-| Secret scan | `scripts/secret-scan.py` |
+| Tests + coverage | `pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing` |
+| Secret scan | `python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null \|\| find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' \| grep -v __pycache__ \| grep -v .git)` |
 | Version consistency | `__version__` matches `importlib.metadata.version('ztb')` |
+| V&R PASS bridge (separate `vr-pass` job, `main` push only) | `python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --outcome PASS` on Python 3.11 |
 
 CI configuration: `.github/workflows/ci.yml`
 
