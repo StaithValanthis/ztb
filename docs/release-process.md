@@ -14,39 +14,41 @@ Both keys must hold on the same commit. A red CI never reaches V&R; a PASS on a 
 ## Release Flow
 
 ```
-feat/<x> branch ──→ CI green on PR head (precondition)
+feat/<x> branch ──→ Bump __version__ + CHANGELOG (IN the PR head)
+                           │
+                    CI green on PR head (precondition)
                            │
                     V&R PASS on same SHA
                            │
               Head of Engineering merges to main
                            │
-                    Bump __version__ + CHANGELOG
-                           │
-                    Cut SemVer tag (vX.Y.Z)
+                    Tag the merge commit (== validated SHA)
                            │
                     ──→ MD routes next milestone
 ```
 
 ### Step-by-step
 
-1. **Build.** Platform Engineer (engine/tests/lockfile) or Strategy Engineer (plugin) builds on a topic branch in an isolated worktree (`~/ztb-wt/<name>`). `~/zero-alpha` stays on `main`.
+1. **Build + version bump.** Platform Engineer (engine/tests/lockfile) or Strategy Engineer (plugin) builds on a topic branch in an isolated worktree (`~/ztb-wt/<name>`). `~/zero-alpha` stays on `main`. The version bump (`__version__`, `CHANGELOG.md`, SemVer consistency) is done **in the PR head**, before validation — never as a post-merge commit.
 
-2. **CI.** Every push runs the full CI matrix. The PR head commit must go green on all checks. No review or validation happens on a red commit.
+2. **CI.** Every push runs the full CI matrix. The PR head commit must go green on all checks. No review or validation happens on a red commit. The version already reflects the target tag at this point.
 
-3. **Validation.** Once CI is green on the head commit, the Head of Engineering routes the request BACK to the MD, who routes ACROSS to the Head of V&R. V&R reviews the code and re-runs against the **same SHA**. V&R records PASS or FAIL on that commit. A FAIL sends the fix back through Engineering; a PASS unlocks the merge.
+3. **Validation.** Once CI is green on the head commit, the Head of Engineering routes the request BACK to the MD, who routes ACROSS to the Head of V&R. V&R reviews the code and re-runs against the **same SHA** — which already carries the bumped version. V&R records PASS or FAIL on that commit. A FAIL sends the fix back through Engineering; a PASS unlocks the merge.
 
 4. **Merge (two-key).** Head of Engineering performs the merge **only when**:
    - CI is green on the PR head commit, AND
    - V&R PASS is recorded against that **identical SHA**.
    
-   Neither alone is sufficient. No self-certification: Engineering does not approve its own validation.
+   Neither alone is sufficient. No self-certification: Engineering does not approve its own validation. The merge commit IS the validated SHA — no additional commits land between validation and tagging.
 
-5. **Tag + Changelog.** After merge, bump `ztb/__version__` to the milestone's SemVer tag (per the `ENGINEERING.md` §5 milestone → tag map), update `CHANGELOG.md` with measured evidence reproducible via `ztb report` from the store, and cut the annotated tag:
+5. **Tag.** Tag the merge commit — which IS the V&R-validated SHA:
 
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
+
+   **No post-merge commits between validation and tagging.** The version bump and CHANGELOG update were already in the validated PR head. The tagged SHA must equal the V&R-validated SHA (see ZTB-512).
 
 6. **Hand-off.** Create a task assigned to the MD: "Module X merged + tagged vX.Y.Z."
 
