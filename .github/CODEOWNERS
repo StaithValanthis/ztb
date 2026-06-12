@@ -1,0 +1,12 @@
+# Auto-review owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Head of Operations owns scripts/ and docs/governance/
+/scripts/                              @StaithValanthis
+/docs/governance/                      @StaithValanthis
+/.github/workflows/ci.yml             @StaithValanthis
+/.github/CODEOWNERS                   @StaithValanthis
+
+# By default, Engineering owns the core codebase
+/ztb/                                  @StaithValanthis
+/tests/                                @StaithValanthis

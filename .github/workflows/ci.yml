@@ -43,3 +43,21 @@ jobs:
           assert ver == __version__, f'{ver} != {__version__}'
           print(f'Version OK: {ver}')
           "
+
+  vr-pass:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: python -m pip install --upgrade pip
+      - name: Post V&R PASS via bridge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --outcome PASS
