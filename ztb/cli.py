@@ -348,6 +348,7 @@ def validate() -> None:
 @click.option("--dry-run", is_flag=True, help="Simulate without placing orders")
 @click.option("--once", is_flag=True, help="Process only the last bar")
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
+@click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
 @click.option("--expected-tag", default=None, help="Expected git tag for pinning")
@@ -364,6 +365,7 @@ def run(
     dry_run: bool,
     once: bool,
     no_risk: bool,
+    asset_precision: int,
     db: str | None,
     preflight: bool,
     expected_tag: str | None,
@@ -411,11 +413,26 @@ def run(
         once=once,
         initial_cash=cash,
         risk_enabled=not no_risk,
+        asset_precision=asset_precision,
     )
 
     killswitch = LiveKillSwitch() if exec_mode == ExecMode.LIVE and not dry_run else None
 
-    executor = Executor(strategy, config=config, killswitch=killswitch)
+    if not dry_run:
+        import os
+        from ztb.execution.bybit_client import BybitClient, ClientConfig
+
+        api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
+        api_secret = os.environ.get("ZTB_BYBIT_API_SECRET", "")
+        if not api_key or not api_secret:
+            click.echo("Error: ZTB_BYBIT_API_KEY and ZTB_BYBIT_API_SECRET must be set", err=True)
+            sys.exit(1)
+        client_cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=exec_mode)
+        client = BybitClient(client_cfg)
+    else:
+        client = None
+
+    executor = Executor(strategy, config=config, killswitch=killswitch, client=client)
 
     try:
         result = executor.run(

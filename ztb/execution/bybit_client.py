@@ -77,7 +77,11 @@ class BybitClient:
         url = f"{self._base_url}{path}"
         ts = str(int(time.time() * 1000))
         body_str = json.dumps(body) if body else ""
-        sig = self._sign(ts, method, path, body_str)
+        if method.upper() == "GET" and params:
+            sign_payload = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+        else:
+            sign_payload = body_str
+        sig = self._sign(ts, method, path, sign_payload)
         headers = self._headers(ts, sig)
 
         last_exc: Exception | None = None
