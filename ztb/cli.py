@@ -420,6 +420,7 @@ def run(
 
     if not dry_run:
         import os
+
         from ztb.execution.bybit_client import BybitClient, ClientConfig
 
         api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
