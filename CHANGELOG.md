@@ -3,10 +3,10 @@
 ## v1.0.2 (2026-06-12)
 
 - **docs/release-process.md:** Fix CI table to match actual workflow (`-m "not network"`, `--cov-report=term-missing`); move version bump before validation (no post-merge bumps); tag validated SHA directly (see ZTB-512)
-- V&R PASS on SHA `50b50df` ([ZTB-590](/ZTB/issues/ZTB-590))
+- V&R PASS on SHA `f18f012` ([ZTB-590](/ZTB/issues/ZTB-590))
 - **Tests:** existing — docs only, no code change
 - **PR:** [#18](https://github.com/StaithValanthis/ztb/pull/18) — `feat/release-process-fix`
-- **Merge commit:** `<TBD>` — two-key merge (CI green + V&R PASS on SHA `50b50df`)
+- **Merge commit:** `8b9c466` — two-key merge (CI green + V&R PASS on SHA `f18f012`)
 - **Tag:** v1.0.2
 
 ## v1.0.1 (2026-06-12)
