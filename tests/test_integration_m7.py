@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ from click.testing import CliRunner
 from pandas import DataFrame, date_range
 
 from ztb.cli import cli
+from ztb.execution.arm_auth import compute_arm_hash
 from ztb.execution.errors import LiveDisarmedError
 from ztb.execution.executor import Executor
 from ztb.execution.killswitch import LiveKillSwitch
@@ -133,12 +135,16 @@ def test_live_guard_disarmed_raises() -> None:
         LiveGuard.assert_live_allowed()
 
 
-def test_live_guard_armed_allows() -> None:
+def test_live_guard_armed_allows(tmp_path: Path) -> None:
     """mode=LIVE with armed guard -> order placed (no error)."""
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token"))
+    LiveGuard.arm("1", hash_path=hp)
     assert LiveGuard.is_armed()
     LiveGuard.assert_live_allowed()
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_cli_list_strategies() -> None:
