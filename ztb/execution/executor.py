@@ -550,7 +550,7 @@ class Executor:
         combined = pd.concat([data, new_data[new_data.index > last_ts]])
         combined = combined[~combined.index.duplicated(keep="last")]
         combined = combined.sort_index()
-        return combined
+        return combined  # type: ignore[no-any-return]
 
     def run(
         self,
@@ -690,10 +690,12 @@ class Executor:
 
         original_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
 
-        poll_interval = self.config.poll_interval_seconds
-        if poll_interval is None or poll_interval <= 0:
+        poll_interval: float = self.config.poll_interval_seconds or 60.0
+        if poll_interval <= 0:
             interval_ms = interval_to_ms(timeframe)
             poll_interval = interval_ms / 1000.0 / 3.0
+
+        assert self.state is not None
 
         try:
             consecutive_errors = 0

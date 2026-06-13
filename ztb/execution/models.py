@@ -84,7 +84,7 @@ class ExecRunConfig:
     dry_run: bool = False
     once: bool = False
     loop: bool | None = None
-    poll_interval_seconds: int | None = None
+    poll_interval_seconds: float | None = None
     initial_cash: float = 100_000.0
     commission: float = 0.0005
     slippage: float = 0.0005
