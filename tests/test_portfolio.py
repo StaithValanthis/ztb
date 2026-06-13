@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 from pandas import Series
 
 from ztb.engine.portfolio import single_symbol_portfolio
@@ -108,3 +109,27 @@ def test_reduce_short() -> None:
     close = Series([100.0, 100.0, 100.0, 100.0, 100.0], index=idx)
     state = single_symbol_portfolio(signals, close, commission=0.0, slippage=0.0)
     assert len(state.trades) >= 3
+
+
+def test_short_open_position_cash_identity() -> None:
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    signals = Series([-10.0, -10.0, -10.0], index=idx)
+    close = Series([100.0, 101.0, 102.0], index=idx)
+    state = single_symbol_portfolio(signals, close, commission=0.0, slippage=0.0)
+    last_equity = state.equity[-1]
+    expected_cash = last_equity - state.position * close.iloc[-1]
+    assert state.cash == pytest.approx(expected_cash)
+
+
+def test_first_bar_signals_skip_costs() -> None:
+    idx = pd.date_range("2026-01-01", periods=1, freq="D")
+    signals = Series([1.0], index=idx)
+    close = Series([100.0], index=idx)
+    comm = 0.001
+    slip = 0.001
+    state = single_symbol_portfolio(signals, close, commission=comm, slippage=slip)
+    delta = abs(state.position - 0.0)
+    expected_cost = delta * float(close.iloc[0]) * (comm + slip)
+    expected_equity = 100000.0 - expected_cost
+    assert state.equity[-1] < 100000.0
+    assert state.equity[-1] == pytest.approx(expected_equity)

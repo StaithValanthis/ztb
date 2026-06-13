@@ -759,3 +759,19 @@ def test_executor_pnl_existing_avg(
     exe._sync_pnl_state()
     expected_avg = (50000.0 * 1.0 + 51000.0 * 1.0) / 2.0
     assert abs(exe.state.avg_entry_price - expected_avg) < 0.01
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_dry_run_no_costs(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, commission=0.001, slippage=0.001)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe.step(sample_data)
+    assert exe._pnl.realized_pnl < 0
