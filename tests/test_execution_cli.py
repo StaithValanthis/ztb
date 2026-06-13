@@ -131,3 +131,54 @@ def test_run_with_db() -> None:
         ],
     )
     assert "blocked" not in result.output.lower()
+
+
+def test_run_loop_flag() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--loop",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
+        ],
+    )
+    assert "blocked" not in result.output.lower()
+
+
+def test_run_poll_interval() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--poll-interval=30",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
+        ],
+    )
+    assert "blocked" not in result.output.lower()
+
+
+def test_run_lookback_bars() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--dry-run",
+            "--lookback-bars=500",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
+        ],
+    )
+    assert "blocked" not in result.output.lower()

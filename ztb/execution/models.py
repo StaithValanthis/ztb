@@ -83,11 +83,14 @@ class ExecRunConfig:
     mode: Mode = Mode.DEMO
     dry_run: bool = False
     once: bool = False
+    loop: bool = False
+    poll_interval_seconds: float = 60.0
     initial_cash: float = 100_000.0
     commission: float = 0.0005
     slippage: float = 0.0005
     asset_precision: int = 8
     warmup_bars: int = 100
+    lookback_bars: int = 0
     risk_enabled: bool = True
     max_position_pct: float = 0.50
     max_leverage: float = 3.0

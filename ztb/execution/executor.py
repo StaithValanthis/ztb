@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import signal
 import sys
-from datetime import UTC, datetime
+import time as time_module
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pandas as pd
 from pandas import DataFrame
 
 from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.engine.pnl import PnLCalculator
+from ztb.data.timeframes import interval_to_ms
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
     ExecutionError,
@@ -488,6 +491,62 @@ class Executor:
         self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, equity, bar_ts)
         return result
 
+    def _ensure_warmup(
+        self,
+        data: DataFrame,
+        warmup: int,
+        symbol: str,
+        timeframe: str,
+        category: str,
+        start: str | None,
+    ) -> DataFrame:
+        if len(data) >= warmup:
+            return data
+        current_start = pd.Timestamp(start) if start else data.index[0]
+        interval_ms = interval_to_ms(timeframe)
+        needed_bars = warmup - len(data) + 100
+        extended_start = current_start - timedelta(milliseconds=interval_ms * needed_bars)
+        extended = load_data(
+            symbol=symbol,
+            timeframe=timeframe,
+            category=category,
+            start=extended_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            end=None,
+        )
+        if extended is None or extended.empty:
+            raise ExecutionError(
+                f"Cannot fetch enough historical data for {symbol} {timeframe}: "
+                f"need {warmup} bars for warmup, exchange returned empty data"
+            )
+        if len(extended) < warmup:
+            raise ExecutionError(
+                f"Exchange cannot provide enough historical data for {symbol} {timeframe}: "
+                f"got {len(extended)} bars, need {warmup} for warmup"
+            )
+        return extended
+
+    def _fetch_new_bars(
+        self,
+        data: DataFrame,
+        symbol: str,
+        timeframe: str,
+        category: str,
+    ) -> DataFrame:
+        last_ts = data.index[-1]
+        new_data = load_data(
+            symbol=symbol,
+            timeframe=timeframe,
+            category=category,
+            start=last_ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            end=None,
+        )
+        if new_data is None or new_data.empty:
+            return data
+        combined = pd.concat([data, new_data[new_data.index > last_ts]])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        return combined
+
     def run(
         self,
         symbol: str,
@@ -541,6 +600,12 @@ class Executor:
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
 
+        if self.config.lookback_bars > 0 and len(data) < self.config.lookback_bars:
+            data = self._ensure_warmup(data, self.config.lookback_bars, symbol, timeframe, category, start)
+
+        if len(data) < warmup:
+            data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
+
         if not self.config.dry_run and self.client is not None and len(data) > warmup:
             try:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
@@ -580,6 +645,9 @@ class Executor:
                             persist["last_heartbeat"],
                         )
 
+        if self.config.loop:
+            self._run_polling_loop(data, symbol, timeframe, category)
+
         from ztb.store.exec_io import update_exec_run_status
 
         self.state.status = "completed"
@@ -596,3 +664,47 @@ class Executor:
             self._store_conn.close()
 
         return self.state
+
+    def _run_polling_loop(
+        self,
+        data: DataFrame,
+        symbol: str,
+        timeframe: str,
+        category: str,
+    ) -> None:
+        stop_requested = False
+
+        def _handle_sigterm(signum: int, frame: object) -> None:
+            nonlocal stop_requested
+            stop_requested = True
+
+        original_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
+
+        try:
+            consecutive_errors = 0
+            max_errors = 3
+
+            while not stop_requested:
+                if self.risk_mgr is not None and self.risk_mgr.kill_switch.is_tripped():
+                    self.state.errors.append("Killswitch triggered — stopping polling loop")
+                    self._save_error("KillswitchTripped", "Killswitch triggered during polling loop")
+                    break
+
+                if stop_requested:
+                    break
+
+                try:
+                    time_module.sleep(self.config.poll_interval_seconds)
+                    data = self._fetch_new_bars(data, symbol, timeframe, category)
+                    self.step(data)
+                    consecutive_errors = 0
+                except Exception as exc:
+                    consecutive_errors += 1
+                    err_msg = f"Polling loop error ({consecutive_errors}/{max_errors}): {exc}"
+                    self.state.errors.append(err_msg)
+                    self._save_error("PollingError", str(exc))
+                    if consecutive_errors >= max_errors:
+                        self.state.errors.append("Max polling errors reached — stopping")
+                        break
+        finally:
+            signal.signal(signal.SIGTERM, original_handler)
