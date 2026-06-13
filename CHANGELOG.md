@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.3 (2026-06-13)
+
+- **Fix(exec):** Use actual Bybit wallet balance for equity calculation — each run now fetches real `wallet_balance`/`total_equity` instead of fresh PnLCalculator($100), eliminating "ab not enough for new order" rejections on demo account with prior PnL
+- **Fix(exec):** Graceful `ClientError` handling in `step()` — returns skipped result instead of crashing, enabling `--mode demo --loop` to survive transient API errors (40 such errors in 6h outage resolved)
+- **Fix(exec):** Warmup reconciliation adopts actual wallet balance — `initial_cash` calibrated to `actual_equity - unrealized_pnl` so subsequent `equity()` calls reflect real account state
+- **Fix(exec):** `--loop` mode continuity — state tracked correctly on skipped/killswitch early returns; signal init moved before order placement
+- **Fix(engine):** `PnLCalculator.set_initial_cash()` — new method to update starting equity in place for warmup sync
+- **Fix(reconcile):** `ReconcileReport.actual_wallet_balance` / `actual_equity` — carry Bybit account state through reconciliation for warmup adoption
+- **Tests:** 11 new executor tests (wallet balance adoption, ClientError→skipped, polling loop resilience, results.db path) — 75/75 executor tests pass; 833/833 full suite pass
+- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
+- V&R PASS on SHA `5a57c8d` ([ZTB-1286](/ZTB/issues/ZTB-1286), [ZTB-1348](/ZTB/issues/ZTB-1348))
+- **PR:** [#56](https://github.com/StaithValanthis/ztb/pull/56) — `feat/fix-executor-wallet`
+- **Merge commit:** `2ef3d92` — two-key merge (CI green + V&R PASS on SHA `5a57c8d`)
+- **Tag:** v1.1.3
+
 ## v1.1.2 (2026-06-13)
 
 - **Fix(exec):** Trade only on signal change — executor skips fill when position/signal/edge unchanged, reducing unnecessary churn
