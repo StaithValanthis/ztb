@@ -271,7 +271,10 @@ class BybitClient:
         qty = self.round_to_step(qty, qty_step)
 
         if qty < min_qty - 1e-12:
-            return {"skipped": True, "reason": f"Qty {qty} below minOrderQty {min_qty} for {symbol}"}
+            return {
+                "skipped": True,
+                "reason": f"Qty {qty} below minOrderQty {min_qty} for {symbol}",
+            }
         if max_qty > 0 and qty > max_qty + 1e-12:
             qty = self.round_to_step(max_qty, qty_step)
         return {"skipped": False, "qty": qty}

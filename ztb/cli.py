@@ -347,8 +347,8 @@ def validate() -> None:
 @click.option("--cash", default=100000.0, type=float, help="Initial cash")
 @click.option("--dry-run", is_flag=True, help="Simulate without placing orders")
 @click.option("--once", is_flag=True, help="Process only the last bar")
-@click.option("--loop", is_flag=True, help="Run in continuous polling loop after processing history")
-@click.option("--poll-interval", default=60.0, type=float, help="Seconds between polls in loop mode")
+@click.option("--loop", is_flag=True, help="Run in polling loop after processing history")
+@click.option("--poll-interval", default=60.0, type=float, help="Seconds between polls")
 @click.option("--lookback-bars", default=0, type=int, help="Minimum historical bars to load")
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
 @click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
@@ -412,7 +412,9 @@ def run(
     if exec_mode == ExecMode.LIVE:
         from ztb.execution.live_guard import LiveGuard
         if not LiveGuard.is_armed():
-            click.echo("Error: --mode=live blocked — LiveGuard is disarmed. Use --mode=demo.", err=True)
+            click.echo(
+                "Error: --mode=live blocked — LiveGuard is disarmed. Use --mode=demo.", err=True
+            )
             sys.exit(1)
 
     strategy = strat_cls()

@@ -11,8 +11,8 @@ from pandas import DataFrame
 
 from ztb import __version__
 from ztb.data.loader import load as load_data
-from ztb.engine.pnl import PnLCalculator
 from ztb.data.timeframes import interval_to_ms
+from ztb.engine.pnl import PnLCalculator
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
     ExecutionError,
@@ -605,7 +605,11 @@ class Executor:
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
 
-        effective_lookback = self.config.lookback_bars if self.config.lookback_bars and self.config.lookback_bars > 0 else max(warmup * 2, 200)
+        effective_lookback = (
+            self.config.lookback_bars
+            if self.config.lookback_bars and self.config.lookback_bars > 0
+            else max(warmup * 2, 200)
+        )
         if len(data) < effective_lookback:
             data = self._ensure_warmup(data, effective_lookback, symbol, timeframe, category, start)
 
