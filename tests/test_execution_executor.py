@@ -1403,7 +1403,8 @@ def test_startup_reconcile_then_signal_guard(
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
 ) -> None:
-    """After startup reconcile adopts a position, the first step still processes (signal_changed=True)."""
+    """After startup reconcile adopts a position, the first step still
+    processes (signal_changed=True)."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_1"}
