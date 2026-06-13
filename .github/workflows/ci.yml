@@ -50,6 +50,7 @@ jobs:
           "
 
   vr-pass:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [test]
     runs-on: ubuntu-latest
     steps:
@@ -61,11 +62,7 @@ jobs:
           python-version: "3.11"
       - name: Install deps
         run: python -m pip install --upgrade pip
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        name: Notify V&R pending via bridge
+      - name: Notify V&R pending via bridge
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --mode notify
-      - if: github.ref != 'refs/heads/main' || github.event_name != 'push'
-        name: VR-PASS placeholder
-        run: echo "VR-PASS: skipped (not push to main)"
