@@ -220,9 +220,9 @@ class TestBearishResumption:
         c = 50000 + np.random.randn(n_bar) * amp
         o = c + np.random.randn(n_bar) * amp * 0.1
         h = np.maximum(o, c) + np.abs(np.random.randn(n_bar)) * amp * 0.2
-        l = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * amp * 0.2
+        lo = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * amp * 0.2
         return DataFrame(
-            {"open": o, "high": h, "low": l, "close": c, "volume": np.ones(n_bar) * 1000},
+            {"open": o, "high": h, "low": lo, "close": c, "volume": np.ones(n_bar) * 1000},
             index=pd.date_range(idx_start, periods=n_bar, freq="1h"),
         )
 
@@ -234,9 +234,9 @@ class TestBearishResumption:
         c = 50000 + np.linspace(0, -3000, n_bar) + np.random.randn(n_bar) * 25
         o = c + np.random.randn(n_bar) * 15
         h = np.maximum(o, c) + np.abs(np.random.randn(n_bar)) * 35
-        l = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * 35
+        lo = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * 35
         return DataFrame(
-            {"open": o, "high": h, "low": l, "close": c, "volume": np.ones(n_bar) * 1000},
+            {"open": o, "high": h, "low": lo, "close": c, "volume": np.ones(n_bar) * 1000},
             index=pd.date_range(idx_start, periods=n_bar, freq="1h"),
         )
 
