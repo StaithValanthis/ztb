@@ -7,6 +7,7 @@ from typing import Any
 
 from pandas import DataFrame
 
+from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
@@ -127,7 +128,7 @@ class Executor:
                 "avg_price": price,
                 "unrealized_pnl": 0.0,
                 "credible": 1,
-                "code_version": "1.0.0",
+                "code_version": __version__,
             },
         )
 
@@ -145,7 +146,7 @@ class Executor:
                 "unrealized_pnl": unrealized,
                 "total_equity": equity,
                 "credible": 1,
-                "code_version": "1.0.0",
+                "code_version": __version__,
             },
         )
 
@@ -471,7 +472,7 @@ class Executor:
                     "cum_exec_value": qty * close_price,
                     "cum_exec_fee": qty * close_price * self.config.commission,
                     "credible": 1,
-                    "code_version": "1.0.0",
+                    "code_version": __version__,
                 },
             )
 
