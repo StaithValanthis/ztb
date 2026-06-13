@@ -381,6 +381,60 @@ def test_executor_non_dry_run_places_order(
 
 
 @patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_skipped_order_early_return(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["signal"] == 0.5
+    assert result.get("order_skipped") is True
+    assert result.get("skip_reason") == "Qty too small"
+    assert result.get("order_placed") is False
+    assert result.get("order") is None
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_skipped_order_no_cost(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    pnl_before = exe._pnl.equity(50000.0)
+
+    result = exe.step(sample_data)
+
+    pnl_after = exe._pnl.equity(50000.0)
+    assert result.get("order_skipped") is True
+    assert pnl_before == pnl_after, "Costs should NOT be applied on skipped order"
+
+
+@patch("ztb.execution.executor.load_data")
 def test_executor_once_mode_insufficient_data(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
@@ -1019,34 +1073,47 @@ def test_polling_loop_error_retry_then_stop(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
-@patch("ztb.execution.executor.signal.signal")
-def test_polling_loop_sigterm_clean_exit(
-    mock_signal_signal: MagicMock,
+def test_polling_loop_sigterm_stops_via_flag(
     mock_sleep: MagicMock,
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.1)
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     exe._init_store(":memory:")
 
-    registered_handler = [None]
+    mock_sleep.side_effect = lambda _: setattr(exe, "_sigterm_stop", True)
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert exe._sigterm_stop is True
+
+
+@patch("ztb.execution.executor.signal.signal")
+def test_setup_sigterm_sets_flag_not_exit(
+    mock_signal_signal: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+
     original_handler = object()
 
     def capture_handler(signum: int, handler: object) -> object:
-        registered_handler[0] = handler
+        nonlocal original_handler
         return original_handler
 
     mock_signal_signal.side_effect = capture_handler
 
-    mock_sleep.side_effect = [None, Exception("break")]
+    exe._setup_sigterm()
 
-    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+    assert exe._sigterm_stop is False
 
-    assert registered_handler[0] is not None
+    registered = mock_signal_signal.call_args[0][1]
+    registered(15, None)
 
-    mock_signal_signal.assert_any_call(15, registered_handler[0])
-    mock_signal_signal.assert_any_call(15, original_handler)
+    assert exe._sigterm_stop is True

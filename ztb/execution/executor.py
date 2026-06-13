@@ -55,6 +55,7 @@ class Executor:
         self._exec_run_id: str = ""
         self._killswitch = killswitch
         self._original_sigterm: Any = None
+        self._sigterm_stop: bool = False
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -75,6 +76,7 @@ class Executor:
 
     def _setup_sigterm(self) -> None:
         def _handler(signum: int, _frame: Any) -> None:
+            self._sigterm_stop = True
             if self._killswitch and not self._killswitch.is_tripped:
                 self._killswitch.manual_trip("SIGTERM received — flattening positions")
             if self.state and self.client and self.config and not self.config.dry_run:
@@ -91,9 +93,6 @@ class Executor:
                         )
                 except Exception:
                     pass
-            if self._store_conn:
-                self._store_conn.close()
-            sys.exit(128 + signum)
 
         self._original_sigterm = signal.signal(signal.SIGTERM, _handler)
 
@@ -448,10 +447,10 @@ class Executor:
                 result["order_skipped"] = True
                 result["skip_reason"] = order_result.get("reason", "")
                 self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
-            else:
-                order_id = order_result.get("orderId", "")
+                return result
 
-                self._idempotency.resolve(order_link_id, "placed", order_id)
+            order_id = order_result.get("orderId", "")
+            self._idempotency.resolve(order_link_id, "placed", order_id)
 
             commission_cost = qty * close_price * self.config.commission
             slippage_cost = qty * close_price * self.config.slippage
@@ -655,7 +654,7 @@ class Executor:
                             persist["last_heartbeat"],
                         )
 
-        if self.config.loop:
+        if self.config.loop and not self.config.once:
             self._run_polling_loop(data, symbol, timeframe, category)
 
         from ztb.store.exec_io import update_exec_run_status
@@ -682,14 +681,6 @@ class Executor:
         timeframe: str,
         category: str,
     ) -> None:
-        stop_requested = False
-
-        def _handle_sigterm(signum: int, frame: object) -> None:
-            nonlocal stop_requested
-            stop_requested = True
-
-        original_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
-
         poll_interval: float = self.config.poll_interval_seconds or 60.0
         if poll_interval <= 0:
             interval_ms = interval_to_ms(timeframe)
@@ -697,31 +688,25 @@ class Executor:
 
         assert self.state is not None
 
-        try:
-            consecutive_errors = 0
-            max_errors = 3
+        consecutive_errors = 0
+        max_errors = 3
 
-            while not stop_requested:
-                if self._check_killswitch():
-                    self.state.errors.append("Killswitch tripped — stopping polling loop")
-                    self._save_error("KillswitchTripped", "Killswitch tripped during polling loop")
+        while not self._sigterm_stop:
+            if self._check_killswitch():
+                self.state.errors.append("Killswitch tripped — stopping polling loop")
+                self._save_error("KillswitchTripped", "Killswitch tripped during polling loop")
+                break
+
+            try:
+                time_module.sleep(poll_interval)
+                data = self._fetch_new_bars(data, symbol, timeframe, category)
+                self.step(data)
+                consecutive_errors = 0
+            except Exception as exc:
+                consecutive_errors += 1
+                err_msg = f"Polling loop error ({consecutive_errors}/{max_errors}): {exc}"
+                self.state.errors.append(err_msg)
+                self._save_error("PollingError", str(exc))
+                if consecutive_errors >= max_errors:
+                    self.state.errors.append("Max polling errors reached — stopping")
                     break
-
-                if stop_requested:
-                    break
-
-                try:
-                    time_module.sleep(poll_interval)
-                    data = self._fetch_new_bars(data, symbol, timeframe, category)
-                    self.step(data)
-                    consecutive_errors = 0
-                except Exception as exc:
-                    consecutive_errors += 1
-                    err_msg = f"Polling loop error ({consecutive_errors}/{max_errors}): {exc}"
-                    self.state.errors.append(err_msg)
-                    self._save_error("PollingError", str(exc))
-                    if consecutive_errors >= max_errors:
-                        self.state.errors.append("Max polling errors reached — stopping")
-                        break
-        finally:
-            signal.signal(signal.SIGTERM, original_handler)
