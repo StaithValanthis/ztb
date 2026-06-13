@@ -50,7 +50,7 @@ jobs:
           "
 
   vr-pass:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: [test]
     runs-on: ubuntu-latest
     steps:
@@ -65,4 +65,5 @@ jobs:
       - name: Notify V&R pending via bridge
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --mode notify
+          SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/ztb-vr-pass-bridge.py --sha "$SHA" --mode notify
