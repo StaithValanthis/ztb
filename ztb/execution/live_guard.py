@@ -60,15 +60,15 @@ class LiveGuard:
             except LiveDisarmedError:
                 raise
             except sqlite3.Error:
-                raise LiveDisarmedError("Cannot arm: database unavailable")
+                raise LiveDisarmedError("Cannot arm: database unavailable") from None
         board_token = os.environ.get(cls.BOARD_TOKEN_VAR)
         hash_file = hash_path or store_path
         stored_hash = load_arm_hash(hash_file)
         if not board_token or not stored_hash or not verify_board_token(board_token, stored_hash):
             raise LiveArmFailedError("Board token verification failed")
-        os.environ[cls.ENV_VAR] = token
         entry = {"token_verified": True, "source": "LiveGuard.arm()"}
         cls._write_audit(store_path, entry)
+        os.environ[cls.ENV_VAR] = token
         return entry
 
     @classmethod
@@ -94,4 +94,4 @@ class LiveGuard:
             )
             conn.close()
         except sqlite3.Error:
-            raise LiveDisarmedError("Audit log write failed — database unavailable")
+            raise LiveDisarmedError("Audit log write failed — database unavailable") from None

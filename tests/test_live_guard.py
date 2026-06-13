@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -267,3 +269,46 @@ def test_set_default_store_path_none_resets() -> None:
     assert LiveGuard._default_store_path == "/tmp/some/path"
     LiveGuard.set_default_store_path(None)
     assert LiveGuard._default_store_path is None
+
+
+def test_arm_database_unavailable_raises(tmp_path: Path) -> None:
+    """V&R Finding A: sqlite3.Error in arm() kill-event check raises LiveDisarmedError."""
+    sp = _setup_arm(tmp_path)
+    LiveGuard.disarm()
+    with (
+        patch("ztb.store.results.connect", side_effect=sqlite3.OperationalError("mock")),
+        pytest.raises(LiveDisarmedError, match="Cannot arm: database unavailable"),
+    ):
+        LiveGuard.arm(store_path=tmp_path / "dummy.db", hash_path=sp)
+    assert not LiveGuard.is_armed()
+    _cleanup_arm()
+
+
+def test_arm_audit_write_fails_raises(tmp_path: Path) -> None:
+    """V&R Finding A: sqlite3.Error in _write_audit raises LiveDisarmedError."""
+    from ztb.store.exec_io import ensure_exec_tables
+    from ztb.store.results import connect as real_connect
+
+    clean_db = tmp_path / "clean_audit_fail.db"
+    conn = real_connect(str(clean_db))
+    ensure_exec_tables(conn)
+    conn.close()
+
+    call_count = 0
+
+    def _side(*args: object, **kwargs: object) -> object:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise sqlite3.OperationalError("audit fail")
+        return real_connect(*args, **kwargs)
+
+    sp = _setup_arm(tmp_path)
+    LiveGuard.disarm()
+    with (
+        patch("ztb.store.results.connect", side_effect=_side),
+        pytest.raises(LiveDisarmedError, match="Audit log write failed"),
+    ):
+        LiveGuard.arm(store_path=clean_db, hash_path=sp)
+    assert not LiveGuard.is_armed()
+    _cleanup_arm()
