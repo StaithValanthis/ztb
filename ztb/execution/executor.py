@@ -7,6 +7,7 @@ from typing import Any
 
 from pandas import DataFrame
 
+from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
@@ -25,7 +26,6 @@ from ztb.execution.models import (
 from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
-from ztb import __version__
 from ztb.store.results import connect as store_connect
 
 
