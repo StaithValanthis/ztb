@@ -39,3 +39,14 @@ class ClientError(ExecutionError):
 
 class ClientAuthError(ClientError):
     pass
+
+
+class AdapterFailedError(ExecutionError):
+    """Raised when an adapter operation fails after exhausting all retries and fallbacks."""
+
+    def __init__(self, message: str = "", last_error: Exception | None = None) -> None:
+        self.last_error = last_error
+        msg = message or "Adapter operation failed after all retries"
+        if last_error:
+            msg = f"{msg}: {last_error}"
+        super().__init__(msg)

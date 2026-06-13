@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from ztb.data.rate_limit import BackoffStrategy
+from ztb.execution.adapter import ResilientAdapter
 from ztb.execution.errors import ClientAuthError, ClientError
 from ztb.execution.live_guard import LiveGuard
 from ztb.execution.models import (
@@ -46,6 +48,18 @@ class BybitClient:
             except Exception:
                 self._time_synced = 0
         self._instrument_cache: dict[str, dict[str, Any]] = {}
+        self._resilient = ResilientAdapter(
+            backoff=BackoffStrategy(base_delay=1.0, max_delay=30.0, jitter=0.05),
+            max_retries=config.max_retries,
+            retryable_exceptions=(
+                httpx.TimeoutException,
+                httpx.HTTPStatusError,
+                httpx.ConnectError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+            ),
+        )
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
         payload = f"{timestamp}{self._config.api_key}{_RECV_WINDOW}{body}"
@@ -64,6 +78,10 @@ class BybitClient:
             "X-BAPI-RECV-WINDOW": _RECV_WINDOW,
             "Content-Type": "application/json",
         }
+
+    @property
+    def resilient_adapter(self) -> ResilientAdapter:
+        return self._resilient
 
     def _request(
         self,
@@ -96,7 +114,8 @@ class BybitClient:
                     content=body_str if body else None,
                 )
                 if resp.status_code >= 500 and attempt < self._config.max_retries - 1:
-                    time.sleep(1.0 * (attempt + 1))
+                    secs = self._resilient.backoff.delay(attempt)
+                    time.sleep(secs)
                     continue
                 data: dict[str, Any] = resp.json()
                 ret_code = data.get("retCode", -1)
@@ -112,13 +131,15 @@ class BybitClient:
             except httpx.TimeoutException as exc:
                 last_exc = exc
                 if attempt < self._config.max_retries - 1:
-                    time.sleep(1.0 * (attempt + 1))
+                    secs = self._resilient.backoff.delay(attempt)
+                    time.sleep(secs)
                     continue
                 raise ClientError(0, "timeout") from exc
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 if exc.response.status_code >= 500 and attempt < self._config.max_retries - 1:
-                    time.sleep(1.0 * (attempt + 1))
+                    secs = self._resilient.backoff.delay(attempt)
+                    time.sleep(secs)
                     continue
                 raise ClientError(exc.response.status_code) from exc
         msg = f"max retries exceeded: {last_exc}" if last_exc else "max retries exceeded"
