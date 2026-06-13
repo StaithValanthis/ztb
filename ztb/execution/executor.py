@@ -394,9 +394,9 @@ class Executor:
             self._signal_initialized = True
             return result
 
-        signal_changed = not self._signal_initialized or abs(
-            target_signal - self._last_executed_signal
-        ) > 1e-6
+        signal_changed = (
+            not self._signal_initialized or abs(target_signal - self._last_executed_signal) > 1e-6
+        )
 
         if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
