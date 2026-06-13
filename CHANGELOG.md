@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.2 (2026-06-13)
+
+- **Fix(exec):** Trade only on signal change — executor skips fill when position/signal/edge unchanged, reducing unnecessary churn
+- **Fix(exec):** Startup reconciliation — `ReconcileEngine.load_state` restores active position + accrued costs on warm start, enabling continuity across `ztb run` restarts
+- **Feat(pnl):** `PnLCalculator.adopt_state` — restore PnL state from persisted data (position, avg price, realized PnL, open costs) for startup reconciliation
+- **Tests:** 112 executor+PnL tests pass (trade-on-signal-change: skipped fill paths, flip from flat, flip from opposing; startup reconciliation: warm start restores position, cold start begins flat, open-cost carry-over, cross-session equity identity)
+- Coverage: 92% total (822 tests)
+- V&R PASS on SHA `359ae17` ([ZTB-1285](/ZTB/issues/ZTB-1285))
+- **PR:** [#52](https://github.com/StaithValanthis/ztb/pull/52) — `feat/ztb-1285-demo-over-trade-fix`
+- **Merge commit:** `01a5d06` — two-key merge (CI green + V&R PASS on SHA `359ae17`)
+- **Tag:** v1.1.2
+
 ## v1.1.0 (2026-06-13)
 
 - **Feat(demo-exec):** Continuous polling loop with SIGTERM handling, 3-retry, killswitch integration — `ztb run --loop` / `--poll-interval` / `--lookback-bars`
