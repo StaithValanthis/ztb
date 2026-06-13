@@ -3,7 +3,6 @@ from __future__ import annotations
 import pandas as pd
 from pandas import DataFrame, DatetimeIndex, Series
 
-from ztb.data.loader import load as _load
 from ztb.features.indicators import adx, atr, bb, bb_width, di_minus, di_plus, ema
 from ztb.strategies.base import Strategy
 from ztb.strategies.registry import register
@@ -86,9 +85,7 @@ class BearishResumption(Strategy):
         atr_4h = atr(df["high"], df["low"], df["close"], 14)
         lowest_50 = df["close"].rolling(window=50, min_periods=50).min()
 
-        start_dt = (df.index[0] - pd.Timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_dt = df.index[-1].strftime("%Y-%m-%dT%H:%M:%SZ")
-        df_1h = _load("BTCUSDT", "60", start=start_dt, end=end_dt)
+        df_1h = df.resample("1h").ffill()
         adx_1h_f = adx(df_1h["high"], df_1h["low"], df_1h["close"], 14)
         bb_u_1h_f, bb_m_1h_f, bb_l_1h_f = bb(df_1h["close"], 20, 2)
         bb_w_1h_f = bb_width(df_1h["close"], 20, 2)
