@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -25,15 +26,20 @@ def test_live_mode_blocked_when_disarmed() -> None:
         BybitClient(cfg)
 
 
-def test_live_mode_allowed_when_armed() -> None:
+def test_live_mode_allowed_when_armed(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token"))
+    LiveGuard.arm("1", store_path=hp)
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
     client = BybitClient(cfg)
     assert client._base_url == "https://api.bybit.com"
     client.close()
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_demo_mode_ok() -> None:
@@ -505,9 +511,13 @@ def test_http_status_error_503_retry_then_raise(mock_client_cls: MagicMock) -> N
 
 
 def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token-audit"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token-audit"))
+    LiveGuard.arm("1", store_path=hp)
     db_path = tmp_path / "test_audit_bybit.db"
     cfg = ClientConfig(
         api_key="test_key",
@@ -540,6 +550,7 @@ def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
     assert len(api_events) >= 1, "No api_call audit events found"
     assert "POST /v5/order/create: success" in api_events[0]["detail"]
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_demo_mode_does_not_log_audit(tmp_path: Path) -> None:
@@ -575,9 +586,13 @@ def test_demo_mode_does_not_log_audit(tmp_path: Path) -> None:
 
 
 def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token-wallet"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token-wallet"))
+    LiveGuard.arm("1", store_path=hp)
     db_path = tmp_path / "test_audit_wallet.db"
     cfg = ClientConfig(
         api_key="test_key",
@@ -610,3 +625,4 @@ def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
     assert len(api_events) >= 1
     assert "GET /v5/account/wallet-balance: success" in api_events[0]["detail"]
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)

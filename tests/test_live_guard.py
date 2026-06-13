@@ -9,26 +9,47 @@ from ztb.execution.arm_auth import compute_arm_hash, load_arm_hash, verify_board
 from ztb.execution.errors import LiveArmFailedError, LiveDisarmedError
 from ztb.execution.live_guard import LiveGuard
 
+_TEST_TOKEN = "test-board-token"
+
+
+def _setup_arm(tmp_path: Path) -> Path:
+    """Set up board token + hash file, return hash path."""
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = _TEST_TOKEN
+    hash_path = tmp_path / "board-arm-hash"
+    hash_path.write_text(compute_arm_hash(_TEST_TOKEN))
+    return hash_path
+
+
+def _cleanup_arm() -> None:
+    LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+
 
 def test_default_disarmed() -> None:
     os.environ.pop(LiveGuard.ENV_VAR, None)
     assert not LiveGuard.is_armed()
 
 
-def test_arm() -> None:
-    LiveGuard.arm("1")
+def test_arm(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", store_path=sp)
     assert LiveGuard.is_armed()
+    _cleanup_arm()
 
 
-def test_disarm() -> None:
-    LiveGuard.arm("1")
+def test_disarm(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", store_path=sp)
     LiveGuard.disarm()
     assert not LiveGuard.is_armed()
+    _cleanup_arm()
 
 
-def test_assert_live_allowed_when_armed() -> None:
-    LiveGuard.arm("1")
+def test_assert_live_allowed_when_armed(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", store_path=sp)
     LiveGuard.assert_live_allowed()
+    _cleanup_arm()
 
 
 def test_assert_live_allowed_when_disarmed() -> None:
@@ -106,21 +127,26 @@ def test_load_arm_hash_strips_whitespace(tmp_path: Path) -> None:
 
 def test_arm_with_valid_board_token(tmp_path: Path) -> None:
     LiveGuard.disarm()
-    token = "board-token-valid"
-    os.environ[LiveGuard.BOARD_TOKEN_VAR] = token
-    hash_path = tmp_path / "board-arm-hash"
-    hash_path.write_text(compute_arm_hash(token))
-    result = LiveGuard.arm(store_path=hash_path)
+    sp = _setup_arm(tmp_path)
+    result = LiveGuard.arm(store_path=sp)
     assert result["token_verified"]
     assert LiveGuard.is_armed()
-    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    _cleanup_arm()
 
 
-def test_arm_without_board_token() -> None:
+def test_arm_without_board_token_raises(tmp_path: Path) -> None:
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
-    result = LiveGuard.arm("1")
-    assert not result.get("token_verified", False)
+    with pytest.raises(LiveArmFailedError, match="Board token verification failed"):
+        LiveGuard.arm("1")
+
+
+def test_arm_with_missing_hash_file(tmp_path: Path) -> None:
+    LiveGuard.disarm()
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = _TEST_TOKEN
+    with pytest.raises(LiveArmFailedError, match="Board token verification failed"):
+        LiveGuard.arm(hash_path=tmp_path / "nonexistent-hash")
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_arm_with_invalid_board_token(tmp_path: Path) -> None:
@@ -158,10 +184,12 @@ def test_arm_fail_closed_on_unresolved_kill_via_path(tmp_path: Path) -> None:
         },
     )
     conn.close()
+    sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
     with pytest.raises(LiveDisarmedError, match="Cannot arm: unresolved kill event exists"):
-        LiveGuard.arm(store_path=db_path)
+        LiveGuard.arm(store_path=db_path, hash_path=sp)
     assert not LiveGuard.is_armed()
+    _cleanup_arm()
 
 
 def test_arm_succeeds_on_clean_store_via_path(tmp_path: Path) -> None:
@@ -172,11 +200,13 @@ def test_arm_succeeds_on_clean_store_via_path(tmp_path: Path) -> None:
     conn = connect(str(db_path))
     ensure_exec_tables(conn)
     conn.close()
+    sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
-    result = LiveGuard.arm(store_path=db_path)
+    result = LiveGuard.arm(store_path=db_path, hash_path=sp)
     assert LiveGuard.is_armed()
-    assert not result.get("token_verified", False)
+    assert result["token_verified"]
     LiveGuard.disarm()
+    _cleanup_arm()
 
 
 def test_arm_fail_closed_via_default_store_path(tmp_path: Path) -> None:
@@ -203,12 +233,14 @@ def test_arm_fail_closed_via_default_store_path(tmp_path: Path) -> None:
         },
     )
     conn.close()
+    sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
     LiveGuard.set_default_store_path(db_path)
     with pytest.raises(LiveDisarmedError, match="Cannot arm: unresolved kill event exists"):
-        LiveGuard.arm()
+        LiveGuard.arm(hash_path=sp)
     assert not LiveGuard.is_armed()
     LiveGuard.set_default_store_path(None)
+    _cleanup_arm()
 
 
 def test_arm_succeeds_on_clean_store_via_default_path(tmp_path: Path) -> None:
@@ -219,13 +251,15 @@ def test_arm_succeeds_on_clean_store_via_default_path(tmp_path: Path) -> None:
     conn = connect(str(db_path))
     ensure_exec_tables(conn)
     conn.close()
+    sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
     LiveGuard.set_default_store_path(db_path)
-    result = LiveGuard.arm()
+    result = LiveGuard.arm(hash_path=sp)
     assert LiveGuard.is_armed()
-    assert not result.get("token_verified", False)
+    assert result["token_verified"]
     LiveGuard.disarm()
     LiveGuard.set_default_store_path(None)
+    _cleanup_arm()
 
 
 def test_set_default_store_path_none_resets() -> None:

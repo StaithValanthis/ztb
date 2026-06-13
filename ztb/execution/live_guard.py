@@ -34,6 +34,7 @@ class LiveGuard:
         token: str = "1",
         conn: sqlite3.Connection | None = None,
         store_path: str | Path | None = None,
+        hash_path: str | Path | None = None,
     ) -> dict[str, Any]:
         effective_path = store_path or cls._default_store_path
         if conn is not None:
@@ -61,12 +62,12 @@ class LiveGuard:
             except Exception:
                 pass
         board_token = os.environ.get(cls.BOARD_TOKEN_VAR)
-        if board_token:
-            stored_hash = load_arm_hash(store_path)
-            if not verify_board_token(board_token, stored_hash):
-                raise LiveArmFailedError("Board token verification failed")
+        hash_file = hash_path or store_path
+        stored_hash = load_arm_hash(hash_file)
+        if not board_token or not stored_hash or not verify_board_token(board_token, stored_hash):
+            raise LiveArmFailedError("Board token verification failed")
         os.environ[cls.ENV_VAR] = token
-        entry = {"token_verified": bool(board_token), "source": "LiveGuard.arm()"}
+        entry = {"token_verified": True, "source": "LiveGuard.arm()"}
         cls._write_audit(store_path, entry)
         return entry
 
