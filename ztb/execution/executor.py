@@ -398,6 +398,10 @@ class Executor:
             not self._signal_initialized or abs(target_signal - self._last_executed_signal) > 1e-6
         )
 
+        if signal_changed:
+            self._last_executed_signal = target_signal
+            self._signal_initialized = True
+
         if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
@@ -438,6 +442,8 @@ class Executor:
                 if self._killswitch.is_tripped:
                     self._save_kill_events()
                     result["killswitch_tripped"] = True
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
                     return result
 
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
@@ -454,6 +460,18 @@ class Executor:
                 result["order_skipped"] = True
                 result["skip_reason"] = order_result.get("reason", "")
                 self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
+                self.state.bars_processed += 1
+                self.state.last_bar_ts = bar_ts
+                self._sync_pnl_state()
+                unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                equity = self._pnl.equity(close_price)
+                self._save_position_snapshot()
+                self._save_pnl(
+                    self._pnl.realized_pnl,
+                    unrealized_pnl,
+                    self._pnl.equity(close_price),
+                    bar_ts,
+                )
                 return result
 
             order_id = order_result.get("orderId", "")
@@ -492,10 +510,6 @@ class Executor:
                     "code_version": __version__,
                 },
             )
-
-        if signal_changed:
-            self._last_executed_signal = target_signal
-            self._signal_initialized = True
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
