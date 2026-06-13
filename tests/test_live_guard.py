@@ -5,7 +5,8 @@ import sqlite3
 
 import pytest
 
-from ztb.execution.live_guard import LiveDisarmedError, LiveGuard
+from ztb.execution.errors import LiveDisarmedError
+from ztb.execution.live_guard import LiveGuard
 
 
 def test_default_disarmed() -> None:
