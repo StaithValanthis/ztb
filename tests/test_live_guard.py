@@ -32,14 +32,14 @@ def test_default_disarmed() -> None:
 
 def test_arm(tmp_path: Path) -> None:
     sp = _setup_arm(tmp_path)
-    LiveGuard.arm("1", store_path=sp)
+    LiveGuard.arm("1", hash_path=sp)
     assert LiveGuard.is_armed()
     _cleanup_arm()
 
 
 def test_disarm(tmp_path: Path) -> None:
     sp = _setup_arm(tmp_path)
-    LiveGuard.arm("1", store_path=sp)
+    LiveGuard.arm("1", hash_path=sp)
     LiveGuard.disarm()
     assert not LiveGuard.is_armed()
     _cleanup_arm()
@@ -47,7 +47,7 @@ def test_disarm(tmp_path: Path) -> None:
 
 def test_assert_live_allowed_when_armed(tmp_path: Path) -> None:
     sp = _setup_arm(tmp_path)
-    LiveGuard.arm("1", store_path=sp)
+    LiveGuard.arm("1", hash_path=sp)
     LiveGuard.assert_live_allowed()
     _cleanup_arm()
 
@@ -128,7 +128,7 @@ def test_load_arm_hash_strips_whitespace(tmp_path: Path) -> None:
 def test_arm_with_valid_board_token(tmp_path: Path) -> None:
     LiveGuard.disarm()
     sp = _setup_arm(tmp_path)
-    result = LiveGuard.arm(store_path=sp)
+    result = LiveGuard.arm(hash_path=sp)
     assert result["token_verified"]
     assert LiveGuard.is_armed()
     _cleanup_arm()
@@ -155,7 +155,7 @@ def test_arm_with_invalid_board_token(tmp_path: Path) -> None:
     hash_path = tmp_path / "board-arm-hash"
     hash_path.write_text(compute_arm_hash("expected-token"))
     with pytest.raises(LiveArmFailedError, match="Board token verification failed"):
-        LiveGuard.arm(store_path=hash_path)
+        LiveGuard.arm(hash_path=hash_path)
     assert not LiveGuard.is_armed()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
@@ -267,3 +267,14 @@ def test_set_default_store_path_none_resets() -> None:
     assert LiveGuard._default_store_path == "/tmp/some/path"
     LiveGuard.set_default_store_path(None)
     assert LiveGuard._default_store_path is None
+
+
+def test_arm_fail_closed_on_db_error(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.disarm()
+    db_dir = tmp_path / "subdir"
+    db_dir.mkdir()
+    with pytest.raises(LiveDisarmedError, match="DB unavailable"):
+        LiveGuard.arm(store_path=db_dir, hash_path=sp)
+    assert not LiveGuard.is_armed()
+    _cleanup_arm()
