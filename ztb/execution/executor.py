@@ -55,6 +55,8 @@ class Executor:
         self._killswitch = killswitch
         self._original_sigterm: Any = None
         self._sigterm_stop: bool = False
+        self._last_executed_signal: float = 0.0
+        self._signal_initialized: bool = False
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -388,9 +390,15 @@ class Executor:
             self._save_pnl(
                 self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
             )
+            self._last_executed_signal = target_signal
+            self._signal_initialized = True
             return result
 
-        if abs(delta) > 1e-12:
+        signal_changed = not self._signal_initialized or abs(
+            target_signal - self._last_executed_signal
+        ) > 1e-6
+
+        if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
                 self.state.strategy_name, symbol, bar_ts, intent_hash
@@ -484,6 +492,10 @@ class Executor:
                     "code_version": __version__,
                 },
             )
+
+        if signal_changed:
+            self._last_executed_signal = target_signal
+            self._signal_initialized = True
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
@@ -618,7 +630,19 @@ class Executor:
             try:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
                 close_price = float(warmup_data["close"].iloc[-1])
-                self._reconcile(0.0, close_price, str(warmup_data.index[-1]))
+                bar_ts = str(warmup_data.index[-1])
+                report = self._reconcile(0.0, close_price, bar_ts)
+                if abs(report.actual_position) > 1e-8:
+                    actual_avg = (
+                        report.actual_avg_price
+                        if abs(report.actual_avg_price) > 1e-8
+                        else close_price
+                    )
+                    self._pnl.adopt_state(
+                        position=report.actual_position,
+                        avg_entry_price=actual_avg,
+                    )
+                    self._sync_pnl_state()
             except Exception:
                 pass
 
