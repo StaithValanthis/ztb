@@ -151,3 +151,15 @@ class LiveKillSwitch:
 
     def get_triggers(self) -> list[KillTrigger]:
         return self._triggers
+
+    def to_persistable_state(self) -> dict[str, Any]:
+        return {
+            "tripped": self._tripped,
+            "hwm_equity": self._hwm_equity,
+            "last_heartbeat": self._last_heartbeat,
+        }
+
+    def restore_from_state(self, state: dict[str, Any], current_equity: float = 0.0) -> None:
+        self._tripped = state.get("tripped", False)
+        self._hwm_equity = max(state.get("hwm_equity", 0.0), current_equity)
+        self._last_heartbeat = state.get("last_heartbeat", 0.0)
