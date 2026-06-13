@@ -18,7 +18,7 @@ from ztb.store.exec_io import (
     save_killswitch_state,
 )
 
-_TEST_TOKEN = "test-board-token-kd"
+_TEST_TOKEN = "brd-tkn-kd"
 
 
 def _setup_board(tmp_path: Path) -> Path:
