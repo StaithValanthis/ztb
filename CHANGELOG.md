@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.8 (2026-06-13)
+
+- **Tests(vr-pass-bridge):** Add comprehensive T1–T12 test suite + notify-mode tests for `scripts/ztb-vr-pass-bridge.py`
+- **Tests:** Covers PASS/FAIL outcomes vs CI states (green/red/pending), gh CLI error handling (not found, API error, non-JSON, timeout), git remote URL parsing (HTTPS, SSH), self-filter (ztb/vr-pass excluded from CI conclusion), and notify mode
+- **Tests:** 17 bridge-specific tests; 723 total tests collected
+- V&R PASS on SHA `70ba5e8` ([ZTB-1008](/ZTB/issues/ZTB-1008))
+- **PR:** [#19](https://github.com/StaithValanthis/ztb/pull/19) — `feat/vr-pass-bridge`
+- **Merge commit:** `9330cc4` — two-key merge (CI green + V&R PASS on SHA `70ba5e8`)
+- **Tag:** v1.0.8
+
 ## v1.0.7 (2026-06-13)
 
 - **Feat(sizing):** Unify backtest-executor position sizing to fraction-of-equity convention (`target_qty = target_frac * equity / price`) — signals in both environments now produce identical position quantities
