@@ -28,7 +28,7 @@ def _compression_df(length: int = 500) -> DataFrame:
     noise = np.random.randn(length) * 0.5
     c = 100.0 + trend + noise
     h = c + np.abs(np.random.randn(length)) * 0.8
-    l = c - np.abs(np.random.randn(length)) * 0.8
+    lo = c - np.abs(np.random.randn(length)) * 0.8
     v = 2000.0 + np.random.randn(length) * 100
 
     idx = pd.date_range("2020-01-01", periods=length, freq="h")
@@ -36,7 +36,7 @@ def _compression_df(length: int = 500) -> DataFrame:
         {
             "open": c - np.random.randn(length) * 0.1,
             "high": h,
-            "low": l,
+            "low": lo,
             "close": c,
             "volume": v.clip(500),
         },
@@ -166,13 +166,13 @@ class TestCompressionBreakout:
         length = 500
         c = 100.0 + np.linspace(0, 20, length) + np.random.randn(length) * 0.5
         h = c + 1.0
-        l = c - 1.0
+        lo = c - 1.0
         v = np.ones(length) * 3000.0
         compress = np.sin(np.linspace(0, 4 * np.pi, length)) * 0.05 + 0.1
         c = c + compress * 10
         idx = pd.date_range("2020-01-01", periods=length, freq="h")
         df = DataFrame(
-            {"open": c - 0.05, "high": h, "low": l, "close": c, "volume": v},
+            {"open": c - 0.05, "high": h, "low": lo, "close": c, "volume": v},
             index=idx,
         )
         signals = strat.generate_signals(df)
