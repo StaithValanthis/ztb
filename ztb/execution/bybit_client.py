@@ -5,6 +5,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -30,6 +31,8 @@ class ClientConfig:
     mode: Mode = Mode.DEMO
     timeout: float = _DEFAULT_TIMEOUT
     max_retries: int = 3
+    store_path: str | Path | None = None
+    arm_source: str = ""
 
 
 class BybitClient:
@@ -101,6 +104,8 @@ class BybitClient:
                 ret_code = data.get("retCode", -1)
                 if ret_code == 0:
                     result: dict[str, Any] = data.get("result", {})
+                    if self._config.mode == Mode.LIVE:
+                        self._log_audit("api_call", f"{method} {path}: success")
                     return result
                 if ret_code in (10002, 10003, 10004):
                     raise ClientAuthError(resp.status_code, data.get("retMsg", ""))
@@ -230,6 +235,22 @@ class BybitClient:
     def get_server_time(self) -> int:
         result = self._request("GET", "/v5/market/time")
         return int(result.get("timeSecond", 0))
+
+    def _log_audit(self, event_type: str, detail: str) -> None:
+        store_path = self._config.store_path
+        if not store_path:
+            return
+        source = self._config.arm_source or "BybitClient"
+        from ztb.store.exec_io import ensure_audit_table, log_audit_event
+        from ztb.store.results import connect
+
+        try:
+            conn = connect(str(store_path))
+            ensure_audit_table(conn)
+            log_audit_event(conn, event_type=event_type, source=source, detail=detail)
+            conn.close()
+        except Exception:
+            pass
 
     def close(self) -> None:
         self._client.close()

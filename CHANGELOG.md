@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.6 (2026-06-13)
+
+- **Feat(security):** HMAC-SHA256 board token verification via `arm_auth.py` — `load_arm_hash`, `compute_arm_hash`, `verify_board_token`
+- **Feat(security):** `LiveGuard.BOARD_TOKEN_VAR` (`ZTB_BOARD_TOKEN`) — token verification on `arm()`, refuses arm on hash mismatch
+- **Feat(security):** `LiveArmFailedError` for token verification failures
+- **Feat(security):** Tamper-evident `audit_log` table (schema v8) with SHA-256 hash chain — `ensure_audit_table`, `log_audit_event`, `get_audit_log`, `verify_audit_chain`
+- **Feat(security):** `BybitClient` live mode writes audit log row on successful API calls
+- **Tests:** 18 new arm_auth/LiveGuard token tests; 6 new audit log chain tests; 724 total passed, 91% coverage
+- Version bumped to 1.0.6
+- **Branch:** `feat/ztb-852-arm-security`
+
 ## v1.0.5 (2026-06-13)
 
 - **Feat(killswitch):** Persist LiveKillSwitch state (HWM equity, tripped flag, last heartbeat) so process restart preserves safety invariant
