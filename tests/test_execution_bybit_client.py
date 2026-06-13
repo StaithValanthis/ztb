@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -24,15 +26,20 @@ def test_live_mode_blocked_when_disarmed() -> None:
         BybitClient(cfg)
 
 
-def test_live_mode_allowed_when_armed() -> None:
+def test_live_mode_allowed_when_armed(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token"))
+    LiveGuard.arm("1", hash_path=hp)
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
     client = BybitClient(cfg)
     assert client._base_url == "https://api.bybit.com"
     client.close()
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_demo_mode_ok() -> None:
@@ -501,3 +508,121 @@ def test_http_status_error_503_retry_then_raise(mock_client_cls: MagicMock) -> N
         client._request("GET", "/v5/market/time")
     assert mock_instance.request.call_count == 2
     client.close()
+
+
+def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
+    from ztb.execution.live_guard import LiveGuard
+
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "audit-tkn"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("audit-tkn"))
+    LiveGuard.arm("1", hash_path=hp)
+    db_path = tmp_path / "test_audit_bybit.db"
+    cfg = ClientConfig(
+        api_key="test_key",
+        api_secret="test_secret",
+        mode=Mode.LIVE,
+        store_path=db_path,
+        arm_source="test_audit",
+    )
+    with patch("ztb.execution.bybit_client.httpx.Client") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_a"}}
+        mock_instance.request.return_value = mock_resp
+        client = BybitClient(cfg)
+        client.place_order(
+            symbol="BTCUSDT", side=OrderSide.BUY, qty=0.01, order_type=OrderType.MARKET
+        )
+        client.close()
+    from ztb.store.exec_io import ensure_audit_table, get_audit_log
+    from ztb.store.results import connect
+
+    conn = connect(str(db_path))
+    ensure_audit_table(conn)
+    events = get_audit_log(conn)
+    conn.close()
+    assert len(events) >= 1
+    api_events = [e for e in events if e["event_type"] == "api_call"]
+    assert len(api_events) >= 1, "No api_call audit events found"
+    assert "POST /v5/order/create: success" in api_events[0]["detail"]
+    LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+
+
+def test_demo_mode_does_not_log_audit(tmp_path: Path) -> None:
+    db_path = tmp_path / "test_no_audit_demo.db"
+    cfg = ClientConfig(
+        api_key="k",
+        api_secret="s",
+        mode=Mode.DEMO,
+        store_path=db_path,
+        arm_source="test_demo",
+    )
+    with patch("ztb.execution.bybit_client.httpx.Client") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_d"}}
+        mock_instance.request.return_value = mock_resp
+        client = BybitClient(cfg)
+        client.place_order(
+            symbol="BTCUSDT", side=OrderSide.BUY, qty=0.01, order_type=OrderType.MARKET
+        )
+        client.close()
+    from ztb.store.exec_io import ensure_audit_table, get_audit_log
+    from ztb.store.results import connect
+
+    conn = connect(str(db_path))
+    ensure_audit_table(conn)
+    events = get_audit_log(conn)
+    conn.close()
+    api_events = [e for e in events if e["event_type"] == "api_call"]
+    assert len(api_events) == 0, "DEMO mode should not log API audit events"
+
+
+def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
+    from ztb.execution.live_guard import LiveGuard
+
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "wallet-tkn"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("wallet-tkn"))
+    LiveGuard.arm("1", hash_path=hp)
+    db_path = tmp_path / "test_audit_wallet.db"
+    cfg = ClientConfig(
+        api_key="test_key",
+        api_secret="test_secret",
+        mode=Mode.LIVE,
+        store_path=db_path,
+        arm_source="test_wallet",
+    )
+    with patch("ztb.execution.bybit_client.httpx.Client") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "retCode": 0,
+            "result": {"wallet": {"totalEquity": "100000"}},
+        }
+        mock_instance.request.return_value = mock_resp
+        client = BybitClient(cfg)
+        client.get_wallet_balance()
+        client.close()
+    from ztb.store.exec_io import ensure_audit_table, get_audit_log
+    from ztb.store.results import connect
+
+    conn = connect(str(db_path))
+    ensure_audit_table(conn)
+    events = get_audit_log(conn)
+    conn.close()
+    api_events = [e for e in events if e["event_type"] == "api_call"]
+    assert len(api_events) >= 1
+    assert "GET /v5/account/wallet-balance: success" in api_events[0]["detail"]
+    LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)

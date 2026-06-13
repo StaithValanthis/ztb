@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.9 (2026-06-13)
+
+- **Feat(security):** HMAC-SHA256 board token verification via `arm_auth.py` — `load_arm_hash`, `compute_arm_hash`, `verify_board_token`
+- **Feat(security):** `LiveGuard.BOARD_TOKEN_VAR` (`ZTB_BOARD_TOKEN`) — token verification on `arm()`, refuses arm on hash mismatch
+- **Feat(security):** `LiveArmFailedError` for token verification failures
+- **Feat(security):** Tamper-evident `audit_log` table (schema v8) with SHA-256 hash chain — `ensure_audit_table`, `log_audit_event`, `get_audit_log`, `verify_audit_chain`
+- **Feat(security):** `BybitClient` live mode writes audit log row on successful API calls
+- **Fix(arm):** Board token verification now always runs (fail-closed) — `LiveArmFailedError` if token unset, hash missing, or mismatch
+- **Fix(arm):** `LiveGuard.arm()` checks unresolved kill events via `store_path` or `_default_store_path`
+- **Fix(arm):** Added `hash_path` parameter separate from `store_path`; `set_default_store_path()` classmethod
+- **Tests:** 10 new fail-closed arm tests; 3 new BybitClient audit logging tests; 738 total passed, 92% coverage
+- **Branch:** `feat/ztb-866-arm-fail-closed`
+- **PR:** [#37](https://github.com/StaithValanthis/ztb/pull/37)
+
 ## v1.0.8 (2026-06-13)
 
 - **Tests(vr-pass-bridge):** Add comprehensive T1–T12 test suite + notify-mode tests for `scripts/ztb-vr-pass-bridge.py`
@@ -8,7 +22,6 @@
 - V&R PASS on SHA `70ba5e8` ([ZTB-1008](/ZTB/issues/ZTB-1008))
 - **PR:** [#19](https://github.com/StaithValanthis/ztb/pull/19) — `feat/vr-pass-bridge`
 - **Merge commit:** `9330cc4` — two-key merge (CI green + V&R PASS on SHA `70ba5e8`)
-- **Tag:** v1.0.8
 
 ## v1.0.7 (2026-06-13)
 
