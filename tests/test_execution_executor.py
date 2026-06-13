@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ztb.execution.errors import ExecutionError
 from ztb.execution.executor import ExecRunConfig, Executor
 from ztb.execution.models import AccountState, Mode
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
@@ -380,6 +381,60 @@ def test_executor_non_dry_run_places_order(
 
 
 @patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_skipped_order_early_return(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["signal"] == 0.5
+    assert result.get("order_skipped") is True
+    assert result.get("skip_reason") == "Qty too small"
+    assert result.get("order_placed") is False
+    assert result.get("order") is None
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_skipped_order_no_cost(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    pnl_before = exe._pnl.equity(50000.0)
+
+    result = exe.step(sample_data)
+
+    pnl_after = exe._pnl.equity(50000.0)
+    assert result.get("order_skipped") is True
+    assert pnl_before == pnl_after, "Costs should NOT be applied on skipped order"
+
+
+@patch("ztb.execution.executor.load_data")
 def test_executor_once_mode_insufficient_data(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
@@ -396,10 +451,10 @@ def test_executor_once_mode_insufficient_data(
         index=idx,
     )
     data.index.name = "timestamp"
-    mock_load.return_value = data
+    mock_load.side_effect = [data, pd.DataFrame()]
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True, warmup_bars=100)
     exe = Executor(fake_strategy, config=config)
-    with pytest.raises(Exception, match="Data length 50 <= warmup 100"):
+    with pytest.raises(Exception, match="Cannot fetch enough historical data"):
         exe.run(symbol="BTCUSDT", timeframe="60", db_path=":memory:")
 
 
@@ -775,3 +830,290 @@ def test_executor_dry_run_no_costs(
     assert exe.state is not None
     exe.step(sample_data)
     assert exe._pnl.realized_pnl < 0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_config_loop_default(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    assert config.loop is False
+    assert config.poll_interval_seconds == 60
+    assert config.lookback_bars == 0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_config_loop_true_when_not_dry_run(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO)
+    assert config.loop is True
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_config_loop_false_when_once(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, once=True)
+    assert config.loop is False
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_config_loop_enabled(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=10.0)
+    exe = Executor(fake_strategy, config=config)
+    assert exe.config.loop is True
+    assert exe.config.poll_interval_seconds == 10.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_run_with_loop(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    call_count = 0
+
+    def sleep_side_effect(seconds: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            raise Exception("stop loop")
+
+    mock_sleep.side_effect = sleep_side_effect
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert result.bars_processed > 0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_sufficient(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(sample_data, 50, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 50
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_extends(mock_load: MagicMock, fake_strategy: FakeStrategy) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    small_data.index.name = "timestamp"
+    idx2 = pd.date_range("2025-12-20", periods=160, freq="h", tz="UTC")
+    extended_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 160,
+            "high": [50100.0] * 160,
+            "low": [49900.0] * 160,
+            "close": [50000.0] * 160,
+            "volume": [100.0] * 160,
+        },
+        index=idx2,
+    )
+    extended_data.index.name = "timestamp"
+    mock_load.return_value = extended_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 150
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_fails_empty(mock_load: MagicMock, fake_strategy: FakeStrategy) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    small_data.index.name = "timestamp"
+    mock_load.return_value = pd.DataFrame()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    with pytest.raises(ExecutionError, match="Cannot fetch enough historical data"):
+        exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+
+
+@patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_no_new_data(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = pd.DataFrame()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    result = exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+    assert len(result) == len(sample_data)
+
+
+@patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_with_new_bar(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC")
+    new_bar = pd.DataFrame(
+        {
+            "open": [50100.0],
+            "high": [50200.0],
+            "low": [50000.0],
+            "close": [50150.0],
+            "volume": [150.0],
+        },
+        index=new_idx,
+    )
+    new_bar.index.name = "timestamp"
+    mock_load.return_value = new_bar
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    result = exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+    assert len(result) == len(sample_data) + 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_killswitch_stops(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    ks = LiveKillSwitch()
+    ks.manual_trip("test")
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+    assert any("Killswitch" in e for e in exe.state.errors)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_error_retry_then_stop(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    original_step = exe.step
+
+    call_count = 0
+
+    def failing_step(data: pd.DataFrame) -> dict:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            raise ValueError("poll error")
+        return original_step(data)
+
+    exe.step = failing_step
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+    assert any("Max polling errors" in e for e in exe.state.errors)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_sigterm_stops_via_flag(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    mock_sleep.side_effect = lambda _: setattr(exe, "_sigterm_stop", True)
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert exe._sigterm_stop is True
+
+
+@patch("ztb.execution.executor.signal.signal")
+def test_setup_sigterm_sets_flag_not_exit(
+    mock_signal_signal: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+
+    original_handler = object()
+
+    def capture_handler(signum: int, handler: object) -> object:
+        nonlocal original_handler
+        return original_handler
+
+    mock_signal_signal.side_effect = capture_handler
+
+    exe._setup_sigterm()
+
+    assert exe._sigterm_stop is False
+
+    registered = mock_signal_signal.call_args[0][1]
+    registered(15, None)
+
+    assert exe._sigterm_stop is True
