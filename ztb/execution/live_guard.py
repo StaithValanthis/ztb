@@ -12,6 +12,11 @@ from ztb.execution.errors import LiveArmFailedError, LiveDisarmedError
 class LiveGuard:
     ENV_VAR = "ZTB_LIVE_ARMED"
     BOARD_TOKEN_VAR = "ZTB_BOARD_TOKEN"
+    _default_store_path: str | Path | None = None
+
+    @classmethod
+    def set_default_store_path(cls, path: str | Path | None) -> None:
+        cls._default_store_path = path
 
     @classmethod
     def is_armed(cls) -> bool:
@@ -30,12 +35,31 @@ class LiveGuard:
         conn: sqlite3.Connection | None = None,
         store_path: str | Path | None = None,
     ) -> dict[str, Any]:
+        effective_path = store_path or cls._default_store_path
         if conn is not None:
             from ztb.store.exec_io import get_latest_unresolved_kill_event
 
             event = get_latest_unresolved_kill_event(conn)
             if event is not None:
                 raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
+        elif effective_path is not None:
+            from ztb.store.exec_io import (
+                ensure_exec_tables,
+                get_latest_unresolved_kill_event,
+            )
+            from ztb.store.results import connect
+
+            try:
+                c = connect(str(effective_path))
+                ensure_exec_tables(c)
+                event = get_latest_unresolved_kill_event(c)
+                c.close()
+                if event is not None:
+                    raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
+            except LiveDisarmedError:
+                raise
+            except Exception:
+                pass
         board_token = os.environ.get(cls.BOARD_TOKEN_VAR)
         if board_token:
             stored_hash = load_arm_hash(store_path)
@@ -52,13 +76,14 @@ class LiveGuard:
 
     @classmethod
     def _write_audit(cls, store_path: str | Path | None, entry: dict[str, Any]) -> None:
-        if not store_path:
+        path = store_path or cls._default_store_path
+        if not path:
             return
         from ztb.store.exec_io import ensure_audit_table, log_audit_event
         from ztb.store.results import connect
 
         try:
-            conn = connect(str(store_path))
+            conn = connect(str(path))
             ensure_audit_table(conn)
             log_audit_event(
                 conn,
