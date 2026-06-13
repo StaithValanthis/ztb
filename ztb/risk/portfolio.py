@@ -37,18 +37,20 @@ def risk_adjusted_signals(
 
     for i, idx in enumerate(signals.index):
         price = float(close.iloc[i])
-        target = float(signals.iloc[i])
+        target_frac = float(signals.iloc[i])
         current_equity = cash + pos * price
         equity_values.append(current_equity)
 
         if i == 0:
             risk_manager.kill_switch.update(current_equity)
 
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+
         portfolio_state: dict[str, Any] = {
             "cash": cash,
             "positions": {"_": pos},
         }
-        proposed = {"_": target}
+        proposed = {"_": target_qty}
         prices = {"_": price}
 
         decision = risk_manager.evaluate(
@@ -56,7 +58,7 @@ def risk_adjusted_signals(
         )
 
         if decision.action == RiskDecisionAction.halt:
-            target = 0.0
+            target_frac = 0.0
 
         current_dd = risk_manager._compute_current_dd(current_equity)
         scalar = 1.0
@@ -67,7 +69,8 @@ def risk_adjusted_signals(
                 risk_manager.config.dd_budget_scalar_power,
             )
 
-        final_target = target * scalar
+        final_target_frac = target_frac * scalar
+        final_target_qty = final_target_frac * current_equity / price if price > 0 else 0.0
 
         decisions.append(
             {
@@ -84,15 +87,15 @@ def risk_adjusted_signals(
             }
         )
 
-        delta = final_target - pos
+        delta = final_target_qty - pos
         if abs(delta) > 1e-12:
             if delta > 0:
                 cash -= delta * price * (1 + commission + slippage)
             else:
                 cash += abs(delta) * price * (1 - commission - slippage)
-            pos = final_target
+            pos = final_target_qty
 
-        adjusted.append(pos)
+        adjusted.append(final_target_frac)
 
         if i == 0:
             risk_manager.update_portfolio_equity(current_equity)

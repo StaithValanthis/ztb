@@ -221,7 +221,8 @@ class Executor:
             return target_signal, None
         assert self.state is not None
         sym = self.state.symbol
-        proposed = {sym: target_signal}
+        target_qty = target_signal * equity / price if price > 0 else 0.0
+        proposed = {sym: target_qty}
         prices = {sym: price}
         portfolio_state: dict[str, Any] = {
             "cash": equity - abs(current_position) * price,
@@ -238,7 +239,7 @@ class Executor:
         if decision.action == RiskDecisionAction.halt:
             return 0.0, decision
         if decision.action == RiskDecisionAction.reduce:
-            sig_val = abs(target_signal) * price
+            sig_val = abs(target_signal) * equity
             scale = decision.max_notional / sig_val if sig_val > 0 else 0.0
             return target_signal * min(scale, 1.0), decision
         return target_signal, decision
