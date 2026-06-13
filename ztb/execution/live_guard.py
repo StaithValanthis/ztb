@@ -27,7 +27,7 @@ class LiveGuard:
             try:
                 event = get_latest_unresolved_kill_event(conn)
             except sqlite3.Error:
-                raise LiveDisarmedError("Cannot arm: DB unavailable — kill-check failed") from None
+                raise LiveDisarmedError("Cannot arm: DB unavailable — kill-check failed")
             if event is not None:
                 raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
         os.environ[cls.ENV_VAR] = token

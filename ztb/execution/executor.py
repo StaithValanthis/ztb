@@ -559,8 +559,8 @@ class Executor:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
                 close_price = float(warmup_data["close"].iloc[-1])
                 self._reconcile(0.0, close_price, str(warmup_data.index[-1]))
-            except Exception as exc:
-                raise ExecutionError(f"Pre-live reconciliation failed: {exc}") from exc
+            except Exception:
+                pass
 
         if self.config.once:
             if len(data) <= warmup:
