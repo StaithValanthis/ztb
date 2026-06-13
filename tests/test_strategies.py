@@ -150,10 +150,19 @@ class TestBearishResumption:
 
     def test_multi_tf_resampling(self, bearish_4h_df: DataFrame) -> None:
         _ = get("bearish_resumption")().generate_signals(bearish_4h_df)
-        daily = bearish_4h_df.resample("D").agg({
-            "open": "first", "high": "max", "low": "min",
-            "close": "last", "volume": "sum",
-        }).dropna()
+        daily = (
+            bearish_4h_df.resample("D")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
         assert len(daily) > 0
         assert daily.index[0] <= bearish_4h_df.index[0] + pd.Timedelta(hours=28)
         assert "close" in daily.columns

@@ -34,10 +34,19 @@ class BearishResumption(Strategy):
             df = df.tz_localize("UTC")
         close_sh = df["close"].shift(1)
 
-        daily = df.resample("D").agg({
-            "open": "first", "high": "max", "low": "min",
-            "close": "last", "volume": "sum",
-        }).dropna()
+        daily = (
+            df.resample("D")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
 
         daily_adx_val = adx(daily["high"], daily["low"], daily["close"], 14)
         daily_di_plus_val = di_plus(daily["high"], daily["low"], daily["close"], 14)
@@ -52,10 +61,17 @@ class BearishResumption(Strategy):
         daily_idx["_ema_trend"] = daily_ema_trend
         daily_idx["_ema_50"] = daily_ema_50
         daily_idx["_close"] = daily["close"]
-        daily_4h = pd.merge_asof(
-            df[[]], daily_idx,
-            left_index=True, right_index=True, direction="backward",
-        ).bfill().ffill()
+        daily_4h = (
+            pd.merge_asof(
+                df[[]],
+                daily_idx,
+                left_index=True,
+                right_index=True,
+                direction="backward",
+            )
+            .bfill()
+            .ffill()
+        )
         d_adx = daily_4h["_adx"]
         d_di_plus = daily_4h["_di_plus"]
         d_di_minus = daily_4h["_di_minus"]
@@ -89,7 +105,11 @@ class BearishResumption(Strategy):
         df_1h_idx["bb_z_1h"] = bb_z_1h_f
 
         aligned_1h = pd.merge_asof(
-            df[[]], df_1h_idx, left_index=True, right_index=True, direction="backward",
+            df[[]],
+            df_1h_idx,
+            left_index=True,
+            right_index=True,
+            direction="backward",
         )
         close_1h_a = aligned_1h["close_1h"]
         adx_1h_a = aligned_1h["adx_1h"]
@@ -113,10 +133,7 @@ class BearishResumption(Strategy):
                 cond_exit_b = d_adx.iloc[i] <= self.params["adx_threshold"]
                 cond_exit_c = d_close.iloc[i] > d_ema_50.iloc[i]
                 cond_exit_d = close_sh.iloc[i] <= stop_level
-                cond_exit_e = (
-                    entry_type == "B"
-                    and close_1h_a.iloc[i] > bb_u_1h_a.iloc[i]
-                )
+                cond_exit_e = entry_type == "B" and close_1h_a.iloc[i] > bb_u_1h_a.iloc[i]
 
                 if cond_exit_a or cond_exit_b or cond_exit_c or cond_exit_d or cond_exit_e:
                     signals.iloc[i] = 0.0
