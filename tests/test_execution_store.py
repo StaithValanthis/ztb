@@ -8,13 +8,16 @@ import pytest
 from ztb.store.exec_io import (
     count_quarantined_rows,
     create_exec_run,
+    ensure_audit_table,
     ensure_exec_tables,
+    get_audit_log,
     get_credible_pnl_ledger,
     get_exec_fills,
     get_exec_orders,
     get_exec_run,
     get_pnl_ledger,
     list_exec_runs,
+    log_audit_event,
     quarantine_corrupt_ledger_rows,
     save_exec_error,
     save_exec_fill,
@@ -23,6 +26,7 @@ from ztb.store.exec_io import (
     save_position_snapshot,
     update_exec_order,
     update_exec_run_status,
+    verify_audit_chain,
 )
 from ztb.store.results import connect
 
@@ -48,6 +52,7 @@ def test_ensure_exec_tables(conn: sqlite3.Connection) -> None:
     assert "exec_positions_snapshots" in table_names
     assert "exec_pnl_ledger" in table_names
     assert "exec_errors" in table_names
+    assert "audit_log" in table_names
     assert "idempotency" not in table_names  # separate table
 
 
@@ -455,3 +460,83 @@ def test_save_exec_error(conn: sqlite3.Connection) -> None:
     rows = conn.execute("SELECT * FROM exec_errors WHERE exec_run_id = ?", ("exec1",)).fetchall()
     assert len(rows) == 1
     assert rows[0]["error_type"] == "client_error"
+
+
+def test_ensure_audit_table(conn: sqlite3.Connection) -> None:
+    ensure_audit_table(conn)
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).fetchall()
+    table_names = [r["name"] for r in tables]
+    assert "audit_log" in table_names
+
+
+def test_log_and_get_audit_event(conn: sqlite3.Connection) -> None:
+    result = log_audit_event(
+        conn,
+        event_type="arm",
+        source="preflight",
+        detail="Live armed via signed token",
+        timestamp="2026-06-12T10:00:00Z",
+    )
+    assert result["event_type"] == "arm"
+    assert result["source"] == "preflight"
+    assert result["detail"] == "Live armed via signed token"
+    assert result["timestamp"] == "2026-06-12T10:00:00Z"
+    assert result["prev_hash"] == ""
+    assert len(result["content_hash"]) == 64
+
+    events = get_audit_log(conn)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "arm"
+
+
+def test_audit_log_hash_chain(conn: sqlite3.Connection) -> None:
+    e1 = log_audit_event(
+        conn, event_type="arm", source="preflight", timestamp="2026-06-12T10:00:00Z"
+    )
+    e2 = log_audit_event(
+        conn, event_type="kill", source="killswitch", timestamp="2026-06-12T10:01:00Z"
+    )
+    e3 = log_audit_event(
+        conn, event_type="disarm", source="manual", timestamp="2026-06-12T10:02:00Z"
+    )
+
+    assert e1["prev_hash"] == ""
+    assert e2["prev_hash"] == e1["content_hash"]
+    assert e3["prev_hash"] == e2["content_hash"]
+
+    violations = verify_audit_chain(conn)
+    assert violations == []
+
+
+def test_verify_audit_chain_detects_tamper(conn: sqlite3.Connection) -> None:
+    log_audit_event(conn, event_type="arm", source="preflight", timestamp="2026-06-12T10:00:00Z")
+    log_audit_event(conn, event_type="kill", source="killswitch", timestamp="2026-06-12T10:01:00Z")
+
+    conn.execute("UPDATE audit_log SET detail = 'tampered' WHERE entry_id = 1")
+    conn.commit()
+
+    violations = verify_audit_chain(conn)
+    assert len(violations) >= 1
+
+
+def test_get_audit_log_ordering(conn: sqlite3.Connection) -> None:
+    log_audit_event(conn, event_type="a", timestamp="2026-01-01T00:00:00Z")
+    log_audit_event(conn, event_type="b", timestamp="2026-01-01T00:01:00Z")
+    log_audit_event(conn, event_type="c", timestamp="2026-01-01T00:02:00Z")
+
+    events = get_audit_log(conn, limit=2)
+    assert len(events) == 2
+    assert events[0]["event_type"] == "c"
+    assert events[1]["event_type"] == "b"
+
+    events_all = get_audit_log(conn, limit=10)
+    assert len(events_all) == 3
+
+
+def test_ensure_audit_table_schema_version(conn: sqlite3.Connection) -> None:
+    ensure_audit_table(conn)
+    row = conn.execute("SELECT version FROM schema_meta WHERE version = 8").fetchone()
+    assert row is not None
+    assert row["version"] == 8
