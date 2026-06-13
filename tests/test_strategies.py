@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from pandas import DataFrame
 
+from ztb.features.indicators import atr, ema, sma
 from ztb.strategies.base import Strategy
 from ztb.strategies.registry import all, get, list_names
 
@@ -367,8 +368,6 @@ class TestAdaptiveVolTrend:
         assert cls.warmup == 84
 
     def test_regime_classification(self) -> None:
-        from ztb.features.indicators import atr, sma, ema
-
         s = get("adaptive_vol_trend")()
         cls = get("adaptive_vol_trend")
         vol_lookback = int(cls.params["vol_lookback"])
@@ -417,18 +416,42 @@ class TestAdaptiveVolTrend:
                 upper = sma_val.iloc[i] + range_multiplier * atr_val.iloc[i]
                 lower = sma_val.iloc[i] - range_multiplier * atr_val.iloc[i]
                 if df["close"].iloc[i] > upper:
-                    assert signals.iloc[i] == 1.0, f"LOW-VOL LONG fail at {i}: close={df['close'].iloc[i]:.1f}, upper={upper:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"LOW-VOL LONG fail at {i}: close={df['close'].iloc[i]:.1f},"
+                        f" upper={upper:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == 1.0, msg
                 elif df["close"].iloc[i] < lower:
-                    assert signals.iloc[i] == -1.0, f"LOW-VOL SHORT fail at {i}: close={df['close'].iloc[i]:.1f}, lower={lower:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"LOW-VOL SHORT fail at {i}: close={df['close'].iloc[i]:.1f},"
+                        f" lower={lower:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == -1.0, msg
                 else:
-                    assert signals.iloc[i] == 0.0, f"LOW-VOL FLAT fail at {i}: close={df['close'].iloc[i]:.1f}, upper={upper:.1f}, lower={lower:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"LOW-VOL FLAT fail at {i}: close={df['close'].iloc[i]:.1f},"
+                        f" upper={upper:.1f}, lower={lower:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == 0.0, msg
             else:
                 if ema_fast.iloc[i] > ema_slow.iloc[i]:
-                    assert signals.iloc[i] == 1.0, f"HIGH-VOL LONG fail at {i}: fast={ema_fast.iloc[i]:.1f}, slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"HIGH-VOL LONG fail at {i}: fast={ema_fast.iloc[i]:.1f},"
+                        f" slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == 1.0, msg
                 elif ema_fast.iloc[i] < ema_slow.iloc[i]:
-                    assert signals.iloc[i] == -1.0, f"HIGH-VOL SHORT fail at {i}: fast={ema_fast.iloc[i]:.1f}, slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"HIGH-VOL SHORT fail at {i}: fast={ema_fast.iloc[i]:.1f},"
+                        f" slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == -1.0, msg
                 else:
-                    assert signals.iloc[i] == 0.0, f"HIGH-VOL FLAT fail at {i}: fast={ema_fast.iloc[i]:.1f}, slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    msg = (
+                        f"HIGH-VOL FLAT fail at {i}: fast={ema_fast.iloc[i]:.1f},"
+                        f" slow={ema_slow.iloc[i]:.1f}, sig={signals.iloc[i]}"
+                    )
+                    assert signals.iloc[i] == 0.0, msg
 
     def test_no_lookahead(self) -> None:
         s = get("adaptive_vol_trend")()
@@ -438,6 +461,9 @@ class TestAdaptiveVolTrend:
         for truncation_point in range(100, 250, 25):
             truncated = df.iloc[: truncation_point + 1].copy()
             trunc_signals = s.generate_signals(truncated)
-            assert (
-                full_signals.iloc[truncation_point] == trunc_signals.iloc[truncation_point]
-            ), f"Lookahead at {truncation_point}: full={full_signals.iloc[truncation_point]}, trunc={trunc_signals.iloc[truncation_point]}"
+            msg = (
+                f"Lookahead at {truncation_point}:"
+                f" full={full_signals.iloc[truncation_point]},"
+                f" trunc={trunc_signals.iloc[truncation_point]}"
+            )
+            assert full_signals.iloc[truncation_point] == trunc_signals.iloc[truncation_point], msg
