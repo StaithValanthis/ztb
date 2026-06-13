@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
+
 from ztb.execution.killswitch import LiveKillSwitch
 
 
@@ -113,5 +115,35 @@ def test_check_account_dd_hwm_zero() -> None:
 
 def test_check_data_staleness_invalid_ts() -> None:
     ks = LiveKillSwitch(max_data_staleness_sec=0.1)
-    assert not ks.check_data_staleness("not-a-timestamp")
-    assert not ks.check_data_staleness("")
+    assert ks.check_data_staleness("not-a-timestamp")
+    assert ks.check_data_staleness("")
+
+
+def test_nan_equity_trips() -> None:
+    ks = LiveKillSwitch(max_account_dd=0.1)
+    assert ks.check_account_dd(np.nan)
+    assert ks.is_tripped
+    assert ks.get_triggers()[0].source == "account_dd"
+
+
+def test_inf_equity_trips() -> None:
+    ks = LiveKillSwitch(max_account_dd=0.1)
+    assert ks.check_account_dd(np.inf)
+    assert ks.is_tripped
+    assert ks.get_triggers()[0].source == "account_dd"
+
+
+def test_neg_inf_equity_trips() -> None:
+    ks = LiveKillSwitch(max_account_dd=0.1)
+    assert ks.check_account_dd(-np.inf)
+    assert ks.is_tripped
+    assert ks.get_triggers()[0].source == "account_dd"
+
+
+def test_nan_equity_hwm_not_updated() -> None:
+    ks = LiveKillSwitch(max_account_dd=0.1)
+    ks.check_account_dd(100.0)
+    assert ks._hwm_equity == 100.0
+    ks.check_account_dd(np.nan)
+    assert ks._hwm_equity == 100.0
+    assert np.isnan(ks._current_equity)

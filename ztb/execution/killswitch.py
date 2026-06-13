@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
+
 
 @dataclass
 class KillTrigger:
@@ -43,6 +45,17 @@ class LiveKillSwitch:
 
     def check_account_dd(self, current_equity: float) -> bool:
         self._current_equity = current_equity
+        if not np.isfinite(current_equity):
+            self.trip(
+                KillTrigger(
+                    source="account_dd",
+                    reason="non-finite value",
+                    value=current_equity,
+                    threshold=self.max_account_dd,
+                    timestamp=self._now(),
+                )
+            )
+            return True
         if current_equity > self._hwm_equity:
             self._hwm_equity = current_equity
         if self._hwm_equity <= 0:
@@ -80,7 +93,16 @@ class LiveKillSwitch:
             last_dt = datetime.fromisoformat(last_bar_ts.replace("Z", "+00:00"))
             age = (datetime.now(UTC) - last_dt).total_seconds()
         except (ValueError, TypeError):
-            return False
+            self.trip(
+                KillTrigger(
+                    source="data_staleness",
+                    reason="Unparseable bar timestamp",
+                    value=float("inf"),
+                    threshold=self.max_data_staleness_sec,
+                    timestamp=self._now(),
+                )
+            )
+            return True
         if age > self.max_data_staleness_sec:
             self.trip(
                 KillTrigger(
