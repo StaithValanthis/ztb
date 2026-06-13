@@ -409,15 +409,6 @@ def run(
 
     exec_mode = ExecMode(mode)
 
-    if exec_mode == ExecMode.LIVE:
-        from ztb.execution.live_guard import LiveGuard
-
-        if not LiveGuard.is_armed():
-            click.echo(
-                "Error: --mode=live blocked — LiveGuard is disarmed. Use --mode=demo.", err=True
-            )
-            sys.exit(1)
-
     strategy = strat_cls()
     strategy.symbols = [symbol]
     strategy.timeframe = timeframe
