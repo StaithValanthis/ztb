@@ -346,8 +346,10 @@ def test_pnl_calculator_matches_backtest_equity() -> None:
     pnl_equities: list[float] = []
     for i in range(len(signals)):
         price = float(close_prices.iloc[i])
-        target = float(signals.iloc[i])
-        delta = target - pnl.position
+        target_frac = float(signals.iloc[i])
+        current_equity = pnl.equity(price)
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+        delta = target_qty - pnl.position
         if abs(delta) > 1e-12:
             comm_cost = abs(delta) * price * commission
             slip_cost = abs(delta) * price * slippage
@@ -383,8 +385,10 @@ def test_pnl_calculator_matches_backtest_equity_short() -> None:
     pnl_equities: list[float] = []
     for i in range(len(signals)):
         price = float(close_prices.iloc[i])
-        target = float(signals.iloc[i])
-        delta = target - pnl.position
+        target_frac = float(signals.iloc[i])
+        current_equity = pnl.equity(price)
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+        delta = target_qty - pnl.position
         if abs(delta) > 1e-12:
             pnl.apply_fill(delta, price, commission=0.0, slippage=0.0)
         pnl_equities.append(pnl.equity(price))
@@ -401,10 +405,11 @@ def test_pnl_calculator_matches_backtest_equity_short() -> None:
         assert pnl_equities[i] == pytest.approx(engine_state.equity[i], abs=1e-9)
 
 
-def test_pnl_calculator_position_matches_engine() -> None:
+def test_pnl_calculator_matches_backtest_final_position() -> None:
     import pandas as pd
     from pandas import Series as PdSeries
 
+    initial_cash = 100_000.0
     idx = pd.date_range("2020-01-01", periods=10, freq="h", tz="UTC")
     signals = PdSeries([0.0, 0.5, 1.0, 1.0, 0.5, 0.0, -0.3, -0.3, 0.0, 0.0], index=idx)
     close_prices = PdSeries(
@@ -412,17 +417,24 @@ def test_pnl_calculator_position_matches_engine() -> None:
         index=idx,
     )
 
-    pnl = PnLCalculator()
-    pnl_positions: list[float] = []
+    pnl = PnLCalculator(initial_cash=initial_cash)
     for i in range(len(signals)):
-        target = float(signals.iloc[i])
-        delta = target - pnl.position
+        price = float(close_prices.iloc[i])
+        target_frac = float(signals.iloc[i])
+        current_equity = pnl.equity(price)
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+        delta = target_qty - pnl.position
         if abs(delta) > 1e-12:
-            pnl.apply_fill(delta, float(close_prices.iloc[i]))
-        pnl_positions.append(pnl.position)
+            pnl.apply_fill(delta, price)
 
-    for i in range(len(signals)):
-        assert pnl_positions[i] == pytest.approx(float(signals.iloc[i]))
+    engine_state = single_symbol_portfolio(
+        signals=signals,
+        close=close_prices,
+        initial_cash=initial_cash,
+        commission=0.0,
+        slippage=0.0,
+    )
+    assert pnl.position == pytest.approx(engine_state.position, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
