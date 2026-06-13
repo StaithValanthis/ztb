@@ -132,3 +132,104 @@ def test_arm_with_invalid_board_token(tmp_path: Path) -> None:
         LiveGuard.arm(store_path=hash_path)
     assert not LiveGuard.is_armed()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+
+
+def test_arm_fail_closed_on_unresolved_kill_via_path(tmp_path: Path) -> None:
+    from ztb.store.exec_io import (
+        create_exec_run,
+        ensure_exec_tables,
+        save_kill_event,
+    )
+    from ztb.store.results import connect
+
+    db_path = tmp_path / "test_fail_closed.db"
+    conn = connect(str(db_path))
+    ensure_exec_tables(conn)
+    create_exec_run(conn, "exec_kill1", "run_k1", "s", "BTCUSDT", "60")
+    save_kill_event(
+        conn,
+        {
+            "exec_run_id": "exec_kill1",
+            "source": "account_dd",
+            "reason": "Drawdown exceeded",
+            "value": 0.15,
+            "threshold": 0.1,
+            "timestamp": "2026-01-01T00:00:00Z",
+        },
+    )
+    conn.close()
+    LiveGuard.disarm()
+    with pytest.raises(LiveDisarmedError, match="Cannot arm: unresolved kill event exists"):
+        LiveGuard.arm(store_path=db_path)
+    assert not LiveGuard.is_armed()
+
+
+def test_arm_succeeds_on_clean_store_via_path(tmp_path: Path) -> None:
+    from ztb.store.exec_io import ensure_exec_tables
+    from ztb.store.results import connect
+
+    db_path = tmp_path / "test_clean.db"
+    conn = connect(str(db_path))
+    ensure_exec_tables(conn)
+    conn.close()
+    LiveGuard.disarm()
+    result = LiveGuard.arm(store_path=db_path)
+    assert LiveGuard.is_armed()
+    assert not result.get("token_verified", False)
+    LiveGuard.disarm()
+
+
+def test_arm_fail_closed_via_default_store_path(tmp_path: Path) -> None:
+    from ztb.store.exec_io import (
+        create_exec_run,
+        ensure_exec_tables,
+        save_kill_event,
+    )
+    from ztb.store.results import connect
+
+    db_path = tmp_path / "test_default_fc.db"
+    conn = connect(str(db_path))
+    ensure_exec_tables(conn)
+    create_exec_run(conn, "exec_kill2", "run_k2", "s", "BTCUSDT", "60")
+    save_kill_event(
+        conn,
+        {
+            "exec_run_id": "exec_kill2",
+            "source": "account_dd",
+            "reason": "Drawdown exceeded",
+            "value": 0.15,
+            "threshold": 0.1,
+            "timestamp": "2026-01-01T00:00:00Z",
+        },
+    )
+    conn.close()
+    LiveGuard.disarm()
+    LiveGuard.set_default_store_path(db_path)
+    with pytest.raises(LiveDisarmedError, match="Cannot arm: unresolved kill event exists"):
+        LiveGuard.arm()
+    assert not LiveGuard.is_armed()
+    LiveGuard.set_default_store_path(None)
+
+
+def test_arm_succeeds_on_clean_store_via_default_path(tmp_path: Path) -> None:
+    from ztb.store.exec_io import ensure_exec_tables
+    from ztb.store.results import connect
+
+    db_path = tmp_path / "test_clean_default.db"
+    conn = connect(str(db_path))
+    ensure_exec_tables(conn)
+    conn.close()
+    LiveGuard.disarm()
+    LiveGuard.set_default_store_path(db_path)
+    result = LiveGuard.arm()
+    assert LiveGuard.is_armed()
+    assert not result.get("token_verified", False)
+    LiveGuard.disarm()
+    LiveGuard.set_default_store_path(None)
+
+
+def test_set_default_store_path_none_resets() -> None:
+    LiveGuard.set_default_store_path("/tmp/some/path")
+    assert LiveGuard._default_store_path == "/tmp/some/path"
+    LiveGuard.set_default_store_path(None)
+    assert LiveGuard._default_store_path is None
