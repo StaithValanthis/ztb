@@ -24,7 +24,10 @@ class LiveGuard:
         if conn is not None:
             from ztb.store.exec_io import get_latest_unresolved_kill_event
 
-            event = get_latest_unresolved_kill_event(conn)
+            try:
+                event = get_latest_unresolved_kill_event(conn)
+            except sqlite3.Error:
+                raise LiveDisarmedError("Cannot arm: DB unavailable — kill-check failed")
             if event is not None:
                 raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
         os.environ[cls.ENV_VAR] = token

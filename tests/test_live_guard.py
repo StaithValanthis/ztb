@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 
 import pytest
 
@@ -45,4 +46,12 @@ def test_env_var_values() -> None:
 
 def test_missing_env_var() -> None:
     os.environ.pop(LiveGuard.ENV_VAR, None)
+    assert not LiveGuard.is_armed()
+
+
+def test_arm_fail_closed_on_db_error() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.close()
+    with pytest.raises(LiveDisarmedError, match="DB unavailable"):
+        LiveGuard.arm(token="1", conn=conn)
     assert not LiveGuard.is_armed()
