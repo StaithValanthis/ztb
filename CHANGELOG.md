@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0 (2026-06-13)
+
+- **Feat(demo-exec):** Continuous polling loop with SIGTERM handling, 3-retry, killswitch integration — `ztb run --loop` / `--poll-interval` / `--lookback-bars`
+- **Feat(bybit-client):** `get_instrument_info`, `round_to_step`, `minOrderQty`/`maxOrderQty` validation
+- **Fix(DEFECT-1):** `_step_impl` skipped-order `UnboundLocalError` — early return on skip, no cost on skipped order
+- **Fix(DEFECT-2):** Competing SIGTERM handlers consolidated
+- **Fix(CI):** vr-pass runs on PR events as required status check
+- **Tests:** 59 executor tests pass (3.11/3.13 matrix); skipped-order path coverage; 179 new bybit_client tests, 119 revised CLI tests
+- Coverage: 92% total (executor 86%, bybit_client 93%, CLI 86%)
+- V&R PASS on SHA `807e306` ([ZTB-1212](/ZTB/issues/ZTB-1212))
+- **PR:** [#39](https://github.com/StaithValanthis/ztb/pull/39) — `feat/demo-execution-loop`
+- **Merge commit:** `2eda279` — two-key merge (CI green + V&R PASS on SHA `807e306`)
+- **Tag:** v1.1.0
+
 ## v1.0.9 (2026-06-13)
 
 - **Fix(pnl-calculator):** Resolve 3 V&R-defects on `feat/pnl-calculator` — signed cash formula (no `abs(position)`), costs on bar 0, costs in dry_run path
