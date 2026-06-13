@@ -9,6 +9,7 @@ from pandas import DataFrame
 
 from ztb import __version__
 from ztb.data.loader import load as load_data
+from ztb.engine.pnl import PnLCalculator
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
     ExecutionError,
@@ -67,6 +68,7 @@ class Executor:
             exec_run_id=self._exec_run_id,
         )
         self.risk_mgr = RiskManager(config=self.risk_config) if self.config.risk_enabled else None
+        self._pnl: PnLCalculator = PnLCalculator(initial_cash=self.config.initial_cash)
 
     def _setup_sigterm(self) -> None:
         def _handler(signum: int, _frame: Any) -> None:
@@ -133,7 +135,15 @@ class Executor:
             },
         )
 
-    def _save_pnl(self, realized: float, unrealized: float, equity: float) -> None:
+    def _sync_pnl_state(self) -> None:
+        assert self.state is not None
+        self.state.current_position = self._pnl.position
+        self.state.avg_entry_price = self._pnl.avg_entry_price
+        self.state.realized_pnl = self._pnl.realized_pnl
+        self.state.total_commission = self._pnl.total_commission
+        self.state.total_slippage = self._pnl.total_slippage
+
+    def _save_pnl(self, realized: float, unrealized: float, equity: float, bar_ts: str) -> None:
         from ztb.store.exec_io import save_pnl_entry
 
         assert self.state is not None
@@ -141,7 +151,7 @@ class Executor:
             self._store_conn,
             {
                 "exec_run_id": self.state.exec_run_id,
-                "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timestamp": bar_ts,
                 "symbol": self.state.symbol,
                 "realized_pnl": realized,
                 "unrealized_pnl": unrealized,
@@ -225,7 +235,7 @@ class Executor:
         proposed = {sym: target_qty}
         prices = {sym: price}
         portfolio_state: dict[str, Any] = {
-            "cash": equity - abs(current_position) * price,
+            "cash": equity - current_position * price,
             "positions": {sym: current_position},
         }
         self.risk_mgr.update_portfolio_equity(equity)
@@ -244,60 +254,23 @@ class Executor:
             return target_signal * min(scale, 1.0), decision
         return target_signal, decision
 
-    def _update_avg_entry_price(self, delta: float, fill_price: float) -> None:
-        assert self.state is not None
-        if abs(delta) < 1e-12:
-            return
-        old_qty = self.state.current_position
-        new_qty = old_qty + delta
-        if abs(new_qty) > abs(old_qty) + 1e-12:
-            added_qty = abs(new_qty) - abs(old_qty)
-            if self.state.avg_entry_price == 0 or abs(old_qty) < 1e-12:
-                self.state.avg_entry_price = fill_price
-                self.state.total_cost = abs(new_qty) * fill_price
-            else:
-                prev_avg = self.state.avg_entry_price
-                num = prev_avg * abs(old_qty) + fill_price * added_qty
-                self.state.avg_entry_price = num / abs(new_qty)
-                self.state.total_cost += added_qty * fill_price
-        elif abs(new_qty) < abs(old_qty) - 1e-12:
-            reduced_qty = abs(old_qty) - abs(new_qty)
-            if self.state.avg_entry_price > 0 and abs(old_qty) > 1e-12:
-                realized = reduced_qty * (fill_price - self.state.avg_entry_price)
-                if old_qty < 0:
-                    realized = -realized
-                self.state.realized_pnl += realized
-            self.state.total_cost *= abs(new_qty) / abs(old_qty) if abs(old_qty) > 0 else 0.0
-        if abs(new_qty) < 1e-12:
-            self.state.avg_entry_price = 0.0
-            self.state.total_cost = 0.0
-
-    def _compute_unrealized_pnl(self, close_price: float) -> float:
-        assert self.state is not None
-        if self.state.avg_entry_price == 0 or abs(self.state.current_position) < 1e-12:
-            return 0.0
-        return (close_price - self.state.avg_entry_price) * self.state.current_position
-
     def _reconcile(
         self, expected_position: float, close_price: float, bar_ts: str
     ) -> ReconcileReport:
         assert self.state is not None
-        if self.state.avg_entry_price == 0 or abs(expected_position) < 1e-12:
-            expected_upnl = 0.0
-        else:
-            expected_upnl = (close_price - self.state.avg_entry_price) * expected_position
-        equity = self.config.initial_cash + self.state.realized_pnl + expected_upnl
+        expected_upnl = self._pnl.unrealized_pnl(close_price)
+        equity = self._pnl.equity(close_price)
         expected = AccountState(
             total_equity=equity,
-            wallet_balance=equity - abs(expected_position) * close_price,
+            wallet_balance=equity - expected_position * close_price,
             unrealized_pnl=expected_upnl,
             positions={
                 self.state.symbol: Position(
                     symbol=self.state.symbol,
                     size=expected_position,
-                    avg_price=self.state.avg_entry_price,
+                    avg_price=self._pnl.avg_entry_price,
                     unrealized_pnl=expected_upnl,
-                    realized_pnl=self.state.realized_pnl,
+                    realized_pnl=self._pnl.realized_pnl,
                     timestamp=bar_ts,
                 )
             },
@@ -364,13 +337,9 @@ class Executor:
         close_price = float(data["close"].iloc[-1])
 
         target_signal = self._compute_target_position(data)
-        current_position = self.state.current_position
+        current_position = self._pnl.position
 
-        equity = (
-            self.config.initial_cash
-            + self.state.realized_pnl
-            + self._compute_unrealized_pnl(close_price)
-        )
+        equity = self._pnl.equity(close_price)
 
         if self._killswitch is not None:
             self._killswitch.check_account_dd(equity)
@@ -405,13 +374,19 @@ class Executor:
 
         if self.config.dry_run:
             if abs(delta) > 1e-12:
-                self._update_avg_entry_price(delta, close_price)
-            self.state.current_position = target_qty
+                commission_cost = abs(delta) * close_price * self.config.commission
+                slippage_cost = abs(delta) * close_price * self.config.slippage
+                self._pnl.apply_fill(
+                    delta, close_price, commission=commission_cost, slippage=slippage_cost
+                )
+            self._sync_pnl_state()
             self.state.bars_processed += 1
             self.state.last_bar_ts = bar_ts
-            unrealized_pnl = self._compute_unrealized_pnl(close_price)
+            unrealized_pnl = self._pnl.unrealized_pnl(close_price)
             self._save_position_snapshot()
-            self._save_pnl(0.0, unrealized_pnl, equity)
+            self._save_pnl(
+                self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
+            )
             return result
 
         if abs(delta) > 1e-12:
@@ -424,15 +399,24 @@ class Executor:
             if not claimed:
                 existing = self._idempotency.get(order_link_id)
                 if existing and existing.get("order_id"):
-                    self._update_avg_entry_price(delta, close_price)
-                    self.state.current_position = target_qty
+                    comm_cost = abs(delta) * close_price * self.config.commission
+                    slip_cost = abs(delta) * close_price * self.config.slippage
+                    self._pnl.apply_fill(
+                        delta, close_price, commission=comm_cost, slippage=slip_cost
+                    )
+                    self._sync_pnl_state()
                     result["order_placed"] = True
                     result["order"] = {"order_id": existing["order_id"], "restored": True}
                     self.state.bars_processed += 1
                     self.state.last_bar_ts = bar_ts
-                    unrealized_pnl = self._compute_unrealized_pnl(close_price)
+                    unrealized_pnl = self._pnl.unrealized_pnl(close_price)
                     self._save_position_snapshot()
-                    self._save_pnl(self.state.realized_pnl, unrealized_pnl, equity)
+                    self._save_pnl(
+                        self._pnl.realized_pnl,
+                        unrealized_pnl,
+                        self._pnl.equity(close_price),
+                        bar_ts,
+                    )
                     return result
 
             if self.client is None:
@@ -461,8 +445,12 @@ class Executor:
 
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            self._update_avg_entry_price(delta, close_price)
-            self.state.current_position = target_qty
+            commission_cost = qty * close_price * self.config.commission
+            slippage_cost = qty * close_price * self.config.slippage
+            self._pnl.apply_fill(
+                delta, close_price, commission=commission_cost, slippage=slippage_cost
+            )
+            self._sync_pnl_state()
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
@@ -485,20 +473,19 @@ class Executor:
                     "created_at": bar_ts,
                     "cum_exec_qty": qty,
                     "cum_exec_value": qty * close_price,
-                    "cum_exec_fee": qty * close_price * self.config.commission,
+                    "cum_exec_fee": commission_cost,
                     "credible": 1,
                     "code_version": __version__,
                 },
             )
 
-            self.state.total_commission += qty * close_price * self.config.commission
-            self.state.total_slippage += qty * close_price * self.config.slippage
-
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
-        unrealized_pnl = self._compute_unrealized_pnl(close_price)
+        self._sync_pnl_state()
+        unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+        equity = self._pnl.equity(close_price)
         self._save_position_snapshot()
-        self._save_pnl(self.state.realized_pnl, unrealized_pnl, equity)
+        self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, equity, bar_ts)
         return result
 
     def run(
@@ -524,7 +511,7 @@ class Executor:
             assert self.state is not None
             state = load_killswitch_state(self._store_conn, self.state.exec_run_id)
             if state is not None:
-                equity = self.config.initial_cash
+                equity = self._pnl.equity(0)
                 self._killswitch.restore_from_state(state, current_equity=equity)
             else:
                 persist = self._killswitch.to_persistable_state()
