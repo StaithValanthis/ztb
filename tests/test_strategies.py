@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 from pandas import DataFrame
@@ -84,3 +85,90 @@ class TestSMACross:
         assert cls.name == "sma_cross"
         assert cls.params == {"fast": 5, "slow": 20}
         assert cls.warmup == 20
+
+
+@pytest.fixture
+def bearish_4h_df() -> DataFrame:
+    n = 500
+    np.random.seed(42)
+    base = 50000.0
+    trend = np.linspace(0, -20000, n)
+    noise = np.random.randn(n) * 200
+    closes = base + trend + noise
+    opens = closes + np.random.randn(n) * 50
+    highs = np.maximum(opens, closes) + np.abs(np.random.randn(n)) * 100
+    lows = np.minimum(opens, closes) - np.abs(np.random.randn(n)) * 100
+    return DataFrame(
+        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.ones(n) * 1000},
+        index=pd.date_range("2021-06-01", periods=n, freq="4h"),
+    )
+
+
+class TestBearishResumption:
+    def test_registration(self) -> None:
+        cls = get("bearish_resumption")
+        assert cls.name == "bearish_resumption"
+        assert "bearish_resumption" in list_names()
+
+    def test_params_defaults(self) -> None:
+        cls = get("bearish_resumption")
+        expected = {
+            "adx_threshold": 25,
+            "ema_fast": 20,
+            "ema_slow": 100,
+            "ema_mid": 50,
+            "bb_width_threshold": 2.0,
+            "daily_ema_trend": 200,
+            "min_retrace_pct": 3.0,
+            "exhaustion_adx": 20,
+            "bb_z_threshold": -0.5,
+            "trail_atr_mult": 2.5,
+        }
+        assert cls.params == expected
+
+    def test_generate_signals_len(self, bearish_4h_df: DataFrame) -> None:
+        s = get("bearish_resumption")()
+        signals = s.generate_signals(bearish_4h_df)
+        assert len(signals) == len(bearish_4h_df)
+
+    def test_signals_in_range(self, bearish_4h_df: DataFrame) -> None:
+        s = get("bearish_resumption")()
+        signals = s.generate_signals(bearish_4h_df)
+        valid = signals.dropna()
+        assert valid.between(-1.0, 0.0).all()
+        assert (valid != 1.0).all()
+
+    def test_warmup_is_flat(self, bearish_4h_df: DataFrame) -> None:
+        s = get("bearish_resumption")()
+        signals = s.generate_signals(bearish_4h_df)
+        assert (signals.iloc[: s.warmup] == 0.0).all()
+
+    def test_no_nan(self, bearish_4h_df: DataFrame) -> None:
+        s = get("bearish_resumption")()
+        signals = s.generate_signals(bearish_4h_df)
+        assert signals.iloc[s.warmup :].isna().sum() == 0
+
+    def test_multi_tf_resampling(self, bearish_4h_df: DataFrame) -> None:
+        _ = get("bearish_resumption")().generate_signals(bearish_4h_df)
+        daily = bearish_4h_df.resample("D").agg({
+            "open": "first", "high": "max", "low": "min",
+            "close": "last", "volume": "sum",
+        }).dropna()
+        assert len(daily) > 0
+        assert daily.index[0] <= bearish_4h_df.index[0] + pd.Timedelta(hours=28)
+        assert "close" in daily.columns
+
+    def test_common_precondition(self) -> None:
+        n = 400
+        closes = np.linspace(50000, 55000, n)
+        cols = {
+            "open": closes - 100,
+            "high": closes + 100,
+            "low": closes - 100,
+            "close": closes,
+            "volume": np.ones(n) * 1000,
+        }
+        df = DataFrame(cols, index=pd.date_range("2022-01-01", periods=n, freq="4h"))
+        s = get("bearish_resumption")()
+        signals = s.generate_signals(df)
+        assert (signals == 0.0).all()
