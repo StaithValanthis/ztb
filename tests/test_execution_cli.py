@@ -142,6 +142,7 @@ def test_run_loop_flag() -> None:
             "sma_cross",
             "BTCUSDT",
             "--dry-run",
+            "--once",
             "--loop",
             "--start=2026-01-01",
             "--end=2026-01-02",
