@@ -1639,8 +1639,12 @@ def test_reconcile_report_actual_wallet_fields() -> None:
         unrealized_pnl=0.0,
         positions={
             "BTCUSDT": Position(
-                symbol="BTCUSDT", size=1.0, avg_price=50000.0,
-                unrealized_pnl=0.0, realized_pnl=0.0, timestamp="",
+                symbol="BTCUSDT",
+                size=1.0,
+                avg_price=50000.0,
+                unrealized_pnl=0.0,
+                realized_pnl=0.0,
+                timestamp="",
             )
         },
     )
@@ -1650,8 +1654,12 @@ def test_reconcile_report_actual_wallet_fields() -> None:
         unrealized_pnl=15000.0,
         positions={
             "BTCUSDT": Position(
-                symbol="BTCUSDT", size=1.0, avg_price=50000.0,
-                unrealized_pnl=15000.0, realized_pnl=5000.0, timestamp="",
+                symbol="BTCUSDT",
+                size=1.0,
+                avg_price=50000.0,
+                unrealized_pnl=15000.0,
+                realized_pnl=5000.0,
+                timestamp="",
             )
         },
     )
