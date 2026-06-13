@@ -143,7 +143,7 @@ class Executor:
         self.state.total_commission = self._pnl.total_commission
         self.state.total_slippage = self._pnl.total_slippage
 
-    def _save_pnl(self, realized: float, unrealized: float, equity: float) -> None:
+    def _save_pnl(self, realized: float, unrealized: float, equity: float, bar_ts: str) -> None:
         from ztb.store.exec_io import save_pnl_entry
 
         assert self.state is not None
@@ -151,7 +151,7 @@ class Executor:
             self._store_conn,
             {
                 "exec_run_id": self.state.exec_run_id,
-                "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timestamp": bar_ts,
                 "symbol": self.state.symbol,
                 "realized_pnl": realized,
                 "unrealized_pnl": unrealized,
@@ -235,7 +235,7 @@ class Executor:
         proposed = {sym: target_qty}
         prices = {sym: price}
         portfolio_state: dict[str, Any] = {
-            "cash": equity - abs(current_position) * price,
+            "cash": equity - current_position * price,
             "positions": {sym: current_position},
         }
         self.risk_mgr.update_portfolio_equity(equity)
@@ -262,7 +262,7 @@ class Executor:
         equity = self._pnl.equity(close_price)
         expected = AccountState(
             total_equity=equity,
-            wallet_balance=equity - abs(expected_position) * close_price,
+            wallet_balance=equity - expected_position * close_price,
             unrealized_pnl=expected_upnl,
             positions={
                 self.state.symbol: Position(
@@ -384,7 +384,7 @@ class Executor:
             self.state.last_bar_ts = bar_ts
             unrealized_pnl = self._pnl.unrealized_pnl(close_price)
             self._save_position_snapshot()
-            self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price))
+            self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts)
             return result
 
         if abs(delta) > 1e-12:
@@ -397,7 +397,9 @@ class Executor:
             if not claimed:
                 existing = self._idempotency.get(order_link_id)
                 if existing and existing.get("order_id"):
-                    self._pnl.apply_fill(delta, close_price)
+                    comm_cost = abs(delta) * close_price * self.config.commission
+                    slip_cost = abs(delta) * close_price * self.config.slippage
+                    self._pnl.apply_fill(delta, close_price, commission=comm_cost, slippage=slip_cost)
                     self._sync_pnl_state()
                     result["order_placed"] = True
                     result["order"] = {"order_id": existing["order_id"], "restored": True}
@@ -406,7 +408,7 @@ class Executor:
                     unrealized_pnl = self._pnl.unrealized_pnl(close_price)
                     self._save_position_snapshot()
                     self._save_pnl(
-                        self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price)
+                        self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
                     )
                     return result
 
@@ -476,7 +478,7 @@ class Executor:
         unrealized_pnl = self._pnl.unrealized_pnl(close_price)
         equity = self._pnl.equity(close_price)
         self._save_position_snapshot()
-        self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, equity)
+        self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, equity, bar_ts)
         return result
 
     def run(
@@ -502,7 +504,7 @@ class Executor:
             assert self.state is not None
             state = load_killswitch_state(self._store_conn, self.state.exec_run_id)
             if state is not None:
-                equity = self.config.initial_cash
+                equity = self._pnl.equity(0)
                 self._killswitch.restore_from_state(state, current_equity=equity)
             else:
                 persist = self._killswitch.to_persistable_state()
