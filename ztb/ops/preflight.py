@@ -127,6 +127,33 @@ def _check_secrets() -> PreflightItem:
     return PreflightItem(name="secrets", passed=False, detail="No API credentials found")
 
 
+def _check_killswitch_durability() -> PreflightItem:
+    try:
+        from ztb.store.exec_io import get_latest_unresolved_kill_event
+        from ztb.store.results import connect as store_connect
+
+        conn = store_connect()
+        if conn is None:
+            return PreflightItem(
+                name="killswitch_durability", passed=True, detail="No store connection — skipped"
+            )
+        event = get_latest_unresolved_kill_event(conn)
+        conn.close()
+        if event is not None:
+            return PreflightItem(
+                name="killswitch_durability",
+                passed=False,
+                detail=f"Unresolved kill_event exists for exec_run {event.get('exec_run_id', '?')}",
+            )
+        return PreflightItem(
+            name="killswitch_durability", passed=True, detail="No unresolved kill events"
+        )
+    except Exception as exc:
+        return PreflightItem(
+            name="killswitch_durability", passed=True, detail=f"Check skipped: {exc}"
+        )
+
+
 def run_preflight(
     expected_tag: str | None = None,
     expected_version: str | None = None,
@@ -139,6 +166,7 @@ def run_preflight(
         _check_live_guard(),
         _check_risk_config(),
         _check_strategy_ready(strategy_name),
+        _check_killswitch_durability(),
     ]
     if check_secrets_enabled:
         items.append(_check_secrets())

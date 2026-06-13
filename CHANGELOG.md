@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.0.5 (2026-06-13)
+
+- **Feat(killswitch):** Persist LiveKillSwitch state (HWM equity, tripped flag, last heartbeat) so process restart preserves safety invariant
+- **Feat(killswitch):** `_hwm_equity` on restore = max(persisted HWM, current equity) — never resets to zero on restart
+- **Feat(executor):** Persist killswitch state on every heartbeat and every trip; restore on LIVE start
+- **Feat(live_guard):** `arm(conn=...)` fail-closed — refuses to arm if unresolved kill_event exists in store
+- **Feat(preflight):** `_check_killswitch_durability()` verifies no unresolved trips before run
+- **Feat(store):** `killswitch_state` table (schema v7), `save_killswitch_state`, `load_killswitch_state`, `get_latest_unresolved_kill_event`
+- **Feat(errors):** `LiveDisarmedError` accepts custom message for fail-closed arm
+- **Tests:** 5 new killswitch durability tests; 704 total passed, 97% coverage
+- V&R PASS on SHA `7d1325a` ([ZTB-788](/ZTB/issues/ZTB-788), [ZTB-791](/ZTB/issues/ZTB-791))
+- **PR:** [#29](https://github.com/StaithValanthis/ztb/pull/29) — `feat/m7-killswitch-durability`
+- **Merge commit:** `df5115e` — two-key merge (CI green + V&R PASS on SHA `7d1325a`)
+- **Tag:** v1.0.5
+
+## v1.0.4 (2026-06-13)
+
+- **Fix:** Replace hardcoded `"1.0.0"`/`"0.7.0"` with `ztb.__version__` in `executor.py` and `results.py` so `code_version` auto-updates on version bumps
+- **Tests:** 702 passed, 91.88% coverage — no regressions
+- V&R PASS on SHA `91e513c` ([ZTB-835](/ZTB/issues/ZTB-835))
+- **PR:** [#30](https://github.com/StaithValanthis/ztb/pull/30) — `feat/fix-code-version`
+- **Merge commit:** `ce44972` — two-key merge (CI green + V&R PASS on SHA `91e513c`)
+- **Tag:** v1.0.4
+
 ## v1.0.3 (2026-06-12)
 
 - **Feat(data):** OHLC value validation — `validate_ohlc_values()` checks `Hi>=Lo`, `Hi>=Op`, `Hi>=Cl`, `Lo<=Op`, `Lo<=Cl` with multi-violation `SchemaError`

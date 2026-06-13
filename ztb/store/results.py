@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ztb import __version__
 from ztb.engine.backtest import BacktestResult
 from ztb.engine.forwardtest import ForwardtestResult
 
@@ -97,7 +98,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 result.timeframe,
                 json.dumps(result.parameters),
                 json.dumps(result.splits),
-                "0.7.0",
+                __version__,
                 1 if result.full.credible else 0,
                 1 if result.risk_aware else 0,
                 result.max_portfolio_dd_realized,
@@ -218,7 +219,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 result.timeframe,
                 json.dumps(result.parameters),
                 json.dumps(splits),
-                "0.7.0",
+                __version__,
                 1 if result.metrics.credible else 0,
                 1 if result.risk_aware else 0,
                 result.max_portfolio_dd_realized,

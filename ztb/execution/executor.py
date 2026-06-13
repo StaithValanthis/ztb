@@ -7,6 +7,7 @@ from typing import Any
 
 from pandas import DataFrame
 
+from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
@@ -18,6 +19,7 @@ from ztb.execution.models import (
     AccountState,
     ExecRunConfig,
     ExecRunState,
+    Mode,
     OrderSide,
     OrderType,
     Position,
@@ -127,7 +129,7 @@ class Executor:
                 "avg_price": price,
                 "unrealized_pnl": 0.0,
                 "credible": 1,
-                "code_version": "1.0.0",
+                "code_version": __version__,
             },
         )
 
@@ -145,14 +147,27 @@ class Executor:
                 "unrealized_pnl": unrealized,
                 "total_equity": equity,
                 "credible": 1,
-                "code_version": "1.0.0",
+                "code_version": __version__,
             },
         )
 
     def _check_killswitch(self) -> bool:
         if self._killswitch is None:
             return False
-        return bool(self._killswitch.is_tripped)
+        tripped = self._killswitch.is_tripped
+        if tripped and self._store_conn is not None:
+            assert self.state is not None
+            persist = self._killswitch.to_persistable_state()
+            from ztb.store.exec_io import save_killswitch_state
+
+            save_killswitch_state(
+                self._store_conn,
+                self.state.exec_run_id,
+                persist["tripped"],
+                persist["hwm_equity"],
+                persist["last_heartbeat"],
+            )
+        return bool(tripped)
 
     def _save_kill_events(self) -> None:
         if self._killswitch is None or self._store_conn is None:
@@ -471,7 +486,7 @@ class Executor:
                     "cum_exec_value": qty * close_price,
                     "cum_exec_fee": qty * close_price * self.config.commission,
                     "credible": 1,
-                    "code_version": "1.0.0",
+                    "code_version": __version__,
                 },
             )
 
@@ -496,6 +511,29 @@ class Executor:
     ) -> ExecRunState:
         self._init_run()
         self._init_store(db_path)
+
+        if (
+            self._killswitch is not None
+            and self._store_conn is not None
+            and self.config.mode == Mode.LIVE
+            and not self.config.dry_run
+        ):
+            from ztb.store.exec_io import load_killswitch_state, save_killswitch_state
+
+            assert self.state is not None
+            state = load_killswitch_state(self._store_conn, self.state.exec_run_id)
+            if state is not None:
+                equity = self.config.initial_cash
+                self._killswitch.restore_from_state(state, current_equity=equity)
+            else:
+                persist = self._killswitch.to_persistable_state()
+                save_killswitch_state(
+                    self._store_conn,
+                    self.state.exec_run_id,
+                    persist["tripped"],
+                    persist["hwm_equity"],
+                    persist["last_heartbeat"],
+                )
 
         if self._killswitch is not None:
             self._killswitch.heartbeat()
@@ -541,6 +579,18 @@ class Executor:
                     break
                 if self._killswitch is not None:
                     self._killswitch.heartbeat()
+                    if self._store_conn is not None:
+                        assert self.state is not None
+                        persist = self._killswitch.to_persistable_state()
+                        from ztb.store.exec_io import save_killswitch_state
+
+                        save_killswitch_state(
+                            self._store_conn,
+                            self.state.exec_run_id,
+                            persist["tripped"],
+                            persist["hwm_equity"],
+                            persist["last_heartbeat"],
+                        )
 
         from ztb.store.exec_io import update_exec_run_status
 

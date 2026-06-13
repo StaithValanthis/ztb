@@ -6,8 +6,9 @@ class ExecutionError(Exception):
 
 
 class LiveDisarmedError(ExecutionError):
-    def __init__(self) -> None:
-        super().__init__("Live trading disarmed — set ZTB_LIVE_ARMED=1 to arm")
+    def __init__(self, message: str = "") -> None:
+        msg = message or "Live trading disarmed — set ZTB_LIVE_ARMED=1 to arm"
+        super().__init__(msg)
 
 
 class LiveModeBlockedError(ExecutionError):

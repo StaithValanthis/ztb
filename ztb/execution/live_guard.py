@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 
 from ztb.execution.errors import LiveDisarmedError
 
@@ -19,7 +20,13 @@ class LiveGuard:
             raise LiveDisarmedError()
 
     @classmethod
-    def arm(cls, token: str = "1") -> None:
+    def arm(cls, token: str = "1", conn: sqlite3.Connection | None = None) -> None:
+        if conn is not None:
+            from ztb.store.exec_io import get_latest_unresolved_kill_event
+
+            event = get_latest_unresolved_kill_event(conn)
+            if event is not None:
+                raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
         os.environ[cls.ENV_VAR] = token
 
     @classmethod
