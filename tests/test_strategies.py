@@ -181,3 +181,115 @@ class TestBearishResumption:
         s = get("bearish_resumption")()
         signals = s.generate_signals(df)
         assert (signals == 0.0).all()
+
+    @staticmethod
+    def _crash_bounce_4h() -> DataFrame:
+        n = 1200
+        np.random.seed(42)
+        closes = np.ones(n) * 50000
+        for i in range(1, 300):
+            closes[i] = closes[i - 1] - 2 + np.random.randn() * 20
+        for i in range(300, 800):
+            closes[i] = closes[i - 1] - 10 + np.random.randn() * 5
+        for i in range(800, 830):
+            closes[i] = closes[i - 1] - 200 + np.random.randn() * 30
+        for i in range(830, 860):
+            closes[i] = closes[i - 1] + 100 + np.random.randn() * 20
+        for i in range(860, n):
+            closes[i] = closes[i - 1] - 8 + np.random.randn() * 10
+        opens = closes + np.random.randn(n) * 20
+        highs = np.maximum(opens, closes) + np.abs(np.random.randn(n)) * 40
+        lows = np.minimum(opens, closes) - np.abs(np.random.randn(n)) * 40
+        return DataFrame(
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.ones(n) * 1000,
+            },
+            index=pd.date_range("2021-01-01", periods=n, freq="4h"),
+        )
+
+    @staticmethod
+    def _low_vol_1h(df: DataFrame) -> DataFrame:
+        idx_start = df.index[0] - pd.Timedelta(hours=48)
+        n_bar = int((df.index[-1] - idx_start).total_seconds() / 3600) + 1
+        np.random.seed(99)
+        amp = np.linspace(100, 0.5, n_bar)
+        c = 50000 + np.random.randn(n_bar) * amp
+        o = c + np.random.randn(n_bar) * amp * 0.1
+        h = np.maximum(o, c) + np.abs(np.random.randn(n_bar)) * amp * 0.2
+        l = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * amp * 0.2
+        return DataFrame(
+            {"open": o, "high": h, "low": l, "close": c, "volume": np.ones(n_bar) * 1000},
+            index=pd.date_range(idx_start, periods=n_bar, freq="1h"),
+        )
+
+    @staticmethod
+    def _mode_b_1h(df: DataFrame) -> DataFrame:
+        idx_start = df.index[0] - pd.Timedelta(hours=48)
+        n_bar = int((df.index[-1] - idx_start).total_seconds() / 3600) + 1
+        np.random.seed(99)
+        c = 50000 + np.linspace(0, -3000, n_bar) + np.random.randn(n_bar) * 25
+        o = c + np.random.randn(n_bar) * 15
+        h = np.maximum(o, c) + np.abs(np.random.randn(n_bar)) * 35
+        l = np.minimum(o, c) - np.abs(np.random.randn(n_bar)) * 35
+        return DataFrame(
+            {"open": o, "high": h, "low": l, "close": c, "volume": np.ones(n_bar) * 1000},
+            index=pd.date_range(idx_start, periods=n_bar, freq="1h"),
+        )
+
+    def test_mode_a_entry(self) -> None:
+        from unittest.mock import patch
+
+        df = self._crash_bounce_4h()
+        df_1h = self._low_vol_1h(df)
+        with patch("ztb.data.loader.load") as mock_load:
+            mock_load.return_value = df_1h
+            s = get("bearish_resumption")()
+            signals = s.generate_signals(df)
+
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).any(), "Mode A entry should produce -1 signals"
+        assert post.dropna().between(-1.0, 0.0).all()
+
+    def test_mode_b_entry(self) -> None:
+        from unittest.mock import patch
+
+        df = self._crash_bounce_4h()
+        df_1h = self._mode_b_1h(df)
+        with patch("ztb.data.loader.load") as mock_load:
+            mock_load.return_value = df_1h
+            s = get("bearish_resumption")()
+            signals = s.generate_signals(df)
+
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).any(), "Mode B entry should produce -1 signals"
+        assert post.dropna().between(-1.0, 0.0).all()
+
+    def test_exit_on_trailing_stop(self) -> None:
+        from unittest.mock import patch
+
+        df = self._crash_bounce_4h()
+        df_1h = self._low_vol_1h(df)
+        with patch("ztb.data.loader.load") as mock_load:
+            mock_load.return_value = df_1h
+            s = get("bearish_resumption")()
+            signals = s.generate_signals(df)
+
+        post = signals.iloc[s.warmup :]
+        entry_indices = post[post == -1.0].index.tolist()
+        exit_indices = post[post == 0.0].index.tolist()
+        assert len(entry_indices) >= 2, "Should have at least one entry followed by exit"
+        first_entry = entry_indices[0]
+        later_zeros = [idx for idx in exit_indices if idx > first_entry]
+        assert len(later_zeros) > 0, "Should have exit after entry"
+
+    def test_live_disarmed(self) -> None:
+        from ztb.execution.errors import LiveDisarmedError
+        from ztb.execution.live_guard import LiveGuard
+
+        LiveGuard.disarm()
+        with pytest.raises(LiveDisarmedError):
+            LiveGuard.assert_live_allowed()
