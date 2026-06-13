@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.4 (2026-06-13)
+
+- **Fix:** Replace hardcoded `"1.0.0"`/`"0.7.0"` with `ztb.__version__` in `executor.py` and `results.py` so `code_version` auto-updates on version bumps
+- **Tests:** 702 passed, 91.88% coverage — no regressions
+- V&R PASS on SHA `91e513c` ([ZTB-835](/ZTB/issues/ZTB-835))
+- **PR:** [#30](https://github.com/StaithValanthis/ztb/pull/30) — `feat/fix-code-version`
+- **Merge commit:** `ce44972` — two-key merge (CI green + V&R PASS on SHA `91e513c`)
+- **Tag:** v1.0.4
+
 ## v1.0.3 (2026-06-12)
 
 - **Feat(data):** OHLC value validation — `validate_ohlc_values()` checks `Hi>=Lo`, `Hi>=Op`, `Hi>=Cl`, `Lo<=Op`, `Lo<=Cl` with multi-violation `SchemaError`
