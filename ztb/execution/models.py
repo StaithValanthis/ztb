@@ -97,7 +97,7 @@ class ExecRunConfig:
 
     def __post_init__(self) -> None:
         if self.loop is None:
-            self.loop = (self.mode == Mode.DEMO and not self.once and not self.dry_run)
+            self.loop = self.mode == Mode.DEMO and not self.once and not self.dry_run
         if self.poll_interval_seconds is None:
             self.poll_interval_seconds = 60
         if self.lookback_bars is None:

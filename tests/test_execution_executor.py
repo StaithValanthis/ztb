@@ -780,7 +780,9 @@ def test_executor_dry_run_no_costs(
 
 @patch("ztb.execution.executor.load_data")
 def test_executor_config_loop_default(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
@@ -791,7 +793,9 @@ def test_executor_config_loop_default(
 
 @patch("ztb.execution.executor.load_data")
 def test_executor_config_loop_true_when_not_dry_run(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO)
@@ -800,7 +804,9 @@ def test_executor_config_loop_true_when_not_dry_run(
 
 @patch("ztb.execution.executor.load_data")
 def test_executor_config_loop_false_when_once(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO, once=True)
@@ -809,7 +815,9 @@ def test_executor_config_loop_false_when_once(
 
 @patch("ztb.execution.executor.load_data")
 def test_executor_config_loop_enabled(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=10.0)
@@ -851,7 +859,9 @@ def test_run_with_loop(
 
 @patch("ztb.execution.executor.load_data")
 def test_ensure_warmup_sufficient(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
@@ -866,8 +876,11 @@ def test_ensure_warmup_extends(mock_load: MagicMock, fake_strategy: FakeStrategy
     idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
     small_data = pd.DataFrame(
         {
-            "open": [50000.0] * 50, "high": [50100.0] * 50, "low": [49900.0] * 50,
-            "close": [50000.0] * 50, "volume": [100.0] * 50,
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
         },
         index=idx,
     )
@@ -875,8 +888,11 @@ def test_ensure_warmup_extends(mock_load: MagicMock, fake_strategy: FakeStrategy
     idx2 = pd.date_range("2025-12-20", periods=160, freq="h", tz="UTC")
     extended_data = pd.DataFrame(
         {
-            "open": [50000.0] * 160, "high": [50100.0] * 160, "low": [49900.0] * 160,
-            "close": [50000.0] * 160, "volume": [100.0] * 160,
+            "open": [50000.0] * 160,
+            "high": [50100.0] * 160,
+            "low": [49900.0] * 160,
+            "close": [50000.0] * 160,
+            "volume": [100.0] * 160,
         },
         index=idx2,
     )
@@ -894,8 +910,11 @@ def test_ensure_warmup_fails_empty(mock_load: MagicMock, fake_strategy: FakeStra
     idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
     small_data = pd.DataFrame(
         {
-            "open": [50000.0] * 50, "high": [50100.0] * 50, "low": [49900.0] * 50,
-            "close": [50000.0] * 50, "volume": [100.0] * 50,
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
         },
         index=idx,
     )
@@ -910,7 +929,9 @@ def test_ensure_warmup_fails_empty(mock_load: MagicMock, fake_strategy: FakeStra
 
 @patch("ztb.execution.executor.load_data")
 def test_fetch_new_bars_no_new_data(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = pd.DataFrame()
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
@@ -921,14 +942,19 @@ def test_fetch_new_bars_no_new_data(
 
 @patch("ztb.execution.executor.load_data")
 def test_fetch_new_bars_with_new_bar(
-    mock_load: MagicMock, fake_strategy: FakeStrategy, sample_data: pd.DataFrame,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
 ) -> None:
     last_ts = sample_data.index[-1]
     new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC")
     new_bar = pd.DataFrame(
         {
-            "open": [50100.0], "high": [50200.0], "low": [50000.0],
-            "close": [50150.0], "volume": [150.0],
+            "open": [50100.0],
+            "high": [50200.0],
+            "low": [50000.0],
+            "close": [50150.0],
+            "volume": [150.0],
         },
         index=new_idx,
     )
@@ -949,6 +975,7 @@ def test_polling_loop_killswitch_stops(
     sample_data: pd.DataFrame,
 ) -> None:
     from ztb.execution.killswitch import LiveKillSwitch
+
     mock_load.return_value = sample_data
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
     ks = LiveKillSwitch()

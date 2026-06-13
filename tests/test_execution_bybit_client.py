@@ -544,7 +544,9 @@ def test_get_instrument_info_cached(mock_client_cls: MagicMock) -> None:
                 {
                     "symbol": "BTCUSDT",
                     "lotSizeFilter": {
-                        "qtyStep": "0.001", "minOrderQty": "0.001", "maxOrderQty": "1000",
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
                     },
                 },
             ],
@@ -575,7 +577,9 @@ def test_place_order_validates_qty(mock_client_cls: MagicMock) -> None:
                 {
                     "symbol": "BTCUSDT",
                     "lotSizeFilter": {
-                        "qtyStep": "0.001", "minOrderQty": "0.001", "maxOrderQty": "1000",
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
                     },
                 },
             ],
@@ -608,7 +612,9 @@ def test_validate_qty_below_min_skips(mock_client_cls: MagicMock) -> None:
                 {
                     "symbol": "BTCUSDT",
                     "lotSizeFilter": {
-                        "qtyStep": "0.001", "minOrderQty": "0.01", "maxOrderQty": "1000",
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.01",
+                        "maxOrderQty": "1000",
                     },
                 },
             ],
@@ -638,7 +644,9 @@ def test_validate_qty_exceeds_max_caps(mock_client_cls: MagicMock) -> None:
                 {
                     "symbol": "BTCUSDT",
                     "lotSizeFilter": {
-                        "qtyStep": "1", "minOrderQty": "1", "maxOrderQty": "10",
+                        "qtyStep": "1",
+                        "minOrderQty": "1",
+                        "maxOrderQty": "10",
                     },
                 },
             ],

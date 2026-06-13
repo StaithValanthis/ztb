@@ -411,6 +411,7 @@ def run(
 
     if exec_mode == ExecMode.LIVE:
         from ztb.execution.live_guard import LiveGuard
+
         if not LiveGuard.is_armed():
             click.echo(
                 "Error: --mode=live blocked — LiveGuard is disarmed. Use --mode=demo.", err=True

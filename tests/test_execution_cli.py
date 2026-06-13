@@ -18,6 +18,7 @@ def test_run_command_exists() -> None:
 def test_run_accepts_live_mode() -> None:
     """--mode=live accepted when LiveGuard is armed."""
     from ztb.execution.live_guard import LiveGuard
+
     LiveGuard.arm()
     try:
         n = 200
