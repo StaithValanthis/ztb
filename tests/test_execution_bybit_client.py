@@ -33,7 +33,7 @@ def test_live_mode_allowed_when_armed(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
-    LiveGuard.arm("1", store_path=hp)
+    LiveGuard.arm("1", hash_path=hp)
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
     client = BybitClient(cfg)
     assert client._base_url == "https://api.bybit.com"
@@ -514,10 +514,10 @@ def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
     from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token-audit"
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "audit-tkn"
     hp = tmp_path / "board-arm-hash"
-    hp.write_text(compute_arm_hash("test-token-audit"))
-    LiveGuard.arm("1", store_path=hp)
+    hp.write_text(compute_arm_hash("audit-tkn"))
+    LiveGuard.arm("1", hash_path=hp)
     db_path = tmp_path / "test_audit_bybit.db"
     cfg = ClientConfig(
         api_key="test_key",
@@ -589,10 +589,10 @@ def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
     from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
-    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token-wallet"
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "wallet-tkn"
     hp = tmp_path / "board-arm-hash"
-    hp.write_text(compute_arm_hash("test-token-wallet"))
-    LiveGuard.arm("1", store_path=hp)
+    hp.write_text(compute_arm_hash("wallet-tkn"))
+    LiveGuard.arm("1", hash_path=hp)
     db_path = tmp_path / "test_audit_wallet.db"
     cfg = ClientConfig(
         api_key="test_key",
