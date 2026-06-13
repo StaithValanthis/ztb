@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.7 (2026-06-13)
+
+- **Feat(sizing):** Unify backtest-executor position sizing to fraction-of-equity convention (`target_qty = target_frac * equity / price`) — signals in both environments now produce identical position quantities
+- **Feat(portfolio):** `single_symbol_portfolio` and `multi_symbol_portfolio` compute pre-trade equity, convert fraction to target qty, apply costs on delta basis
+- **Feat(executor):** `_apply_risk` computes `target_qty = target_signal * equity / price`; reduce path uses fraction-of-equity scale
+- **Feat(risk):** `risk_adjusted_signals` converts internally to qty for risk evaluation, outputs fractions
+- **Feat(backtest/forwardtest):** Leverage calculation uses `abs(sig)` (fraction) instead of `abs(sig) * price / eq`
+- **Tests:** 7 new fraction-of-equity tests (`test_fraction_of_equity_trade_size`, `test_fraction_of_equity_equity_consistency`, `test_fraction_multi_symbol`, `test_fraction_multi_symbol_exact_sizing`, `test_fraction_multi_symbol_flip`, `test_fraction_zero_signal_no_trade`, `test_fraction_full_leverage`); portfolio.py coverage 53% → 93%
+- 711 total tests passed, 92.74% coverage
+- V&R PASS on SHA `6cb6c7f` ([ZTB-878](/ZTB/issues/ZTB-878))
+- **PR:** [#33](https://github.com/StaithValanthis/ztb/pull/33) — `feat/sizing-unification`
+- **Merge commit:** `f827eb9` — two-key merge (CI green + V&R PASS on SHA `6cb6c7f`, rebased same diff)
+- **Tag:** v1.0.7
+
 ## v1.0.6 (2026-06-13)
 
 - **Feat(vr-pass-bridge):** Add `--mode notify` for CI-on-push path (posts pending status, no auto-PASS)
