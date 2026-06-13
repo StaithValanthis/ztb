@@ -384,7 +384,9 @@ class Executor:
             self.state.last_bar_ts = bar_ts
             unrealized_pnl = self._pnl.unrealized_pnl(close_price)
             self._save_position_snapshot()
-            self._save_pnl(self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts)
+            self._save_pnl(
+                self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
+            )
             return result
 
         if abs(delta) > 1e-12:
@@ -399,7 +401,9 @@ class Executor:
                 if existing and existing.get("order_id"):
                     comm_cost = abs(delta) * close_price * self.config.commission
                     slip_cost = abs(delta) * close_price * self.config.slippage
-                    self._pnl.apply_fill(delta, close_price, commission=comm_cost, slippage=slip_cost)
+                    self._pnl.apply_fill(
+                        delta, close_price, commission=comm_cost, slippage=slip_cost
+                    )
                     self._sync_pnl_state()
                     result["order_placed"] = True
                     result["order"] = {"order_id": existing["order_id"], "restored": True}
@@ -408,7 +412,10 @@ class Executor:
                     unrealized_pnl = self._pnl.unrealized_pnl(close_price)
                     self._save_position_snapshot()
                     self._save_pnl(
-                        self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
+                        self._pnl.realized_pnl,
+                        unrealized_pnl,
+                        self._pnl.equity(close_price),
+                        bar_ts,
                     )
                     return result
 
