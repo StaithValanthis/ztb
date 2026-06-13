@@ -292,9 +292,7 @@ class TestBybitClientIntegration:
         client.close()
 
     @patch("ztb.execution.bybit_client.httpx.Client")
-    def test_request_still_works_with_adapter_present(
-        self, mock_client_cls: MagicMock
-    ) -> None:
+    def test_request_still_works_with_adapter_present(self, mock_client_cls: MagicMock) -> None:
         from ztb.execution.bybit_client import BybitClient, ClientConfig
         from ztb.execution.models import Mode
 
