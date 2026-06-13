@@ -198,7 +198,15 @@ class TestCompressionBreakout:
     def test_params_have_seven_keys(self) -> None:
         cls = get("compression_breakout")
         assert len(cls.params) == 7
-        for key in ("bb_z_entry", "bb_width_max_pct", "min_vol_pct", "adx_entry", "adx_exit", "trail_atr_mult", "max_hold_bars"):
+        for key in (
+            "bb_z_entry",
+            "bb_width_max_pct",
+            "min_vol_pct",
+            "adx_entry",
+            "adx_exit",
+            "trail_atr_mult",
+            "max_hold_bars",
+        ):
             assert key in cls.params
 
     def test_default_params_values(self) -> None:

@@ -8,7 +8,9 @@ from ztb.strategies.base import Strategy
 from ztb.strategies.registry import register
 
 
-def _bb(close: pd.Series, period: int = 20, width: float = 2.0) -> tuple[pd.Series, pd.Series, pd.Series]:
+def _bb(
+    close: pd.Series, period: int = 20, width: float = 2.0
+) -> tuple[pd.Series, pd.Series, pd.Series]:
     mid = sma(close, period)
     std = close.rolling(window=period, min_periods=period).std(ddof=0)
     upper = mid + width * std
@@ -23,7 +25,9 @@ def _bb_width_pct(close: pd.Series, period: int = 20, width: float = 2.0) -> pd.
     return bb_range / mid * 100.0
 
 
-def _bb_width_zscore(close: pd.Series, bb_period: int = 20, bb_width: float = 2.0, z_period: int = 50) -> pd.Series:
+def _bb_width_zscore(
+    close: pd.Series, bb_period: int = 20, bb_width: float = 2.0, z_period: int = 50
+) -> pd.Series:
     width_pct = _bb_width_pct(close, bb_period, bb_width)
     mean = width_pct.rolling(window=z_period, min_periods=z_period).mean()
     std = width_pct.rolling(window=z_period, min_periods=z_period).std(ddof=0)
@@ -125,14 +129,11 @@ class CompressionBreakout(Strategy):
         signals = pd.Series(0.0, index=df.index)
         position = 0.0
         entry_bar = -max_hold_bars - 1
-        entry_price = 0.0
         extreme_since_entry = 0.0
 
         for i in range(len(df)):
             if i < self.warmup:
                 continue
-
-            idx = df.index[i]
 
             bb_z = bb_width_z.iloc[i]
             bb_w = bb_width_pct.iloc[i]
@@ -150,15 +151,16 @@ class CompressionBreakout(Strategy):
                     stop_price = extreme_since_entry + trail_atr_mult * atr_val.iloc[i]
 
                 exit_signal = False
-                if adx < adx_exit:
-                    exit_signal = True
-                elif position == 1.0 and close.iloc[i] <= bb_lower.iloc[i]:
-                    exit_signal = True
-                elif position == -1.0 and close.iloc[i] >= bb_upper.iloc[i]:
-                    exit_signal = True
-                elif (position == 1.0 and close.iloc[i] <= stop_price) or (position == -1.0 and close.iloc[i] >= stop_price):
-                    exit_signal = True
-                elif bars_held >= max_hold_bars:
+                if (
+                    adx < adx_exit
+                    or position == 1.0
+                    and close.iloc[i] <= bb_lower.iloc[i]
+                    or position == -1.0
+                    and close.iloc[i] >= bb_upper.iloc[i]
+                    or (position == 1.0 and close.iloc[i] <= stop_price)
+                    or (position == -1.0 and close.iloc[i] >= stop_price)
+                    or bars_held >= max_hold_bars
+                ):
                     exit_signal = True
 
                 if exit_signal:
@@ -166,21 +168,36 @@ class CompressionBreakout(Strategy):
 
             if position == 0.0:
                 in_compression = (
-                    not pd.isna(bb_z) and bb_z < bb_z_entry
-                    and not pd.isna(bb_w) and bb_w < bb_width_max_pct
-                    and not pd.isna(atr_pct) and atr_pct > min_vol_pct
+                    not pd.isna(bb_z)
+                    and bb_z < bb_z_entry
+                    and not pd.isna(bb_w)
+                    and bb_w < bb_width_max_pct
+                    and not pd.isna(atr_pct)
+                    and atr_pct > min_vol_pct
                 )
 
                 if in_compression:
-                    if vol_ok and not pd.isna(close.iloc[i]) and not pd.isna(bb_upper.iloc[i]) and close.iloc[i] > bb_upper.iloc[i] and not pd.isna(adx) and adx > adx_entry:
+                    if (
+                        vol_ok
+                        and not pd.isna(close.iloc[i])
+                        and not pd.isna(bb_upper.iloc[i])
+                        and close.iloc[i] > bb_upper.iloc[i]
+                        and not pd.isna(adx)
+                        and adx > adx_entry
+                    ):
                         position = 1.0
                         entry_bar = i
-                        entry_price = close.iloc[i]
                         extreme_since_entry = high.iloc[i]
-                    elif vol_ok and not pd.isna(close.iloc[i]) and not pd.isna(bb_lower.iloc[i]) and close.iloc[i] < bb_lower.iloc[i] and not pd.isna(adx) and adx > adx_entry:
+                    elif (
+                        vol_ok
+                        and not pd.isna(close.iloc[i])
+                        and not pd.isna(bb_lower.iloc[i])
+                        and close.iloc[i] < bb_lower.iloc[i]
+                        and not pd.isna(adx)
+                        and adx > adx_entry
+                    ):
                         position = -1.0
                         entry_bar = i
-                        entry_price = close.iloc[i]
                         extreme_since_entry = low.iloc[i]
 
             signals.iloc[i] = position
