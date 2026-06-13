@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.1 (2026-06-13)
+
+- **Fix(DEFECT-4):** `LiveGuard.arm()` `except Exception: pass` replaced with `except sqlite3.Error: raise LiveDisarmedError(...)` — kill-event check no longer silently bypassed on DB failure
+- **Feat(arm-auth):** HMAC board-token verification via `arm_auth.py` — `LiveGuard.arm()` requires `$ZTB_BOARD_TOKEN` + hash file
+- **Feat(audit):** Tamper-evident audit-log hash chain (`audit_log` table, schema v8); API audit in LIVE mode
+- **Fix(bybit-client):** Merge conflict resolved between arm-security and demo-exec-loop branches
+- **Tests:** 25 live_guard tests (board-token, fail-closed, hash-chain, audit); 155 pass on DEFECT-4 target
+- V&R PASS on SHA `802d389` ([ZTB-1217](/ZTB/issues/ZTB-1217))
+- **PR:** `fix/ztb-930-defect-4` — two-key merge (CI green + V&R PASS on SHA `802d389`)
+- **Merge commit:** `2aad034`
+- **Tag:** v1.1.1
+
 ## v1.1.0 (2026-06-13)
 
 - **Feat(demo-exec):** Continuous polling loop with SIGTERM handling, 3-retry, killswitch integration — `ztb run --loop` / `--poll-interval` / `--lookback-bars`
