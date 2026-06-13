@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
 
-from ztb.execution.arm_auth import compute_arm_hash
 from ztb.execution.live_guard import LiveGuard
 from ztb.reporting.health import HealthReport, check_health
 
@@ -41,18 +39,14 @@ def test_check_health_nonexistent_run() -> None:
         os.unlink(db_path)
 
 
-def test_check_health_armed_state(tmp_path: Path) -> None:
+def test_check_health_armed_state() -> None:
     LiveGuard.disarm()
     report = check_health("exec_test")
     assert report.armed is False
-    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
-    hp = tmp_path / "board-arm-hash"
-    hp.write_text(compute_arm_hash("test-token"))
-    LiveGuard.arm("1", store_path=hp)
+    LiveGuard.arm("1")
     report_armed = check_health("exec_test")
     assert report_armed.armed is True
     LiveGuard.disarm()
-    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_health_report_fields() -> None:

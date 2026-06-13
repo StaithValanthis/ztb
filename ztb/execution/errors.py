@@ -11,11 +11,6 @@ class LiveDisarmedError(ExecutionError):
         super().__init__(msg)
 
 
-class LiveArmFailedError(ExecutionError):
-    def __init__(self, reason: str = "Board token verification failed") -> None:
-        super().__init__(f"Live arm failed: {reason}")
-
-
 class LiveModeBlockedError(ExecutionError):
     def __init__(self) -> None:
         super().__init__("Live mode is blocked in M6 — use --mode demo")
