@@ -1448,3 +1448,168 @@ def test_startup_reconcile_then_signal_guard(
     assert result.status == "completed"
     assert exe._signal_initialized is True
     assert exe._last_executed_signal == 0.5
+
+
+# ---------------------------------------------------------------------------
+# --loop mode continuity: skipped-order tracking, signal init, polling
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_step_increments_bars_processed_on_skipped_order(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """bars_processed increments when order is skipped due to qty < minOrderQty."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    bars_before = exe.state.bars_processed
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert exe.state.bars_processed == bars_before + 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_signal_initialized_set_on_first_bar_even_if_order_skipped(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_signal_initialized becomes True after first step even when order skipped."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    assert exe._signal_initialized is False
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert exe._signal_initialized is True
+    assert exe._last_executed_signal == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_full_historical_loop_skipped_orders_bars_processed(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After full historical bar-by-bar processing with only skipped orders,
+    bars_processed == len(data) - warmup."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, loop=False)
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    effective_warmup = max(signal_strat.warmup, config.warmup_bars)
+    expected = len(sample_data) - effective_warmup
+    assert result.bars_processed == expected, (
+        f"Expected {expected} bars (len={len(sample_data)}, warmup={effective_warmup}), "
+        f"got {result.bars_processed}"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+@patch("ztb.execution.executor.BybitClient")
+def test_polling_loop_stays_alive_after_skipped_order(
+    mock_bybit_cls: MagicMock,
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Polling loop continues running after a skipped order (does not exit)."""
+    call_count = 0
+
+    def sleep_side_effect(seconds: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            raise Exception("stop loop")
+
+    mock_sleep.side_effect = sleep_side_effect
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, loop=True, poll_interval_seconds=0.01, risk_enabled=False
+    )
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert call_count >= 3
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_no_zombie_exec_runs(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After full run with only skipped orders, exec_run is properly completed
+    with bars_processed > 0 (no zombie 'running' record)."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, loop=False)
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert result.bars_processed > 0
