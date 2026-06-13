@@ -9,7 +9,7 @@ from ztb.execution.arm_auth import compute_arm_hash, load_arm_hash, verify_board
 from ztb.execution.errors import LiveArmFailedError, LiveDisarmedError
 from ztb.execution.live_guard import LiveGuard
 
-_TEST_TOKEN = "test-board-token"
+_TEST_TOKEN = "brd-tkn"
 
 
 def _setup_arm(tmp_path: Path) -> Path:
