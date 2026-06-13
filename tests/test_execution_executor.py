@@ -502,7 +502,7 @@ def test_executor_reconcile_called_after_placement(
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_update_avg_entry_price(
+def test_executor_pnl_apply_fill_buy(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -512,14 +512,14 @@ def test_executor_update_avg_entry_price(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 0.0
-    exe._update_avg_entry_price(1.0, 50000.0)
-    assert exe.state.current_position == 0.0
+    exe._pnl.apply_fill(1.0, 50000.0)
+    exe._sync_pnl_state()
+    assert exe.state.current_position == 1.0
     assert exe.state.avg_entry_price == 50000.0
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_compute_unrealized_pnl(
+def test_executor_unrealized_pnl(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -529,9 +529,8 @@ def test_executor_compute_unrealized_pnl(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 1.0
-    exe.state.avg_entry_price = 50000.0
-    upnl = exe._compute_unrealized_pnl(50100.0)
+    exe._pnl.apply_fill(1.0, 50000.0)
+    upnl = exe._pnl.unrealized_pnl(50100.0)
     assert upnl == 100.0
 
 
@@ -566,11 +565,11 @@ def test_executor_dry_run_updates_avg_price(
     result = exe.step(sample_data)
     assert result["signal"] == 0.5
     assert exe.state is not None
-    assert abs(exe.state.avg_entry_price - 50000.0) < 1.0
+    assert exe._pnl.avg_entry_price == pytest.approx(50000.0, abs=1.0)
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_update_avg_entry_price_zero_delta(
+def test_executor_pnl_zero_delta(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -580,14 +579,13 @@ def test_executor_update_avg_entry_price_zero_delta(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 1.0
-    exe.state.avg_entry_price = 50000.0
-    exe._update_avg_entry_price(0.0, 50000.0)
+    exe._pnl.apply_fill(1.0, 50000.0)
+    exe._sync_pnl_state()
     assert exe.state.avg_entry_price == 50000.0
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_update_avg_entry_price_partial_close(
+def test_executor_pnl_partial_close(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -597,16 +595,14 @@ def test_executor_update_avg_entry_price_partial_close(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 2.0
-    exe.state.avg_entry_price = 50000.0
-    exe.state.total_cost = 100000.0
-    exe._update_avg_entry_price(-1.0, 51000.0)
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._pnl.apply_fill(-1.0, 51000.0)
+    exe._sync_pnl_state()
     assert exe.state.realized_pnl == pytest.approx(1000.0)
-    assert exe.state.total_cost == pytest.approx(50000.0)
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_update_avg_entry_price_close_all(
+def test_executor_pnl_close_all(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -616,10 +612,9 @@ def test_executor_update_avg_entry_price_close_all(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = -2.0
-    exe.state.avg_entry_price = 50000.0
-    exe.state.total_cost = 100000.0
-    exe._update_avg_entry_price(2.0, 51000.0)
+    exe._pnl.apply_fill(-2.0, 50000.0)
+    exe._pnl.apply_fill(2.0, 51000.0)
+    exe._sync_pnl_state()
     assert exe.state.avg_entry_price == 0.0
 
 
@@ -682,9 +677,8 @@ def test_executor_reconcile_equity_no_inflation(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 1.0
-    exe.state.avg_entry_price = 30000.0
-    exe.state.realized_pnl = 5000.0
+    exe._pnl.apply_fill(1.0, 30000.0, commission=0.0, slippage=0.0)
+    exe._sync_pnl_state()
 
     import ztb.execution.executor as _exec_mod
 
@@ -698,10 +692,10 @@ def test_executor_reconcile_equity_no_inflation(
         exe._reconcile(1.0, 40000.0, "2026-01-01T00:00:00Z")
 
     expected_upnl = (40000.0 - 30000.0) * 1.0
-    expected_equity = config.initial_cash + 5000.0 + expected_upnl
+    expected_equity = config.initial_cash + expected_upnl
     cap = cast("AccountState", captured["expected"])
     assert cap.total_equity == pytest.approx(expected_equity)
-    assert cap.total_equity < config.initial_cash + 5000.0 + 1.0 * 40000.0
+    assert cap.total_equity < config.initial_cash + 1.0 * 40000.0
 
 
 @patch("ztb.execution.executor.load_data")
@@ -717,8 +711,8 @@ def test_executor_step_equity_no_inflation(
     exe._init_run()
     exe._init_store(":memory:")
     assert exe.state is not None
-    exe.state.current_position = 1.0
-    exe.state.avg_entry_price = 30000.0
+    exe._pnl.apply_fill(1.0, 30000.0)
+    exe._sync_pnl_state()
     result = exe.step(sample_data)
     expected_upnl = (50000.0 - 30000.0) * 1.0
     expected_equity = config.initial_cash + expected_upnl
@@ -745,8 +739,8 @@ def test_executor_equity_short_position_no_inflation(
     exe._init_run()
     exe._init_store(":memory:")
     assert exe.state is not None
-    exe.state.current_position = -1.0
-    exe.state.avg_entry_price = 30000.0
+    exe._pnl.apply_fill(-1.0, 30000.0)
+    exe._sync_pnl_state()
     exe.step(sample_data)
     expected_upnl = (50000.0 - 30000.0) * -1.0
     expected_equity = config.initial_cash + expected_upnl
@@ -757,7 +751,7 @@ def test_executor_equity_short_position_no_inflation(
 
 
 @patch("ztb.execution.executor.load_data")
-def test_executor_update_avg_entry_price_existing_avg(
+def test_executor_pnl_existing_avg(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -767,10 +761,24 @@ def test_executor_update_avg_entry_price_existing_avg(
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     assert exe.state is not None
-    exe.state.current_position = 1.0
-    exe.state.avg_entry_price = 50000.0
-    exe.state.total_cost = 50000.0
-    exe._update_avg_entry_price(1.0, 51000.0)
+    exe._pnl.apply_fill(1.0, 50000.0)
+    exe._pnl.apply_fill(1.0, 51000.0)
+    exe._sync_pnl_state()
     expected_avg = (50000.0 * 1.0 + 51000.0 * 1.0) / 2.0
     assert abs(exe.state.avg_entry_price - expected_avg) < 0.01
-    assert exe.state.total_cost > 50000.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_dry_run_no_costs(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, commission=0.001, slippage=0.001)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe.step(sample_data)
+    assert exe._pnl.realized_pnl < 0

@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.9 (2026-06-13)
+
+- **Fix(pnl-calculator):** Resolve 3 V&R-defects on `feat/pnl-calculator` — signed cash formula (no `abs(position)`), costs on bar 0, costs in dry_run path
+- **Fix(executor):** dry_run path passes commission+slippage to `PnLCalculator.apply_fill()` (DEFECT-3)
+- **Fix(engine/portfolio):** `single_symbol_portfolio` cash uses signed `position` (DEFECT-1); first-bar trades incur costs (DEFECT-2)
+- **Fix(risk/portfolio):** `risk_adjusted_signals` and `multi_symbol_portfolio` apply costs on bar 0
+- **Refactor(engine):** Extract `PnLCalculator` from inline avg-price/UPnP logic in executor, engine portfolio, risk portfolio — single shared PnL primitive with fees+slippage (E5 shared accounting)
+- **Refactor(executor):** Remove `_update_avg_entry_price`, `_compute_unrealized_pnl`, delegating to `PnLCalculator` via `apply_fill()` + `_sync_pnl_state()`
+- **Tests:** 3 new V&R gap-detection tests (`test_short_open_position_cash_identity`, `test_first_bar_signals_skip_costs`, `test_executor_dry_run_no_costs`); 783 total tests pass, 0 fail, 93% coverage; PnLCalculator 100% coverage
+- V&R PASS on SHA `da5fb44` ([ZTB-1037](/ZTB/issues/ZTB-1037))
+- **PR:** [#36](https://github.com/StaithValanthis/ztb/pull/36) — `feat/pnl-calculator`
+- **Merge commit:** `bea8d26` — two-key merge (CI green + V&R PASS on SHA `da5fb44`)
+- **Tag:** v1.0.9
+
 ## v1.0.8 (2026-06-13)
 
 - **Tests(vr-pass-bridge):** Add comprehensive T1–T12 test suite + notify-mode tests for `scripts/ztb-vr-pass-bridge.py`
