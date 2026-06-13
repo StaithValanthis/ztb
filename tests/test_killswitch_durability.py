@@ -114,7 +114,7 @@ def test_arm_fail_closed_on_unresolved_trip(tmp_path: Path) -> None:
 
     sp = _setup_board(tmp_path)
     with pytest.raises(LiveDisarmedError):
-        LiveGuard.arm(token="1", conn=conn, store_path=sp)
+        LiveGuard.arm(token="1", conn=conn, hash_path=sp)
 
     LiveGuard.disarm()
     conn.close()
@@ -127,7 +127,7 @@ def test_arm_succeeds_on_clean_store(tmp_path: Path) -> None:
     assert get_latest_unresolved_kill_event(conn) is None
 
     sp = _setup_board(tmp_path)
-    LiveGuard.arm(token="1", conn=conn, store_path=sp)
+    LiveGuard.arm(token="1", conn=conn, hash_path=sp)
     assert os.environ.get(LiveGuard.ENV_VAR) == "1"
 
     LiveGuard.disarm()

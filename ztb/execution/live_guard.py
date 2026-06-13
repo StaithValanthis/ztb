@@ -59,8 +59,8 @@ class LiveGuard:
                     raise LiveDisarmedError("Cannot arm: unresolved kill event exists")
             except LiveDisarmedError:
                 raise
-            except Exception:
-                pass
+            except sqlite3.Error:
+                raise LiveDisarmedError("Cannot arm: database unavailable")
         board_token = os.environ.get(cls.BOARD_TOKEN_VAR)
         hash_file = hash_path or store_path
         stored_hash = load_arm_hash(hash_file)
@@ -93,5 +93,5 @@ class LiveGuard:
                 detail=f"Board token verified via {cls.BOARD_TOKEN_VAR}",
             )
             conn.close()
-        except Exception:
-            pass
+        except sqlite3.Error:
+            raise LiveDisarmedError("Audit log write failed — database unavailable")
