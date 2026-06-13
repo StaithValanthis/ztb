@@ -19,6 +19,8 @@ class ReconcileReport:
     actual_avg_price: float = 0.0
     expected_pnl: float = 0.0
     actual_pnl: float = 0.0
+    actual_wallet_balance: float = 0.0
+    actual_equity: float = 0.0
     issues: list[str] = field(default_factory=list)
     reconciled: bool = False
     irreconcilable: bool = False
@@ -74,6 +76,8 @@ def reconcile_account(
             f"actual={report.actual_position:.6f}"
         )
     report.actual_pnl = actual.unrealized_pnl
+    report.actual_wallet_balance = actual.wallet_balance
+    report.actual_equity = actual.total_equity
     report.matched = len(report.issues) == 0
     return report
 
