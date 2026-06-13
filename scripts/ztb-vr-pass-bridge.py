@@ -7,6 +7,10 @@ Usage:
 
 Reads owner/repo from the local git remote. Uses `gh` CLI for API auth.
 
+Prior-FAIL invalidation rule (ZTB-873):
+  - V&R PASS is voided (posted as "failure") if a prior V&R FAIL exists
+    on the same SHA, regardless of current CI status.
+
 Void-on-FAIL rule (ZTB-496 / ZTB-527):
   - V&R PASS is only posted as "success" if ALL CI checks on the same SHA
     also succeeded. If any CI check is FAILURE, the bridge posts
@@ -19,7 +23,7 @@ import argparse
 import json
 import subprocess
 import sys
-from typing import NoReturn
+from typing import Any, NoReturn
 
 
 def fail(msg: str) -> NoReturn:
@@ -27,7 +31,7 @@ def fail(msg: str) -> NoReturn:
     sys.exit(1)
 
 
-def gh(args: list[str], input_data: str | None = None) -> dict:
+def gh(args: list[str], input_data: str | None = None) -> dict[str, Any]:
     """Run `gh api` and return parsed JSON. Exits on error."""
     cmd = ["gh", "api"] + args
     try:
@@ -48,7 +52,8 @@ def gh(args: list[str], input_data: str | None = None) -> dict:
     if not r.stdout.strip():
         return {}
     try:
-        return json.loads(r.stdout)
+        result: dict[str, Any] = json.loads(r.stdout)
+        return result
     except json.JSONDecodeError as e:
         fail(f"gh returned non-JSON: {e}\n{r.stdout[:500]}")
 
@@ -78,6 +83,25 @@ def get_repo_owner_repo() -> tuple[str, str]:
             if len(parts) >= 2:
                 return parts[0], parts[1]
     fail(f"cannot parse owner/repo from remote URL: {url}")
+
+
+def get_vr_pass_status(owner: str, repo: str, sha: str) -> str | None:
+    """Check the existing ztb/vr-pass commit status for a given SHA.
+
+    Returns 'success', 'failure', 'pending', 'error', or None if no
+    V&R status has been set for this SHA yet.
+    """
+    # Commit Statuses API — returns most recent statuses per context
+    path = f"/repos/{owner}/{repo}/commits/{sha}/statuses?per_page=100"
+    data = gh([path])
+    statuses: list[dict[str, Any]] = data if isinstance(data, list) else data.get("statuses", [])
+
+    # Filter for ztb/vr-pass context, pick the latest
+    for s in reversed(statuses):
+        if s.get("context") == "ztb/vr-pass":
+            return s.get("state")
+
+    return None
 
 
 def get_ci_conclusion(owner: str, repo: str, sha: str) -> str | None:
@@ -177,7 +201,23 @@ def main() -> None:
         print(f"ztb/vr-pass = failure on {sha[:12]} (V&R FAIL)")
         return
 
-    # Outcome is PASS — check CI status first (void-on-FAIL rule)
+    # Outcome is PASS — check prior V&R status first (prior-FAIL invalidation)
+    prior_vr = get_vr_pass_status(owner, repo, sha)
+    if prior_vr == "failure":
+        post_commit_status(
+            owner,
+            repo,
+            sha,
+            "failure",
+            "V&R PASS VOIDED — prior V&R FAIL on same SHA (prior-FAIL invalidation rule)",
+        )
+        print(
+            f"ztb/vr-pass = failure on {sha[:12]} "
+            f"(V&R PASS voided: prior V&R FAIL exists on this SHA)"
+        )
+        return
+
+    # Then check CI status (void-on-FAIL rule)
     ci_conclusion = get_ci_conclusion(owner, repo, sha)
 
     if ci_conclusion is None:
