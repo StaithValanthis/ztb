@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.6 (2026-06-13)
+
+- **Feat(vr-pass-bridge):** Add `--mode notify` for CI-on-push path (posts pending status, no auto-PASS)
+- **Feat(vr-pass-bridge):** `--outcome` is optional (only required with `--mode outcome`); default is `--mode outcome` for backward compat
+- **Ci:** `vr-pass` job uses `--mode notify` instead of `--outcome PASS` — no commit reaches main with auto-PASS
+- **Tests:** Conftest-based bridge tests; 5 tests covering notify mode, outcome PASS/FAIL, and graceful gh absence
+- **Docs:** Updated `vr-pass-bridge.md` with notify mode usage
+- V&R PASS on SHA `8379f29836ab` ([ZTB-883](/ZTB/issues/ZTB-883))
+- **PR:** [#32](https://github.com/StaithValanthis/ztb/pull/32) — `feat/vr-pass-fix`
+- **Merge commit:** `1f59beb` — two-key merge (CI green + V&R PASS on SHA `8379f29836ab`)
+- **Tag:** v1.0.6
+
 ## v1.0.5 (2026-06-13)
 
 - **Feat(killswitch):** Persist LiveKillSwitch state (HWM equity, tripped flag, last heartbeat) so process restart preserves safety invariant

@@ -29,6 +29,9 @@ principle: **merge = CI-green AND V&R PASS on identical SHA.**
 ## Script Usage
 
 ```bash
+# CI notify mode (sets pending — no PASS without human V&R)
+python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --mode notify
+
 # Typical V&R PASS (with CI verification)
 python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --outcome PASS
 
@@ -44,9 +47,23 @@ python3 scripts/ztb-vr-pass-bridge.py \
 ## CI Integration
 
 The bridge runs automatically on push to `main` as the final CI step
-(`Post V&R PASS via bridge`). When CI succeeds, the bridge posts
-`ztb/vr-pass = success` for the pushed SHA. If CI fails, the bridge is
-never reached (the `success()` condition is false).
+(`Notify V&R pending via bridge`), using `--mode notify`. This posts
+`ztb/vr-pass = pending` to indicate that the SHA has passed CI but has
+not yet received a human V&R verdict. The gate remains unlatched — the
+branch protection rule still requires `ztb/vr-pass = success` before
+any PR can merge, so no commit reaches `main` without explicit human
+V&R approval.
+
+V&R (or an agent acting on V&R's behalf) then manually posts the
+verdict:
+
+```bash
+# After human V&R review confirms PASS
+python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --outcome PASS
+
+# After human V&R review confirms FAIL
+python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --outcome FAIL
+```
 
 For V&R workflows (manual PASS on a PR SHA), an operator or V&R agent
 runs the bridge explicitly after recording the PASS verdict and confirming

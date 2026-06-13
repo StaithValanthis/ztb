@@ -4,8 +4,13 @@ ztb-vr-pass-bridge.py — set GitHub commit status for V&R PASS/FAIL.
 
 Usage:
     python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --outcome PASS|FAIL
+    python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --mode notify
 
 Reads owner/repo from the local git remote. Uses `gh` CLI for API auth.
+
+--mode notify posts ztb/vr-pass = pending as a signal that V&R human review
+has not yet occurred. This is the CI-on-push path. --outcome PASS|FAIL is
+the explicit V&R verdict path (manual or agent-driven).
 
 Void-on-FAIL rule (ZTB-496 / ZTB-527):
   - V&R PASS is only posted as "success" if ALL CI checks on the same SHA
@@ -148,10 +153,15 @@ def main() -> None:
         help="Commit SHA to set status on",
     )
     parser.add_argument(
+        "--mode",
+        choices=["outcome", "notify"],
+        default="outcome",
+        help="'outcome' (default, requires --outcome) or 'notify' (post pending)",
+    )
+    parser.add_argument(
         "--outcome",
-        required=True,
         choices=["PASS", "FAIL"],
-        help="V&R validation outcome",
+        help="V&R validation outcome (required when --mode=outcome)",
     )
     parser.add_argument(
         "--owner",
@@ -162,6 +172,28 @@ def main() -> None:
         help="GitHub repo (default: auto-detect from git remote)",
     )
     args = parser.parse_args()
+
+    if args.mode == "notify":
+        owner = args.owner
+        repo = args.repo
+        if not owner or not repo:
+            detected_owner, detected_repo = get_repo_owner_repo()
+            owner = owner or detected_owner
+            repo = repo or detected_repo
+        post_commit_status(
+            owner,
+            repo,
+            args.sha.strip(),
+            "pending",
+            "V&R validation pending — awaiting human review",
+        )
+        sha_short = args.sha.strip()[:12]
+        print(f"ztb/vr-pass = pending on {sha_short} (notify mode — awaiting V&R review)")
+        return
+
+    # mode is "outcome" — require --outcome
+    if args.outcome is None:
+        fail("--outcome is required when --mode=outcome")
 
     owner = args.owner
     repo = args.repo
