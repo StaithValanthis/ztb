@@ -475,6 +475,40 @@ def test_fractional_deltas() -> None:
     assert pnl.position == pytest.approx(0.069135)
 
 
+# ---------------------------------------------------------------------------
+# PnLCalculator — adopt_state (exchange state adoption)
+# ---------------------------------------------------------------------------
+
+
+def test_adopt_state_sets_position_and_avg_price() -> None:
+    pnl = PnLCalculator(initial_cash=100_000.0)
+    pnl.adopt_state(position=1.5, avg_entry_price=30000.0)
+    assert pnl.position == 1.5
+    assert pnl.avg_entry_price == 30000.0
+    assert pnl.realized_pnl == 0.0
+    assert pnl.total_commission == 0.0
+    assert pnl.total_slippage == 0.0
+
+
+def test_adopt_state_with_realized_pnl() -> None:
+    pnl = PnLCalculator(initial_cash=100_000.0)
+    pnl.adopt_state(position=-0.5, avg_entry_price=40000.0, realized_pnl=250.0)
+    assert pnl.position == -0.5
+    assert pnl.avg_entry_price == 40000.0
+    assert pnl.realized_pnl == 250.0
+
+
+def test_adopt_state_preserves_equity_identity() -> None:
+    pnl = PnLCalculator(initial_cash=100_000.0)
+    pnl.adopt_state(position=2.0, avg_entry_price=50000.0)
+    eq = pnl.equity(51000.0)
+    expected_eq = 100_000.0 + 0.0 + (51000.0 - 50000.0) * 2.0
+    assert eq == pytest.approx(expected_eq)
+
+
+# ---------------------------------------------------------------------------
+
+
 def test_consecutive_closes_and_reopens() -> None:
     pnl = PnLCalculator()
     pnl.apply_fill(1.0, 100.0)
