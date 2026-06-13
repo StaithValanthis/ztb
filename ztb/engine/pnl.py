@@ -64,6 +64,13 @@ class PnLCalculator:
             initial_cash=self._initial_cash,
         )
 
+    def adopt_state(
+        self, position: float, avg_entry_price: float, realized_pnl: float = 0.0
+    ) -> None:
+        self._position = position
+        self._avg_entry_price = avg_entry_price
+        self._realized_pnl = realized_pnl
+
     def apply_fill(
         self, delta: float, fill_price: float, commission: float = 0.0, slippage: float = 0.0
     ) -> None:

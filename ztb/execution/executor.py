@@ -618,7 +618,19 @@ class Executor:
             try:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
                 close_price = float(warmup_data["close"].iloc[-1])
-                self._reconcile(0.0, close_price, str(warmup_data.index[-1]))
+                bar_ts = str(warmup_data.index[-1])
+                report = self._reconcile(0.0, close_price, bar_ts)
+                if abs(report.actual_position) > 1e-8:
+                    actual_avg = (
+                        report.actual_avg_price
+                        if abs(report.actual_avg_price) > 1e-8
+                        else close_price
+                    )
+                    self._pnl.adopt_state(
+                        position=report.actual_position,
+                        avg_entry_price=actual_avg,
+                    )
+                    self._sync_pnl_state()
             except Exception:
                 pass
 

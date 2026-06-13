@@ -714,6 +714,133 @@ def test_executor_reconcile_api_path_exception(
 
 
 @patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_startup_reconcile_adopts_exchange_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = [
+        {
+            "symbol": "BTCUSDT",
+            "size": "1.5",
+            "avgPrice": "30000.0",
+            "unrealisedPnl": "30000.0",
+            "cumRealisedPnl": "500.0",
+            "updatedTime": "2026-06-13T00:00:00Z",
+        }
+    ]
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "175000.0",
+                        "walletBalance": "145000.0",
+                        "unrealisedPnl": "30000.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.position == pytest.approx(1.5)
+    assert exe._pnl.avg_entry_price == pytest.approx(30000.0)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_startup_reconcile_skips_adoption_when_no_exchange_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.position == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_startup_reconcile_adopts_short_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = [
+        {
+            "symbol": "BTCUSDT",
+            "size": "-2.0",
+            "avgPrice": "45000.0",
+            "unrealisedPnl": "10000.0",
+            "cumRealisedPnl": "200.0",
+            "updatedTime": "2026-06-13T00:00:00Z",
+        }
+    ]
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "110000.0",
+                        "walletBalance": "100000.0",
+                        "unrealisedPnl": "10000.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.position == pytest.approx(-2.0)
+    assert exe._pnl.avg_entry_price == pytest.approx(45000.0)
+
+
+@patch("ztb.execution.executor.load_data")
 def test_executor_reconcile_equity_no_inflation(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
