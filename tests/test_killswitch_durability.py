@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from pathlib import Path
 
+import pytest
+
+from ztb.execution.arm_auth import compute_arm_hash
 from ztb.execution.errors import LiveDisarmedError
 from ztb.execution.killswitch import LiveKillSwitch
 from ztb.execution.live_guard import LiveGuard
@@ -13,6 +17,19 @@ from ztb.store.exec_io import (
     save_kill_event,
     save_killswitch_state,
 )
+
+_TEST_TOKEN = "brd-tkn-kd"
+
+
+def _setup_board(tmp_path: Path) -> Path:
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = _TEST_TOKEN
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash(_TEST_TOKEN))
+    return hp
+
+
+def _cleanup_board() -> None:
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def _make_conn() -> sqlite3.Connection:
@@ -77,7 +94,7 @@ def test_killswitch_restore_hwm_raised() -> None:
     conn.close()
 
 
-def test_arm_fail_closed_on_unresolved_trip() -> None:
+def test_arm_fail_closed_on_unresolved_trip(tmp_path: Path) -> None:
     conn = _make_conn()
     exec_run_id = "exec_test_004"
 
@@ -95,22 +112,24 @@ def test_arm_fail_closed_on_unresolved_trip() -> None:
 
     assert get_latest_unresolved_kill_event(conn) is not None
 
-    import pytest
-
+    sp = _setup_board(tmp_path)
     with pytest.raises(LiveDisarmedError):
-        LiveGuard.arm(token="1", conn=conn)
+        LiveGuard.arm(token="1", conn=conn, store_path=sp)
 
     LiveGuard.disarm()
     conn.close()
+    _cleanup_board()
 
 
-def test_arm_succeeds_on_clean_store() -> None:
+def test_arm_succeeds_on_clean_store(tmp_path: Path) -> None:
     conn = _make_conn()
 
     assert get_latest_unresolved_kill_event(conn) is None
 
-    LiveGuard.arm(token="1", conn=conn)
+    sp = _setup_board(tmp_path)
+    LiveGuard.arm(token="1", conn=conn, store_path=sp)
     assert os.environ.get(LiveGuard.ENV_VAR) == "1"
 
     LiveGuard.disarm()
     conn.close()
+    _cleanup_board()
