@@ -462,9 +462,9 @@ class Executor:
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
-                self._reconcile(target_qty, close_price, bar_ts)
+            self._reconcile(target_qty, close_price, bar_ts)
 
-                from ztb.store.exec_io import save_exec_order
+            from ztb.store.exec_io import save_exec_order
 
             save_exec_order(
                 self._store_conn,

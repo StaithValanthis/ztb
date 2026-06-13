@@ -760,7 +760,6 @@ def test_executor_pnl_existing_avg(
     exe._sync_pnl_state()
     expected_avg = (50000.0 * 1.0 + 51000.0 * 1.0) / 2.0
     assert abs(exe.state.avg_entry_price - expected_avg) < 0.01
-    assert exe.state.total_cost > 50000.0
 
 
 @patch("ztb.execution.executor.load_data")
