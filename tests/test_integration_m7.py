@@ -140,7 +140,7 @@ def test_live_guard_armed_allows(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
-    LiveGuard.arm("1", store_path=hp)
+    LiveGuard.arm("1", hash_path=hp)
     assert LiveGuard.is_armed()
     LiveGuard.assert_live_allowed()
     LiveGuard.disarm()
