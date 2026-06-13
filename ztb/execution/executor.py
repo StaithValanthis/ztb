@@ -444,9 +444,14 @@ class Executor:
                 order_type=OrderType.MARKET,
                 order_link_id=order_link_id,
             )
-            order_id = order_result.get("orderId", "")
+            if order_result.get("skipped"):
+                result["order_skipped"] = True
+                result["skip_reason"] = order_result.get("reason", "")
+                self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
+            else:
+                order_id = order_result.get("orderId", "")
 
-            self._idempotency.resolve(order_link_id, "placed", order_id)
+                self._idempotency.resolve(order_link_id, "placed", order_id)
 
             commission_cost = qty * close_price * self.config.commission
             slippage_cost = qty * close_price * self.config.slippage
@@ -457,9 +462,9 @@ class Executor:
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
-            self._reconcile(target_qty, close_price, bar_ts)
+                self._reconcile(target_qty, close_price, bar_ts)
 
-            from ztb.store.exec_io import save_exec_order
+                from ztb.store.exec_io import save_exec_order
 
             save_exec_order(
                 self._store_conn,
@@ -600,8 +605,9 @@ class Executor:
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
 
-        if self.config.lookback_bars > 0 and len(data) < self.config.lookback_bars:
-            data = self._ensure_warmup(data, self.config.lookback_bars, symbol, timeframe, category, start)
+        effective_lookback = self.config.lookback_bars if self.config.lookback_bars and self.config.lookback_bars > 0 else max(warmup * 2, 200)
+        if len(data) < effective_lookback:
+            data = self._ensure_warmup(data, effective_lookback, symbol, timeframe, category, start)
 
         if len(data) < warmup:
             data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
@@ -680,21 +686,26 @@ class Executor:
 
         original_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
 
+        poll_interval = self.config.poll_interval_seconds
+        if poll_interval is None or poll_interval <= 0:
+            interval_ms = interval_to_ms(timeframe)
+            poll_interval = interval_ms / 1000.0 / 3.0
+
         try:
             consecutive_errors = 0
             max_errors = 3
 
             while not stop_requested:
-                if self.risk_mgr is not None and self.risk_mgr.kill_switch.is_tripped():
-                    self.state.errors.append("Killswitch triggered — stopping polling loop")
-                    self._save_error("KillswitchTripped", "Killswitch triggered during polling loop")
+                if self._check_killswitch():
+                    self.state.errors.append("Killswitch tripped — stopping polling loop")
+                    self._save_error("KillswitchTripped", "Killswitch tripped during polling loop")
                     break
 
                 if stop_requested:
                     break
 
                 try:
-                    time_module.sleep(self.config.poll_interval_seconds)
+                    time_module.sleep(poll_interval)
                     data = self._fetch_new_bars(data, symbol, timeframe, category)
                     self.step(data)
                     consecutive_errors = 0

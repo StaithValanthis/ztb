@@ -488,12 +488,12 @@ def test_get_server_time(mock_client_cls: MagicMock) -> None:
 
 
 def test_round_to_step() -> None:
-    assert BybitClient.round_to_step(0.0026, 0.001) == pytest.approx(0.003)
+    assert BybitClient.round_to_step(0.0026, 0.001) == pytest.approx(0.002)
     assert BybitClient.round_to_step(0.0024, 0.001) == pytest.approx(0.002)
-    assert BybitClient.round_to_step(1.23, 0.1) == pytest.approx(1.2)
+    assert BybitClient.round_to_step(1.29, 0.1) == pytest.approx(1.2)
     assert BybitClient.round_to_step(1.0, 0.5) == pytest.approx(1.0)
     assert BybitClient.round_to_step(0.0, 0.001) == pytest.approx(0.0)
-    assert BybitClient.round_to_step(0.0015, 0.001) == pytest.approx(0.002)
+    assert BybitClient.round_to_step(0.0015, 0.001) == pytest.approx(0.001)
 
 
 def test_round_to_step_zero_step() -> None:
@@ -578,7 +578,7 @@ def test_place_order_validates_qty(mock_client_cls: MagicMock) -> None:
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
-def test_validate_qty_below_min_raises(mock_client_cls: MagicMock) -> None:
+def test_validate_qty_below_min_skips(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
     mock_resp = MagicMock()
@@ -591,26 +591,35 @@ def test_validate_qty_below_min_raises(mock_client_cls: MagicMock) -> None:
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    with pytest.raises(ClientError, match="below minOrderQty"):
-        client.place_order(symbol="BTCUSDT", side=OrderSide.BUY, qty=0.001)
+    result = client.place_order(symbol="BTCUSDT", side=OrderSide.BUY, qty=0.001)
+    assert result.get("skipped") is True
+    assert "below minOrderQty" in result.get("reason", "")
+    client.close()
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
-def test_validate_qty_exceeds_max_raises(mock_client_cls: MagicMock) -> None:
+def test_validate_qty_exceeds_max_caps(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
+
+    info_resp = MagicMock()
+    info_resp.status_code = 200
+    info_resp.json.return_value = {
         "retCode": 0,
         "result": {"list": [{"symbol": "BTCUSDT", "lotSizeFilter": {"qtyStep": "1", "minOrderQty": "1", "maxOrderQty": "10"}}]},
     }
-    mock_instance.request.return_value = mock_resp
+
+    order_resp = MagicMock()
+    order_resp.status_code = 200
+    order_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_capped"}}
+
+    mock_instance.request.side_effect = [info_resp, order_resp]
 
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    with pytest.raises(ClientError, match="exceeds maxOrderQty"):
-        client.place_order(symbol="BTCUSDT", side=OrderSide.BUY, qty=100)
+    result = client.place_order(symbol="BTCUSDT", side=OrderSide.BUY, qty=100)
+    assert result["orderId"] == "oid_capped"
+    client.close()
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")

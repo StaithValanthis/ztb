@@ -135,7 +135,10 @@ class BybitClient:
         reduce_only: bool = False,
         category: str = "linear",
     ) -> dict[str, Any]:
-        qty = self._validate_qty(symbol, qty, category)
+        validated = self._validate_qty(symbol, qty, category)
+        if validated.get("skipped"):
+            return validated
+        qty = validated["qty"]
         body: dict[str, Any] = {
             "category": category,
             "symbol": symbol,
@@ -255,10 +258,10 @@ class BybitClient:
     def round_to_step(qty: float, qty_step: float) -> float:
         if qty_step <= 0:
             return qty
-        rounded = round(qty / qty_step) * qty_step
-        return round(rounded, 8)
+        floored = int(qty / qty_step) * qty_step
+        return round(floored, 8)
 
-    def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> float:
+    def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)
         ls = info.get("lotSizeFilter", {})
         qty_step = float(ls.get("qtyStep", "0.001"))
@@ -268,10 +271,10 @@ class BybitClient:
         qty = self.round_to_step(qty, qty_step)
 
         if qty < min_qty - 1e-12:
-            raise ClientError(0, f"Qty {qty} below minOrderQty {min_qty} for {symbol}")
+            return {"skipped": True, "reason": f"Qty {qty} below minOrderQty {min_qty} for {symbol}"}
         if max_qty > 0 and qty > max_qty + 1e-12:
-            raise ClientError(0, f"Qty {qty} exceeds maxOrderQty {max_qty} for {symbol}")
-        return qty
+            qty = self.round_to_step(max_qty, qty_step)
+        return {"skipped": False, "qty": qty}
 
     def close(self) -> None:
         self._client.close()

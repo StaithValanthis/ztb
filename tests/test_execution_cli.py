@@ -16,36 +16,41 @@ def test_run_command_exists() -> None:
 
 
 def test_run_accepts_live_mode() -> None:
-    """--mode=live is no longer blocked at CLI level in M7 (LiveGuard instead)."""
-    n = 200
-    df = DataFrame(
-        {
-            "open": [50000.0 + i * 10 for i in range(n)],
-            "high": [50100.0 + i * 10 for i in range(n)],
-            "low": [49900.0 + i * 10 for i in range(n)],
-            "close": [50000.0 + i * 10 for i in range(n)],
-            "volume": [1000.0] * n,
-        },
-        index=date_range("2026-01-01", periods=n, freq="h"),
-    )
-    runner = CliRunner()
-    with patch("ztb.execution.executor.load_data", return_value=df):
-        result = runner.invoke(
-            cli,
-            [
-                "run",
-                "sma_cross",
-                "BTCUSDT",
-                "--mode=live",
-                "--dry-run",
-                "--once",
-                "--no-risk",
-                "--start=2026-01-01",
-                "--end=2026-01-03",
-            ],
+    """--mode=live accepted when LiveGuard is armed."""
+    from ztb.execution.live_guard import LiveGuard
+    LiveGuard.arm()
+    try:
+        n = 200
+        df = DataFrame(
+            {
+                "open": [50000.0 + i * 10 for i in range(n)],
+                "high": [50100.0 + i * 10 for i in range(n)],
+                "low": [49900.0 + i * 10 for i in range(n)],
+                "close": [50000.0 + i * 10 for i in range(n)],
+                "volume": [1000.0] * n,
+            },
+            index=date_range("2026-01-01", periods=n, freq="h"),
         )
-    assert result.exit_code == 0, f"stderr={result.output}"
-    assert "Mode:" in result.output
+        runner = CliRunner()
+        with patch("ztb.execution.executor.load_data", return_value=df):
+            result = runner.invoke(
+                cli,
+                [
+                    "run",
+                    "sma_cross",
+                    "BTCUSDT",
+                    "--mode=live",
+                    "--dry-run",
+                    "--once",
+                    "--no-risk",
+                    "--start=2026-01-01",
+                    "--end=2026-01-03",
+                ],
+            )
+        assert result.exit_code == 0, f"stderr={result.output}"
+        assert "Mode:" in result.output
+    finally:
+        LiveGuard.disarm()
 
 
 def test_run_rejects_unknown_strategy() -> None:
