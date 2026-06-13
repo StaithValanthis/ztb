@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
@@ -194,15 +196,20 @@ def test_executor_live_mode_blocked_via_client() -> None:
         BybitClient(ClientConfig(mode=Mode.LIVE))
 
 
-def test_executor_live_mode_allowed_when_armed() -> None:
+def test_executor_live_mode_allowed_when_armed(tmp_path: Path) -> None:
+    from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.bybit_client import BybitClient, ClientConfig
     from ztb.execution.live_guard import LiveGuard
 
-    LiveGuard.arm("1")
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
+    hp = tmp_path / "board-arm-hash"
+    hp.write_text(compute_arm_hash("test-token"))
+    LiveGuard.arm("1", store_path=hp)
     client = BybitClient(ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE))
     assert client._base_url == "https://api.bybit.com"
     client.close()
     LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 @patch("ztb.execution.executor.load_data")
