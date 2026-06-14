@@ -44,3 +44,7 @@ class ClientError(ExecutionError):
 
 class ClientAuthError(ClientError):
     pass
+
+
+class PollingError(ExecutionError):
+    pass
