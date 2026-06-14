@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS runs (
     splits TEXT NOT NULL DEFAULT '{}',
     code_version TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    credible INTEGER NOT NULL DEFAULT 0
+    sufficient_sample INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS metrics (
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS metrics (
     win_rate REAL,
     turnover REAL NOT NULL DEFAULT 0.0,
     exposure_time REAL NOT NULL DEFAULT 0.0,
-    credible INTEGER NOT NULL DEFAULT 0,
+    sufficient_sample INTEGER NOT NULL DEFAULT 0,
     reason TEXT NOT NULL DEFAULT '',
     UNIQUE(run_id, scope)
 );

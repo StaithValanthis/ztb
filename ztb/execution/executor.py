@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import time as time_module
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,8 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
+
+logger = logging.getLogger(__name__)
 
 
 class Executor:
@@ -135,7 +138,7 @@ class Executor:
                 "position": self.state.current_position,
                 "avg_price": price,
                 "unrealized_pnl": 0.0,
-                "credible": 1,
+                "sufficient_sample": 1,
                 "code_version": __version__,
             },
         )
@@ -161,7 +164,7 @@ class Executor:
                 "realized_pnl": realized,
                 "unrealized_pnl": unrealized,
                 "total_equity": equity,
-                "credible": 1,
+                "sufficient_sample": 1,
                 "code_version": __version__,
             },
         )
@@ -551,39 +554,117 @@ class Executor:
             order_id = order_result.get("orderId", "")
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            commission_cost = qty * close_price * self.config.commission
-            slippage_cost = qty * close_price * self.config.slippage
-            self._pnl.apply_fill(
-                delta, close_price, commission=commission_cost, slippage=slippage_cost
-            )
-            self._sync_pnl_state()
+            # Real fill pipeline: fetch actual fills from exchange
+            real_fills: list[dict[str, Any]] = []
+            from ztb.execution.reconcile import parse_fills as _parse_fills
+
+            try:
+                raw_fills = self.client.get_executions(order_id=order_id)
+                for f in _parse_fills(raw_fills):
+                    real_fills.append(
+                        {
+                            "fill_id": f.exec_id,
+                            "order_link_id": order_link_id,
+                            "exec_run_id": self.state.exec_run_id,
+                            "order_id": f.order_id,
+                            "symbol": f.symbol,
+                            "side": f.side.value,
+                            "price": f.price,
+                            "qty": f.qty,
+                            "commission": f.commission,
+                            "realized_pnl": f.realized_pnl,
+                            "filled_at": f.timestamp,
+                            "sufficient_sample": 1,
+                            "code_version": __version__,
+                        }
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to fetch fills for order %s, falling back to synthetic fill",
+                    order_id,
+                )
+                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
+                real_fills = []
+
+            if real_fills:
+                total_fill_qty = sum(f["qty"] for f in real_fills)
+                total_fill_commission = sum(f["commission"] for f in real_fills)
+                avg_fill_price = (
+                    sum(f["price"] * f["qty"] for f in real_fills) / total_fill_qty
+                    if total_fill_qty > 0
+                    else close_price
+                )
+                self._pnl.apply_fill(
+                    total_fill_qty if delta > 0 else -total_fill_qty,
+                    avg_fill_price,
+                    commission=total_fill_commission,
+                    slippage=0.0,
+                )
+                self._sync_pnl_state()
+                result["real_fills"] = real_fills
+                cum_exec_qty = total_fill_qty
+                cum_exec_value = sum(f["price"] * f["qty"] for f in real_fills)
+                cum_exec_fee = total_fill_commission
+                from ztb.store.exec_io import save_exec_order
+
+                save_exec_order(
+                    self._store_conn,
+                    {
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": order_id,
+                        "symbol": symbol,
+                        "side": side.value,
+                        "order_type": "Market",
+                        "price": avg_fill_price,
+                        "qty": total_fill_qty,
+                        "status": "Filled",
+                        "created_at": bar_ts,
+                        "cum_exec_qty": cum_exec_qty,
+                        "cum_exec_value": cum_exec_value,
+                        "cum_exec_fee": cum_exec_fee,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    },
+                )
+                for fill in real_fills:
+                    from ztb.store.exec_io import save_exec_fill
+
+                    save_exec_fill(self._store_conn, fill)
+            else:
+                commission_cost = qty * close_price * self.config.commission
+                slippage_cost = qty * close_price * self.config.slippage
+                self._pnl.apply_fill(
+                    delta, close_price, commission=commission_cost, slippage=slippage_cost
+                )
+                self._sync_pnl_state()
+                from ztb.store.exec_io import save_exec_order
+
+                save_exec_order(
+                    self._store_conn,
+                    {
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": order_id,
+                        "symbol": symbol,
+                        "side": side.value,
+                        "order_type": "Market",
+                        "price": close_price,
+                        "qty": qty,
+                        "status": "Filled",
+                        "created_at": bar_ts,
+                        "cum_exec_qty": qty,
+                        "cum_exec_value": qty * close_price,
+                        "cum_exec_fee": commission_cost,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    },
+                )
+
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
             self._reconcile(target_qty, close_price, bar_ts)
-
-            from ztb.store.exec_io import save_exec_order
-
-            save_exec_order(
-                self._store_conn,
-                {
-                    "order_link_id": order_link_id,
-                    "exec_run_id": self.state.exec_run_id,
-                    "order_id": order_id,
-                    "symbol": symbol,
-                    "side": side.value,
-                    "order_type": "Market",
-                    "price": close_price,
-                    "qty": qty,
-                    "status": "Filled",
-                    "created_at": bar_ts,
-                    "cum_exec_qty": qty,
-                    "cum_exec_value": qty * close_price,
-                    "cum_exec_fee": commission_cost,
-                    "credible": 1,
-                    "code_version": __version__,
-                },
-            )
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts

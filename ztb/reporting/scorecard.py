@@ -76,7 +76,7 @@ def build_scorecard(
         "parameters": json.loads(run.get("parameters", "{}"))
         if isinstance(run.get("parameters"), str)
         else run.get("parameters", {}),
-        "credible": bool(run.get("credible", False)),
+        "sufficient_sample": bool(run.get("sufficient_sample", False)),
         "metrics": metrics_by_scope,
         "trades_summary": trades_summary,
         "equity_summary": equity_summary,

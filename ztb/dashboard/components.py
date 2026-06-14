@@ -64,7 +64,7 @@ def render_scorecard(scorecard: dict[str, Any]) -> None:
     with col1:
         st.metric("Strategy", scorecard.get("strategy_name", "?"))
     with col2:
-        st.metric("Credible", "\u2713" if scorecard.get("credible") else "\u2717")
+        st.metric("Sufficient Sample", "\u2713" if scorecard.get("sufficient_sample") else "\u2717")
 
     metrics = scorecard.get("metrics", {})
     for scope in ("full", "is", "oos"):

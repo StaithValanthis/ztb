@@ -48,7 +48,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.55,
             turnover=100.0,
             exposure_time=200.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         is_=MetricsResult(
             total_return=0.20,
@@ -61,7 +61,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.60,
             turnover=70.0,
             exposure_time=140.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         oos=MetricsResult(
             total_return=0.10,
@@ -74,7 +74,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.50,
             turnover=30.0,
             exposure_time=60.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         portfolio=PortfolioState(
             cash=50000.0,
@@ -219,7 +219,7 @@ def test_risk_migration_from_v2(tmp_path: Path) -> None:
             splits TEXT NOT NULL DEFAULT '{}',
             code_version TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            credible INTEGER NOT NULL DEFAULT 0
+            sufficient_sample INTEGER NOT NULL DEFAULT 0
         );
         INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
         INSERT OR IGNORE INTO schema_meta (version) VALUES (2);

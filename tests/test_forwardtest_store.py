@@ -52,7 +52,7 @@ def sample_forward_result() -> ForwardtestResult:
             win_rate=0.50,
             turnover=20.0,
             exposure_time=50.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         portfolio=PortfolioState(
             cash=95000.0,
@@ -192,7 +192,7 @@ def test_migration_adds_run_type(tmp_path: Path) -> None:
             splits TEXT NOT NULL DEFAULT '{}',
             code_version TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            credible INTEGER NOT NULL DEFAULT 0
+            sufficient_sample INTEGER NOT NULL DEFAULT 0
         );
         INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
     """)

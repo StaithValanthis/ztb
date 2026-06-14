@@ -309,7 +309,7 @@ def forwardtest(
             win_rate=full_metrics["win_rate"],
             turnover=full_metrics["turnover"],
             exposure_time=full_metrics["exposure_time"],
-            credible=bool(full_metrics["credible"]),
+            sufficient_sample=bool(full_metrics["sufficient_sample"]),
             reason=full_metrics["reason"],
         )
 
@@ -596,7 +596,7 @@ def report(
         click.echo(header)
         click.echo(f"  {'-' * 66}")
         for m in metrics:
-            cred = "✓" if m["credible"] else "✗"
+            suff = "✓" if m["sufficient_sample"] else "✗"
             ret = f"{m['total_return']:.4f}" if m["total_return"] is not None else "N/A"
             shr = f"{m['sharpe']:.3f}" if m["sharpe"] is not None else "N/A"
             dd = f"{m['max_drawdown']:.4f}" if m["max_drawdown"] is not None else "N/A"
@@ -604,14 +604,14 @@ def report(
             pf = f"{m['profit_factor']:.3f}" if m["profit_factor"] is not None else "N/A"
             click.echo(
                 f"  {m['scope'].upper():12s} {ret:>10s} {shr:>10s} "
-                f"{dd:>10s} {str(m['num_trades']):>8s} {wr:>8s} {pf:>8s}  {cred}"
+                f"{dd:>10s} {str(m['num_trades']):>8s} {wr:>8s} {pf:>8s}  {suff}"
             )
 
         if scorecard:
             trades = get_trades(conn, run_id)
             equity = get_equity_curve(conn, run_id)
             sc = build_scorecard(run_info, metrics, trades, equity)
-            click.echo(f"\nScorecard: credible={sc.get('credible')}")
+            click.echo(f"\nScorecard: sufficient_sample={sc.get('sufficient_sample')}")
             for scope_name, m in sc.get("metrics", {}).items():
                 click.echo(
                     f"  {scope_name}: Sharpe={m.get('sharpe', 'N/A')} "

@@ -143,7 +143,7 @@ def parse_fills(fills_raw: list[dict[str, Any]]) -> list[Fill]:
                 price=float(f.get("execPrice", 0.0)),
                 qty=float(f.get("execQty", 0.0)),
                 commission=float(f.get("execFee", 0.0)),
-                realized_pnl=float(f.get("execRealisedPnl", 0.0)),
+                realized_pnl=0.0,  # PnLCalculator derives realized PnL
                 timestamp=f.get("execTime", ""),
             )
         )

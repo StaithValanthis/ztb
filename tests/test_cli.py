@@ -213,7 +213,7 @@ def test_report_with_scorecard(tmp_path) -> None:
     result = runner.invoke(cli, ["report", "--run-id", run_id, "--db", db_path, "--scorecard"])
     assert result.exit_code == 0
     assert "Scorecard" in result.output
-    assert "credible=True" in result.output
+    assert "sufficient_sample=True" in result.output
 
 
 def test_backtest_persist(tmp_path) -> None:

@@ -229,10 +229,13 @@ class BybitClient:
         symbol: str = "",
         category: str = "linear",
         limit: int = 50,
+        order_id: str = "",
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"category": category, "limit": limit}
         if symbol:
             params["symbol"] = symbol
+        if order_id:
+            params["orderId"] = order_id
         result = self._request("GET", "/v5/execution/list", params=params)
         items: list[dict[str, Any]] = result.get("list", [])
         return items
