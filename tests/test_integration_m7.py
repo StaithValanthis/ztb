@@ -210,16 +210,16 @@ def test_cli_run_dry_run() -> None:
     assert "dry-run" in result.output
 
 
-def test_validate_command_stub() -> None:
-    """ztb validate exists (stub)."""
+def test_validate_command_group() -> None:
+    """ztb validate is now a single command requiring strategy and symbol args."""
     proc = subprocess.run(
-        [sys.executable, "-m", "ztb.cli", "validate"],
+        [sys.executable, "-m", "ztb.cli", "validate", "--help"],
         capture_output=True,
         text=True,
         timeout=15,
     )
     assert proc.returncode == 0
-    assert "not yet implemented" in proc.stdout
+    assert "OOS validation gate" in proc.stdout
 
 
 def test_strategy_sma_cross_no_regression(strat_and_data) -> None:

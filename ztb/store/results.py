@@ -85,6 +85,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE metrics SET sufficient_sample = credible WHERE credible IS NOT NULL")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (4)")
+    try:
+        conn.execute("SELECT val_type FROM validation_runs LIMIT 0")
+    except sqlite3.OperationalError:
+        schema_path = Path(__file__).parent / "schema.sql"
+        conn.executescript(schema_path.read_text())
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (5)")
     conn.commit()
 
 
