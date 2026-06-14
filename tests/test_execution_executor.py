@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -3101,6 +3101,167 @@ def test_executor_instrument_bounds_enforced(
     result = exe.step(sample_data)
     assert result.get("order_skipped") is True
     assert "Qty below minOrderQty" in result.get("skip_reason", "")
+# ZTB-1513: Warmup refill in polling loop
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_warmup_refill_triggers_when_short(
+    mock_sleep: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After _fetch_new_bars returns data < warmup+1, _ensure_warmup is called."""
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    loop_calls = 0
+
+    def sleep_and_stop(seconds: float) -> None:
+        nonlocal loop_calls
+        loop_calls += 1
+        if loop_calls >= 2:
+            exe._sigterm_stop = True
+
+    mock_sleep.side_effect = sleep_and_stop
+
+    short_data = sample_data.iloc[:30]
+    ensure_called = False
+
+    def tracking_ensure(
+        _data: pd.DataFrame,
+        warmup: int,
+        symbol: str,
+        timeframe: str,
+        category: str,
+        start: str | None,
+    ) -> pd.DataFrame:
+        nonlocal ensure_called
+        ensure_called = True
+        return sample_data
+
+    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
+        exe, "_ensure_warmup", side_effect=tracking_ensure
+    ):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert ensure_called, "_ensure_warmup should have been called when data < warmup + 1"
+
+
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_warmup_refill_skipped_when_sufficient(
+    mock_sleep: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When _fetch_new_bars returns data >= warmup+1, _ensure_warmup is NOT called."""
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    loop_calls = 0
+
+    def sleep_and_stop(seconds: float) -> None:
+        nonlocal loop_calls
+        loop_calls += 1
+        if loop_calls >= 2:
+            exe._sigterm_stop = True
+
+    mock_sleep.side_effect = sleep_and_stop
+
+    enough_data = sample_data.iloc[:150]
+
+    with patch.object(exe, "_fetch_new_bars", return_value=enough_data), patch.object(
+        exe, "_ensure_warmup", wraps=exe._ensure_warmup
+    ) as mock_ensure:
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    mock_ensure.assert_not_called()
+
+
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_warmup_refill_fails_when_no_data(
+    mock_sleep: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When _ensure_warmup cannot fetch enough data, the loop raises ExecutionError."""
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    def failing_ensure(
+        _data: pd.DataFrame,
+        warmup: int,
+        symbol: str,
+        timeframe: str,
+        category: str,
+        start: str | None,
+    ) -> pd.DataFrame:
+        raise ExecutionError("Cannot fetch enough historical data for test")
+
+    short_data = sample_data.iloc[:30]
+
+    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
+        exe, "_ensure_warmup", side_effect=failing_ensure
+    ), pytest.raises(ExecutionError, match="Cannot fetch enough historical data"):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_warmup_refill_restores_signal(
+    mock_sleep: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After warmup refill, step produces a non-zero signal (signal restored)."""
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    loop_calls = 0
+
+    def sleep_and_stop(seconds: float) -> None:
+        nonlocal loop_calls
+        loop_calls += 1
+        if loop_calls >= 2:
+            exe._sigterm_stop = True
+
+    mock_sleep.side_effect = sleep_and_stop
+
+    short_data = sample_data.iloc[:30]
+    original_step = exe.step
+
+    def tracking_ensure(
+        _data: pd.DataFrame,
+        warmup: int,
+        symbol: str,
+        timeframe: str,
+        category: str,
+        start: str | None,
+    ) -> pd.DataFrame:
+        return sample_data
+
+    step_called_with_signal = False
+
+    def tracking_step(data: pd.DataFrame) -> dict[str, Any]:
+        nonlocal step_called_with_signal
+        result = original_step(data)
+        if abs(result.get("signal", 0.0)) > 1e-6:
+            step_called_with_signal = True
+        return result
+
+    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
+        exe, "_ensure_warmup", side_effect=tracking_ensure
+    ), patch.object(exe, "step", side_effect=tracking_step):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert step_called_with_signal, "Step should produce non-zero signal after warmup refill"
 
 
 # ---------------------------------------------------------------------------
