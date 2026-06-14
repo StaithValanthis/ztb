@@ -37,7 +37,6 @@ def test_run_command_exists() -> None:
 def test_run_accepts_live_mode(tmp_path: Path) -> None:
     """--mode=live accepted when LiveGuard is armed."""
     hash_path = _setup_arm(tmp_path)
-    # Arm the LiveGuard
     LiveGuard.arm(hash_path=hash_path)
     try:
         n = 200
@@ -65,6 +64,7 @@ def test_run_accepts_live_mode(tmp_path: Path) -> None:
                     "--no-risk",
                     "--start=2026-01-01",
                     "--end=2026-01-03",
+                    "--db=:memory:",
                 ],
                 env=os.environ,
             )
