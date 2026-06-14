@@ -1850,9 +1850,7 @@ def test_demo_mode_equity_cap_when_wallet_exceeds_initial_cash(
     capped_equity = config.initial_cash
     expected_qty = round(0.5 * capped_equity / close_price, config.asset_precision)
     assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
-    assert exe._pnl.position < round(
-        0.5 * 200000.0 / close_price, config.asset_precision
-    )
+    assert exe._pnl.position < round(0.5 * 200000.0 / close_price, config.asset_precision)
 
 
 @patch("ztb.execution.executor.load_data")
