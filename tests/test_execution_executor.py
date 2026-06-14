@@ -2026,3 +2026,242 @@ def test_reconcile_adoption_still_adopts_position(
     assert result.status == "completed"
     assert exe._pnl.position == pytest.approx(-2.0)
     assert exe._pnl.avg_entry_price == pytest.approx(45000.0)
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1422: demo top-up + reduce_only
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_demo_run_calls_top_up(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """top_up_demo_account is called when mode=DEMO and not dry_run."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    mock_client.top_up_demo_account.assert_called_once_with("USDT", str(config.initial_cash))
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_dry_run_skips_top_up(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """top_up_demo_account is NOT called when dry_run=True."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    mock_client.top_up_demo_account.assert_not_called()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_live_mode_skips_top_up(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """top_up_demo_account is NOT called when mode=LIVE."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe.state.current_position = 0.0
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result is not None
+    mock_client.top_up_demo_account.assert_not_called()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_top_up_failure_non_fatal(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Top-up failure does not crash the run; run continues."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.top_up_demo_account.side_effect = Exception("top-up failed")
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    mock_client.top_up_demo_account.assert_called_once()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_for_sell_to_reduce_long(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When delta < 0 and current_position > 0, reduce_only=True."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class ReduceLongSignal:
+        name = "reduce_long"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.5
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(ReduceLongSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result["delta"] < 0
+    assert exe.state.current_position > 0
+
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is True
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_for_buy_to_reduce_short(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When delta > 0 and current_position < 0, reduce_only=True."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class ReduceShortSignal:
+        name = "reduce_short"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = -0.5
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(ReduceShortSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(-2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result["delta"] > 0
+    assert exe.state.current_position < 0
+
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is True
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_no_reduce_only_on_position_open(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When opening a new position from flat, reduce_only=False."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+    assert result["current_position"] == 0.0
+    assert abs(result["delta"]) > 1e-12
+
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is False

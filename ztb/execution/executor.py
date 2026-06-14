@@ -481,12 +481,17 @@ class Executor:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
+            reduce_only = (delta < 0 and current_position > 0) or (
+                delta > 0 and current_position < 0
+            )
+
             order_result = self.client.place_order(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 order_type=OrderType.MARKET,
                 order_link_id=order_link_id,
+                reduce_only=reduce_only,
             )
             if order_result.get("skipped"):
                 result["order_skipped"] = True
@@ -646,6 +651,12 @@ class Executor:
         if self._killswitch is not None:
             self._killswitch.heartbeat()
         self._setup_sigterm()
+
+        if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
+            try:
+                self.client.top_up_demo_account("USDT", str(self.config.initial_cash))
+            except Exception as exc:
+                self._save_error("DemoAccountTopUpError", str(exc))
 
         data = load_data(
             symbol=symbol,
