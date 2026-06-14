@@ -2286,6 +2286,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2329,6 +2330,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "50.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2374,12 +2376,13 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "0.00000004",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "0.001",
                         "walletBalance": "0.001",
-                        "availableBalance": "0.0001",
+                        "availableBalance": "0.00000004",
                         "unrealisedPnl": "0.0",
                     }
                 ]
@@ -2416,6 +2419,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "1.0",
                 "coin": [
                     {
                         "coin": "USDT",
