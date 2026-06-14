@@ -368,7 +368,7 @@ class Executor:
         current_position = self._pnl.position
 
         equity = self._pnl.equity(close_price)
-        available_balance = 0.0
+        total_available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -378,7 +378,9 @@ class Executor:
                 actual = compute_account_state([], wallet)
                 if actual.total_equity > 0:
                     equity = actual.total_equity
-                available_balance = actual.available_balance
+                if self.config.mode == Mode.DEMO:
+                    equity = min(equity, self.config.initial_cash)
+                total_available_balance = actual.total_available_balance
             except Exception:
                 pass
 
@@ -491,13 +493,14 @@ class Executor:
                 delta > 0 and current_position < 0
             )
 
-            if not reduce_only and available_balance > 0 and close_price > 0:
-                max_notional = available_balance * self.config.max_leverage
+            if not reduce_only and total_available_balance > 0 and close_price > 0:
+                max_notional = total_available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)
                 if qty > max_qty + 1e-12:
                     self.state.errors.append(
-                        f"Qty capped by available balance: {qty} -> {max_qty} "
-                        f"(available={available_balance:.2f}, max_notional={max_notional:.2f})"
+                        f"Qty capped by total available balance: {qty} -> {max_qty} "
+                        f"(total_available={total_available_balance:.2f}, "
+                        f"max_notional={max_notional:.2f})"
                     )
                     qty = max_qty
                     if qty < 1e-12:
