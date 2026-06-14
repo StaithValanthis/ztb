@@ -12,7 +12,7 @@ from ztb.strategies.registry import register
 class BearishResumption(Strategy):
     name = "bearish_resumption"
     symbols: list[str] = ["BTCUSDT"]
-    timeframe: str = "240"
+    timeframe: str = "60"
     params: dict[str, float | int | str] = {
         "adx_threshold": 25,
         "ema_fast": 20,
@@ -25,7 +25,7 @@ class BearishResumption(Strategy):
         "bb_z_threshold": -0.5,
         "trail_atr_mult": 2.5,
     }
-    warmup: int = 300
+    warmup: int = 1200
 
     def generate_signals(self, df: DataFrame) -> Series:
         idx = df.index
@@ -78,42 +78,47 @@ class BearishResumption(Strategy):
         d_ema_50 = daily_4h["_ema_50"]
         d_close = daily_4h["_close"]
 
-        ema_fast_val = ema(df["close"], int(self.params["ema_fast"]))
-        ema_slow_val = ema(df["close"], int(self.params["ema_slow"]))
-        ema_mid_val = ema(df["close"], int(self.params["ema_mid"]))
-        adx_4h = adx(df["high"], df["low"], df["close"], 14)
-        atr_4h = atr(df["high"], df["low"], df["close"], 14)
-        lowest_50 = df["close"].rolling(window=50, min_periods=50).min()
+        df_4h = (
+            df.resample("4h")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
 
-        df_1h = df.resample("1h").ffill()
-        adx_1h_f = adx(df_1h["high"], df_1h["low"], df_1h["close"], 14)
-        bb_u_1h_f, bb_m_1h_f, bb_l_1h_f = bb(df_1h["close"], 20, 2)
-        bb_w_1h_f = bb_width(df_1h["close"], 20, 2)
-        bb_w_1h_mean = bb_w_1h_f.rolling(50).mean()
-        bb_w_1h_std = bb_w_1h_f.rolling(50).std(ddof=0)
-        bb_z_1h_f = (bb_w_1h_f - bb_w_1h_mean) / bb_w_1h_std.replace(0, pd.NA)
+        adx_4h_val = adx(df_4h["high"], df_4h["low"], df_4h["close"], 14)
+        atr_4h_val = atr(df_4h["high"], df_4h["low"], df_4h["close"], 14)
 
-        df_1h_idx = DataFrame({"close_1h": df_1h["close"]}, index=df_1h.index)
-        df_1h_idx["adx_1h"] = adx_1h_f
-        df_1h_idx["bb_u_1h"] = bb_u_1h_f
-        df_1h_idx["bb_m_1h"] = bb_m_1h_f
-        df_1h_idx["bb_l_1h"] = bb_l_1h_f
-        df_1h_idx["bb_w_1h"] = bb_w_1h_f
-        df_1h_idx["bb_z_1h"] = bb_z_1h_f
+        df_4h_idx = DataFrame(index=df_4h.index)
+        df_4h_idx["_adx"] = adx_4h_val
+        df_4h_idx["_atr"] = atr_4h_val
 
-        aligned_1h = pd.merge_asof(
+        aligned_4h = pd.merge_asof(
             df[[]],
-            df_1h_idx,
+            df_4h_idx,
             left_index=True,
             right_index=True,
             direction="backward",
         )
-        close_1h_a = aligned_1h["close_1h"]
-        adx_1h_a = aligned_1h["adx_1h"]
-        bb_u_1h_a = aligned_1h["bb_u_1h"]
-        bb_l_1h_a = aligned_1h["bb_l_1h"]
-        bb_w_1h_a = aligned_1h["bb_w_1h"]
-        bb_z_1h_a = aligned_1h["bb_z_1h"]
+        adx_4h_a = aligned_4h["_adx"]
+        atr_4h_a = aligned_4h["_atr"]
+
+        ema_fast_val = ema(df["close"], int(self.params["ema_fast"]))
+        ema_slow_val = ema(df["close"], int(self.params["ema_slow"]))
+        ema_mid_val = ema(df["close"], int(self.params["ema_mid"]))
+        bb_u_1h, bb_m_1h, bb_l_1h = bb(df["close"], 20, 2)
+        bb_w_1h = bb_width(df["close"], 20, 2)
+        bb_w_1h_mean = bb_w_1h.rolling(50).mean()
+        bb_w_1h_std = bb_w_1h.rolling(50).std(ddof=0)
+        bb_z_1h = (bb_w_1h - bb_w_1h_mean) / bb_w_1h_std.replace(0, pd.NA)
+        adx_1h = adx(df["high"], df["low"], df["close"], 14)
+        lowest_50 = df["close"].rolling(window=50, min_periods=50).min()
 
         signals = pd.Series(0.0, index=df.index)
         active = False
@@ -125,12 +130,12 @@ class BearishResumption(Strategy):
                 continue
 
             if active:
-                stop_level = highest_close - float(self.params["trail_atr_mult"]) * atr_4h.iloc[i]
+                stop_level = highest_close - float(self.params["trail_atr_mult"]) * atr_4h_a.iloc[i]
                 cond_exit_a = close_sh.iloc[i] <= ema_fast_val.iloc[i]
                 cond_exit_b = d_adx.iloc[i] <= self.params["adx_threshold"]
                 cond_exit_c = d_close.iloc[i] > d_ema_50.iloc[i]
                 cond_exit_d = close_sh.iloc[i] <= stop_level
-                cond_exit_e = entry_type == "B" and close_1h_a.iloc[i] > bb_u_1h_a.iloc[i]
+                cond_exit_e = entry_type == "B" and df["close"].iloc[i] > bb_u_1h.iloc[i]
 
                 if cond_exit_a or cond_exit_b or cond_exit_c or cond_exit_d or cond_exit_e:
                     signals.iloc[i] = 0.0
@@ -149,8 +154,8 @@ class BearishResumption(Strategy):
                     mode_a = (
                         close_sh.iloc[i] > ema_fast_val.iloc[i]
                         and close_sh.iloc[i] >= min_retrace * lowest_50.iloc[i]
-                        and adx_1h_a.iloc[i] < self.params["exhaustion_adx"]
-                        and bb_z_1h_a.iloc[i] < self.params["bb_z_threshold"]
+                        and adx_1h.iloc[i] < self.params["exhaustion_adx"]
+                        and bb_z_1h.iloc[i] < self.params["bb_z_threshold"]
                         and close_sh.iloc[i] < ema_slow_val.iloc[i]
                     )
 
@@ -162,11 +167,11 @@ class BearishResumption(Strategy):
                         continue
 
                     mode_b = (
-                        adx_4h.iloc[i] > self.params["adx_threshold"]
+                        adx_4h_a.iloc[i] > self.params["adx_threshold"]
                         and close_sh.iloc[i] > ema_fast_val.iloc[i]
                         and close_sh.iloc[i] < ema_slow_val.iloc[i]
-                        and bb_w_1h_a.iloc[i] < self.params["bb_width_threshold"]
-                        and close_1h_a.iloc[i] < bb_l_1h_a.iloc[i]
+                        and bb_w_1h.iloc[i] < self.params["bb_width_threshold"]
+                        and df["close"].iloc[i] < bb_l_1h.iloc[i]
                         and close_sh.iloc[i] < ema_mid_val.iloc[i]
                     )
 
