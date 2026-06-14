@@ -1898,12 +1898,19 @@ def test_reconcile_adoption_does_not_overwrite_initial_cash(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, once=True,
-        risk_enabled=False, initial_cash=100.0,
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100.0,
     )
     exe = Executor(FakeStrategy(), config=config, client=mock_client)
     result = exe.run(
-        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
     )
     assert result.status == "completed"
     close_price = float(sample_data["close"].iloc[-1])
@@ -1947,12 +1954,19 @@ def test_reconcile_adoption_preserves_configured_cash(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, once=True,
-        risk_enabled=False, initial_cash=42.0,
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=42.0,
     )
     exe = Executor(FakeStrategy(), config=config, client=mock_client)
     result = exe.run(
-        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
     )
     assert result.status == "completed"
     assert exe._pnl.snapshot.initial_cash == pytest.approx(42.0)
@@ -1996,7 +2010,11 @@ def test_reconcile_adoption_still_adopts_position(
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
     exe = Executor(FakeStrategy(), config=config, client=mock_client)
     result = exe.run(
-        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
     )
     assert result.status == "completed"
     assert exe._pnl.position == pytest.approx(-2.0)
