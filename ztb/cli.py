@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 
 import click
 
@@ -331,9 +332,400 @@ def forwardtest(
         conn.close()
 
 
-@cli.command()
+@cli.group()
 def validate() -> None:
-    click.echo("validate: not yet implemented")
+    """Validation commands (walk-forward, DSR, scorecard, look-ahead)."""
+
+
+@validate.command()
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval (1, 5, 15, 60, D, W, M)")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--n-windows", default=4, type=int, help="Walk-forward windows")
+@click.option("--train-ratio", default=0.7, type=float, help="Train/test split ratio")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--commission", default=0.0005, type=float, help="Commission rate")
+@click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--persist", is_flag=True, help="Save result to the store")
+@click.option("--db", default=None, help="Path to result database")
+@click.option("--risk-enabled", is_flag=True, help="Enable risk management")
+def walkforward(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    n_windows: int,
+    train_ratio: float,
+    cash: float,
+    commission: float,
+    slippage: float,
+    persist: bool,
+    db: str | None,
+    risk_enabled: bool,
+) -> None:
+    """Run walk-forward analysis for a strategy on a symbol."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    from ztb.validation.walkforward import WalkforwardConfig, run_walkforward
+
+    cfg = WalkforwardConfig(
+        n_windows=n_windows,
+        train_ratio=train_ratio,
+        initial_cash=cash,
+        commission=commission,
+        slippage=slippage,
+        risk_enabled=risk_enabled,
+    )
+
+    result = run_walkforward(strategy, df, cfg)
+
+    click.echo(f"Walk-forward analysis for {strategy_name} on {symbol} ({timeframe}):")
+    click.echo(f"  Windows:       {result.n_windows}")
+    click.echo(f"  Total bars:    {result.total_bars}")
+    click.echo(f"  Avg OOS Sharpe: {result.avg_oos_sharpe}")
+    click.echo(f"  Avg OOS Return: {result.avg_oos_return}")
+    click.echo(f"  Avg OOS MaxDD: {result.avg_oos_maxdd}")
+    click.echo(f"  Avg OOS Trades: {result.avg_oos_trades:.0f}")
+    click.echo(f"  Sharpe CV:     {result.sharpe_consistency:.3f}")
+    click.echo(f"  All valid:     {result.all_windows_valid}")
+    click.echo()
+
+    for w in result.windows:
+        tr = w.test_result.oos
+        ts = w.train_result.oos
+        click.echo(
+            f"  Window {w.window_idx}: "
+            f"train [{w.train_start}:{w.train_end}] "
+            f"test [{w.test_start}:{w.test_end}]  "
+            f"| train SR={ts.sharpe:.3f}  "
+            f"test SR={tr.sharpe:.3f}  "
+            f"test DD={tr.max_drawdown:.4f}  "
+            f"trades={tr.num_trades}"
+        )
+
+    if persist:
+        with suppress(Exception):
+            conn = connect(db)
+            from ztb.validation.store import save_walkforward_run
+
+            val_run_id = save_walkforward_run(conn, result)
+            conn.close()
+            click.echo(f"\nSaved to store: val_run_id={val_run_id}")
+
+
+@validate.command()
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--commission", default=0.0005, type=float, help="Commission rate")
+@click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--n-windows", default=4, type=int, help="Walk-forward windows for scorecard")
+@click.option("--num-trials", default=1, type=int, help="Number of trials for DSR adjustment")
+@click.option("--persist", is_flag=True, help="Save scorecard to the store")
+@click.option("--db", default=None, help="Path to result database")
+def scorecard(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    cash: float,
+    commission: float,
+    slippage: float,
+    n_windows: int,
+    num_trials: int,
+    persist: bool,
+    db: str | None,
+) -> None:
+    """Compute a full validation scorecard for a strategy."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+
+    bt_cfg = BacktestConfig(
+        initial_cash=cash,
+        commission=commission,
+        slippage=slippage,
+    )
+    bt_result = run_backtest(strategy, df, bt_cfg)
+
+    oos_metrics = bt_result.oos
+    oos_equity_series = __import__("pandas").Series(
+        bt_result.portfolio.equity, index=bt_result.portfolio.timestamps
+    )
+
+    walkforward_result = None
+    if n_windows > 0:
+        from ztb.validation.walkforward import WalkforwardConfig, run_walkforward
+
+        wf_cfg = WalkforwardConfig(
+            n_windows=n_windows,
+            initial_cash=cash,
+            commission=commission,
+            slippage=slippage,
+        )
+        try:
+            walkforward_result = run_walkforward(strategy, df, wf_cfg)
+        except ValueError:
+            click.echo("Warning: walk-forward skipped (insufficient data)", err=True)
+
+    from ztb.validation.scoring import compute_scorecard
+
+    oos_returns = oos_equity_series.pct_change().dropna()
+
+    sc = compute_scorecard(
+        oos_metrics=oos_metrics,
+        returns_series=oos_returns,
+        walkforward_result=walkforward_result,
+        num_trials=num_trials,
+    )
+
+    click.echo(f"Validation Scorecard for {strategy_name} on {symbol} ({timeframe}):")
+    click.echo(f"  Overall Score:   {sc.overall_score:.4f}")
+    click.echo(f"  OOS Sharpe:      {sc.oos_sharpe_score:.4f}  (raw: {oos_metrics.sharpe})")
+    click.echo(f"  DSR:             {sc.dsr_score:.4f}")
+    click.echo(f"  Walk-Forward:    {sc.walkforward_score:.4f}")
+    click.echo(f"  Consistency:     {sc.consistency_score:.4f}")
+    click.echo(f"  Drawdown:        {sc.drawdown_score:.4f}")
+
+    if persist:
+        conn = connect(db)
+        from ztb.validation.store import save_walkforward_run
+
+        if walkforward_result:
+            save_walkforward_run(conn, walkforward_result, sc)
+            click.echo("Saved to store.")
+        conn.close()
+
+
+@validate.command()
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+def lookahead(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+) -> None:
+    """Check a strategy for look-ahead bias."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+
+    bt_cfg = BacktestConfig(
+        min_trades=0,
+    )
+    try:
+        bt_result = run_backtest(strategy, df, bt_cfg)
+    except Exception:
+        bt_result = None
+
+    from ztb.validation.lookahead import check_lookahead
+
+    signals = strategy.generate_signals(df)
+    report = check_lookahead(
+        signals=signals,
+        data=df,
+        warmup=strategy.warmup,
+        trades=bt_result.trades if bt_result else None,
+        timestamps=bt_result.portfolio.timestamps if bt_result else None,
+    )
+
+    click.echo(f"Look-ahead check for {strategy_name}:")
+    click.echo(f"  PASSED:          {report.passed}")
+    click.echo(f"  Score:           {report.score:.2f}")
+    click.echo(f"  Forward shifted: {report.forward_shift_applied}")
+    click.echo(f"  Warmup enforced: {report.warmup_enforced}")
+    click.echo(f"  Signal-safe:     {report.signal_before_close}")
+    if report.details:
+        click.echo("  Issues:")
+        for d in report.details:
+            click.echo(f"    - {d}")
+
+
+@validate.command()
+@click.option("--run-id", default=None, help="Specific validation run ID")
+@click.option("--db", default=None, help="Path to result database")
+@click.option("--limit", default=10, type=int, help="Number of recent runs to show")
+@click.option("--windows", is_flag=True, help="Show window details")
+def report(
+    run_id: str | None,
+    db: str | None,
+    limit: int,
+    windows: bool,
+) -> None:
+    """Show validation results from the store."""
+    from ztb.validation.store import (
+        get_validation_run,
+        get_validation_windows,
+        list_validation_runs,
+    )
+    from ztb.store.results import connect
+
+    conn = connect(db)
+
+    if run_id:
+        run_info = get_validation_run(conn, run_id)
+        if run_info is None:
+            click.echo(f"Validation run not found: {run_id}", err=True)
+            sys.exit(1)
+
+        click.echo(f"Validation Run: {run_info['strategy_name']} / {run_info['symbol']} [{run_info['timeframe']}]")
+        click.echo(f"  Val Run ID:  {run_info['val_run_id']}")
+        click.echo(f"  Type:        {run_info['val_type']}")
+        click.echo(f"  Windows:     {run_info['n_windows']}")
+        click.echo(f"  Avg OOS SR:  {run_info['avg_oos_sharpe']}")
+        click.echo(f"  Avg OOS Ret: {run_info['avg_oos_return']}")
+        click.echo(f"  Avg OOS DD:  {run_info['avg_oos_maxdd']}")
+        click.echo(f"  Overall:     {run_info['overall_score']}")
+        click.echo(f"  DSR:         {run_info['dsr_score']}")
+        click.echo(f"  Consistency: {run_info['sharpe_consistency']}")
+        click.echo(f"  Created:     {run_info['created_at']}")
+
+        if windows:
+            wrows = get_validation_windows(conn, run_id)
+            for w in wrows:
+                click.echo(
+                    f"  Window {w['window_idx']}: "
+                    f"train [{w['train_start']}:{w['train_end']}] "
+                    f"test [{w['test_start']}:{w['test_end']}]  "
+                    f"train SR={w['train_sharpe']}  "
+                    f"test SR={w['test_sharpe']}"
+                )
+    else:
+        runs = list_validation_runs(conn, limit)
+        if not runs:
+            click.echo("No validation runs found.")
+            sys.exit(1)
+        click.echo(f"Recent validation runs (last {limit}):")
+        for r in runs:
+            click.echo(
+                f"  {r['val_run_id'][:12]}  {r['strategy_name']:12s} {r['symbol']:10s} "
+                f"{r['timeframe']:6s} SR={r['avg_oos_sharpe']}  "
+                f"Score={r['overall_score']}  {r['created_at']}"
+            )
+
+    conn.close()
+
+
+@validate.command()
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--num-trials", default=1, type=int, help="Number of trials for DSR")
+def dsr(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    cash: float,
+    num_trials: int,
+) -> None:
+    """Compute the Deflated Sharpe Ratio for a strategy."""
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    from ztb.engine.backtest import BacktestConfig, run_backtest
+
+    bt_cfg = BacktestConfig(initial_cash=cash)
+    bt_result = run_backtest(strategy, df, bt_cfg)
+
+    equity_series = __import__("pandas").Series(
+        bt_result.portfolio.equity, index=bt_result.portfolio.timestamps
+    )
+    oos_sharpe = bt_result.oos.sharpe
+
+    from ztb.validation.dsr import compute_dsr
+
+    oos_returns = equity_series.pct_change().dropna()
+    dsr_val = compute_dsr(
+        sharpe=oos_sharpe,
+        returns=oos_returns,
+        num_trials=num_trials,
+    )
+
+    click.echo(f"Deflated Sharpe Ratio for {strategy_name} on {symbol}:")
+    click.echo(f"  OOS Sharpe:       {oos_sharpe}")
+    click.echo(f"  Num trials:       {num_trials}")
+    click.echo(f"  DSR:              {dsr_val:.6f}")
+    click.echo(f"  DSR (pct):        {dsr_val * 100:.2f}%")
 
 
 @cli.command()

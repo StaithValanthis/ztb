@@ -210,8 +210,8 @@ def test_cli_run_dry_run() -> None:
     assert "dry-run" in result.output
 
 
-def test_validate_command_stub() -> None:
-    """ztb validate exists (stub)."""
+def test_validate_command_group() -> None:
+    """ztb validate is now a command group with subcommands."""
     proc = subprocess.run(
         [sys.executable, "-m", "ztb.cli", "validate"],
         capture_output=True,
@@ -219,7 +219,10 @@ def test_validate_command_stub() -> None:
         timeout=15,
     )
     assert proc.returncode == 0
-    assert "not yet implemented" in proc.stdout
+    assert "Validation commands" in proc.stdout
+    assert "walkforward" in proc.stdout
+    assert "scorecard" in proc.stdout
+    assert "lookahead" in proc.stdout
 
 
 def test_strategy_sma_cross_no_regression(strat_and_data) -> None:
