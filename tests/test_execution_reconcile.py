@@ -102,6 +102,20 @@ def test_reconcile_no_positions() -> None:
     assert report.matched is True
 
 
+def test_reconcile_reports_actual_available_balance() -> None:
+    expected = AccountState(total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0)
+    actual = AccountState(
+        total_equity=100000.0,
+        wallet_balance=95000.0,
+        available_balance=80000.0,
+        unrealized_pnl=5000.0,
+    )
+    report = reconcile_account(expected, actual, "BTCUSDT")
+    assert report.actual_wallet_balance == 95000.0
+    assert report.actual_available_balance == 80000.0
+    assert report.actual_equity == 100000.0
+
+
 def test_compute_account_state_empty() -> None:
     state = compute_account_state([], {})
     assert state.total_equity == 0.0
@@ -140,6 +154,34 @@ def test_compute_account_state_with_positions() -> None:
     assert state.positions["BTCUSDT"].avg_price == 50000.0
     assert state.total_equity == 100000.0
     assert state.wallet_balance == 99900.0
+
+
+def test_compute_account_state_extracts_available_balance() -> None:
+    wallet_raw = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "95000.0",
+                        "availableBalance": "80000.0",
+                        "unrealisedPnl": "5000.0",
+                    }
+                ]
+            }
+        ]
+    }
+    state = compute_account_state([], wallet_raw)
+    assert state.available_balance == 80000.0
+    assert state.wallet_balance == 95000.0
+    assert state.total_equity == 100000.0
+    assert state.unrealized_pnl == 5000.0
+
+
+def test_compute_account_state_available_balance_defaults_zero() -> None:
+    state = compute_account_state([], {})
+    assert state.available_balance == 0.0
 
 
 def test_compute_account_state_zero_position_skipped() -> None:

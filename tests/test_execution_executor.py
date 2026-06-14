@@ -2265,3 +2265,228 @@ def test_no_reduce_only_on_position_open(
 
     call_kwargs = mock_client.place_order.call_args.kwargs
     assert call_kwargs.get("reduce_only") is False
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1465: Wallet balance fix — cap qty to available_balance
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_caps_qty_when_insufficient_balance(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When available_balance is low, qty is capped to prevent 'ab not enough'."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_capped"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "1000.0",
+                        "walletBalance": "1000.0",
+                        "availableBalance": "500.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=2.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+
+    # Signal=0.5, equity=1000, price=50000 -> target=0.01 before cap
+    # After cap: max_qty = 500 * 2.0 / 50000 = 0.02, so still 0.01 (balance sufficient)
+    assert result.get("order_skipped") is not True
+    assert result["order_placed"] is True
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_reduces_qty_when_balance_very_low(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When available_balance is very low, qty is capped below the signal target."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_capped"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100.0",
+                        "walletBalance": "100.0",
+                        "availableBalance": "50.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+
+    assert result["order_placed"] is True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    capped_qty = call_kwargs["qty"]
+    # max_qty = 50 * 1.0 / 50000 = 0.001
+    assert capped_qty == 0.001
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_skips_when_capped_qty_zero(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When capped qty rounds to zero, order is skipped."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "0.001",
+                        "walletBalance": "0.001",
+                        "availableBalance": "0.0001",
+                        "unrealisedPnl": "0.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert "below minimum" in result.get("skip_reason", "").lower()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_does_not_apply_to_reduce_only(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Reduce-only orders are not capped — exchange does not check balance."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_reduce"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100.0",
+                        "walletBalance": "100.0",
+                        "availableBalance": "1.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+
+    class ReduceSignal:
+        name = "reduce_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = -0.5
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(ReduceSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+
+    assert result["order_placed"] is True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is True
+    # Qty should be the full delta (not capped) even though available_balance is tiny
+    assert call_kwargs["qty"] > 0.001
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_does_not_apply_when_no_wallet_data(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When wallet fetch returns empty/zero balance, no cap is applied."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_nocap"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True

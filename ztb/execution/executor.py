@@ -364,6 +364,7 @@ class Executor:
         current_position = self._pnl.position
 
         equity = self._pnl.equity(close_price)
+        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -373,6 +374,7 @@ class Executor:
                 actual = compute_account_state([], wallet)
                 if actual.total_equity > 0:
                     equity = actual.total_equity
+                available_balance = actual.available_balance
             except Exception:
                 pass
 
@@ -484,6 +486,37 @@ class Executor:
             reduce_only = (delta < 0 and current_position > 0) or (
                 delta > 0 and current_position < 0
             )
+
+            if not reduce_only and available_balance > 0 and close_price > 0:
+                max_notional = available_balance * self.config.max_leverage
+                max_qty = round(max_notional / close_price, asset_precision)
+                if qty > max_qty + 1e-12:
+                    self.state.errors.append(
+                        f"Qty capped by available balance: {qty} -> {max_qty} "
+                        f"(available={available_balance:.2f}, max_notional={max_notional:.2f})"
+                    )
+                    qty = max_qty
+                    if qty < 1e-12:
+                        result["order_skipped"] = True
+                        result["skip_reason"] = (
+                            f"Qty capped to {max_qty} by balance limit, below minimum"
+                        )
+                        self.state.errors.append(result["skip_reason"])
+                        self.state.bars_processed += 1
+                        self.state.last_bar_ts = bar_ts
+                        self._sync_pnl_state()
+                        unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                        equity = self._pnl.equity(close_price)
+                        self._save_position_snapshot()
+                        self._save_pnl(
+                            self._pnl.realized_pnl,
+                            unrealized_pnl,
+                            self._pnl.equity(close_price),
+                            bar_ts,
+                        )
+                        self._last_executed_signal = target_signal
+                        self._signal_initialized = True
+                        return result
 
             order_result = self.client.place_order(
                 symbol=symbol,

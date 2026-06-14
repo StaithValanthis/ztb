@@ -74,6 +74,7 @@ class AccountState:
     total_equity: float
     wallet_balance: float
     unrealized_pnl: float
+    available_balance: float = 0.0
     positions: dict[str, Position] = field(default_factory=dict)
     timestamp: str = ""
 
