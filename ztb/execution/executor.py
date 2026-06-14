@@ -688,10 +688,6 @@ class Executor:
                         position=report.actual_position,
                         avg_entry_price=actual_avg,
                     )
-                if report.actual_equity > 0:
-                    self._pnl.set_initial_cash(
-                        report.actual_equity - self._pnl.unrealized_pnl(close_price)
-                    )
                 self._sync_pnl_state()
             except Exception:
                 pass

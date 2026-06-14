@@ -1743,10 +1743,11 @@ def test_warmup_reconcile_adopts_wallet_balance(
         db_path=":memory:",
     )
     assert result.status == "completed"
-    assert exe._pnl.position == pytest.approx(1.5)
     close_price = float(sample_data["close"].iloc[-1])
-    expected_equity = exe._pnl.equity(close_price)
-    assert expected_equity == pytest.approx(175000.0, abs=100.0)
+    assert exe._pnl.position == pytest.approx(1.5)
+    assert exe._pnl.avg_entry_price == pytest.approx(30000.0)
+    expected_equity = 100000.0 + (close_price - 30000.0) * 1.5
+    assert exe._pnl.equity(close_price) == pytest.approx(expected_equity, abs=1.0)
 
 
 @patch("ztb.execution.executor.load_data")
@@ -1854,3 +1855,110 @@ def test_polling_loop_skips_client_error(
 
     assert call_count >= 2
     assert not any("Max polling errors" in e for e in exe.state.errors)
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1378: Reconcile adoption shall NOT overwrite configured initial_cash
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_adoption_does_not_overwrite_initial_cash(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = [
+        {
+            "symbol": "BTCUSDT",
+            "size": "1.5",
+            "avgPrice": "30000.0",
+            "unrealisedPnl": "30000.0",
+            "cumRealisedPnl": "500.0",
+            "updatedTime": "2026-06-13T00:00:00Z",
+        }
+    ]
+    mock_client.get_wallet_balance.return_value = {
+        "list": [{"coin": [{"coin": "USDT", "equity": "175000.0", "walletBalance": "145000.0", "unrealisedPnl": "30000.0"}]}]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False, initial_cash=100.0)
+    exe = Executor(fake_strategy := FakeStrategy(), config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    assert exe._pnl.equity(close_price) == pytest.approx(100.0 + (close_price - 30000.0) * 1.5, abs=1.0)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_adoption_preserves_configured_cash(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = [
+        {
+            "symbol": "BTCUSDT",
+            "size": "0.5",
+            "avgPrice": "40000.0",
+            "unrealisedPnl": "5000.0",
+            "cumRealisedPnl": "200.0",
+            "updatedTime": "2026-06-13T00:00:00Z",
+        }
+    ]
+    mock_client.get_wallet_balance.return_value = {
+        "list": [{"coin": [{"coin": "USDT", "equity": "95000.0", "walletBalance": "90000.0", "unrealisedPnl": "5000.0"}]}]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False, initial_cash=42.0)
+    exe = Executor(FakeStrategy(), config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    assert exe._pnl.snapshot.initial_cash == pytest.approx(42.0)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_adoption_still_adopts_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = [
+        {
+            "symbol": "BTCUSDT",
+            "size": "-2.0",
+            "avgPrice": "45000.0",
+            "unrealisedPnl": "10000.0",
+            "cumRealisedPnl": "300.0",
+            "updatedTime": "2026-06-13T00:00:00Z",
+        }
+    ]
+    mock_client.get_wallet_balance.return_value = {
+        "list": [{"coin": [{"coin": "USDT", "equity": "80000.0", "walletBalance": "70000.0", "unrealisedPnl": "10000.0"}]}]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    exe = Executor(FakeStrategy(), config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT", timeframe="60", start="2026-01-01", end="2026-01-10", db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.position == pytest.approx(-2.0)
+    assert exe._pnl.avg_entry_price == pytest.approx(45000.0)
