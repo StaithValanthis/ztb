@@ -29,7 +29,7 @@ class MetricsResult:
     win_rate: float | None
     turnover: float
     exposure_time: float
-    credible: bool
+    sufficient_sample: bool
     reason: str = ""
 
 
@@ -65,7 +65,7 @@ def compute_metrics(
             win_rate=None,
             turnover=0.0,
             exposure_time=0.0,
-            credible=False,
+            sufficient_sample=False,
             reason=reason,
         )
 
@@ -82,7 +82,7 @@ def compute_metrics(
             win_rate=None,
             turnover=0.0,
             exposure_time=0.0,
-            credible=False,
+            sufficient_sample=False,
             reason="zero returns after equity pct_change",
         )
 
@@ -154,5 +154,5 @@ def compute_metrics(
         win_rate=win_rate,
         turnover=turnover,
         exposure_time=exposure,
-        credible=True,
+        sufficient_sample=True,
     )

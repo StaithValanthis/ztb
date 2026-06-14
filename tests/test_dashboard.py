@@ -28,7 +28,7 @@ def empty_db(tmp_path: Path) -> str:
             splits TEXT NOT NULL DEFAULT '{}',
             code_version TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            credible INTEGER NOT NULL DEFAULT 0
+            sufficient_sample INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS metrics (
             metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +40,7 @@ def empty_db(tmp_path: Path) -> str:
             profit_factor REAL, win_rate REAL,
             turnover REAL NOT NULL DEFAULT 0.0,
             exposure_time REAL NOT NULL DEFAULT 0.0,
-            credible INTEGER NOT NULL DEFAULT 0,
+            sufficient_sample INTEGER NOT NULL DEFAULT 0,
             reason TEXT NOT NULL DEFAULT '',
             UNIQUE(run_id, scope)
         );
@@ -91,7 +91,7 @@ def test_component_drawdown_invariant() -> None:
         win_rate=0.5,
         turnover=50.0,
         exposure_time=100.0,
-        credible=True,
+        sufficient_sample=True,
     )
     assert m.max_drawdown is None or m.max_drawdown <= 0.0
 
@@ -152,7 +152,7 @@ def test_dashboard_forward_runs_appear_in_list(tmp_path: Path) -> None:
             win_rate=0.50,
             turnover=20.0,
             exposure_time=50.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         portfolio=PortfolioState(
             cash=95000.0,

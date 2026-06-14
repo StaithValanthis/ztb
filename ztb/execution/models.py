@@ -88,7 +88,7 @@ class ExecRunConfig:
     poll_interval_seconds: float | None = None
     initial_cash: float = 100_000.0
     commission: float = 0.0005
-    slippage: float = 0.0005
+    slippage: float = 0.0
     asset_precision: int = 8
     warmup_bars: int = 100
     lookback_bars: int | None = None

@@ -84,7 +84,7 @@ def test_forwardtest_flat_strategy() -> None:
     strat = FlatStrat()
     result = run_forwardtest(strat, df, ForwardtestConfig(warmup_bars=50))
     assert result.metrics.num_trades == 0
-    assert result.metrics.credible is False
+    assert result.metrics.sufficient_sample is False
 
 
 def test_forwardtest_long_strategy_has_trades() -> None:
@@ -245,12 +245,12 @@ def test_forwardtest_warmup_half_data_when_too_large() -> None:
     assert result.warmup_bars == 10
 
 
-def test_forwardtest_metrics_not_credible_with_few_trades() -> None:
+def test_forwardtest_metrics_not_sufficient_sample_with_few_trades() -> None:
     df = _sample_df(50)
     strat = FlatStrat()
     config = ForwardtestConfig(warmup_bars=10, min_trades=5)
     result = run_forwardtest(strat, df, config)
-    assert result.metrics.credible is False
+    assert result.metrics.sufficient_sample is False
 
 
 def test_forwardtest_equity_positive() -> None:
