@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ztb.execution.errors import ExecutionError
+from ztb.execution.errors import ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
 from ztb.execution.models import AccountState, Mode
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
@@ -1073,6 +1073,26 @@ def test_polling_loop_error_retry_then_stop(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_zero_interval_uses_timeframe_fallback(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.0
+    )
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    mock_sleep.side_effect = [None, Exception("stop")]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+    assert mock_sleep.call_count >= 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_sigterm_stops_via_flag(
     mock_sleep: MagicMock,
     mock_load: MagicMock,
@@ -1090,6 +1110,119 @@ def test_polling_loop_sigterm_stops_via_flag(
     exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     assert exe._sigterm_stop is True
+
+
+def test_polling_error_class_exists() -> None:
+    assert issubclass(PollingError, ExecutionError)
+    err = PollingError("test")
+    assert str(err) == "test"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_raises_polling_error(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    call_count = 0
+
+    def failing_step(data: pd.DataFrame) -> dict:
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("poll error")
+
+    exe.step = failing_step  # type: ignore[assignment]
+
+    with pytest.raises(PollingError, match="poll error"):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert call_count == 3
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_run_catches_polling_error(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+
+    call_count = 0
+
+    def failing_step(data: pd.DataFrame) -> dict:
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("boom")
+
+    exe.step = failing_step  # type: ignore[assignment]
+
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert any("boom" in e for e in result.errors)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_sigterm_no_polling_error(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    exe._sigterm_stop = True
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert exe.state is not None
+    assert not any("Max polling errors" in e for e in exe.state.errors)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_killswitch_no_polling_error(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_load.return_value = sample_data
+    ks = LiveKillSwitch()
+    ks.manual_trip("test")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert any("Killswitch" in e for e in exe.state.errors)
+    assert not any("Max polling errors" in e for e in exe.state.errors)
 
 
 @patch("ztb.execution.executor.signal.signal")

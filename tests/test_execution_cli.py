@@ -15,6 +15,29 @@ def test_run_command_exists() -> None:
     assert "Execute a strategy" in result.output or "Usage" in result.output
 
 
+def test_run_rejects_live_mode_when_disarmed() -> None:
+    """--mode=live rejected when LiveGuard is disarmed (default state)."""
+    from ztb.execution.live_guard import LiveGuard
+
+    LiveGuard.disarm()
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--mode=live",
+            "--dry-run",
+            "--once",
+            "--start=2026-01-01",
+            "--end=2026-01-02",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "LiveGuard" in result.output or "live" in result.output.lower()
+
+
 def test_run_accepts_live_mode() -> None:
     """--mode=live accepted when LiveGuard is armed."""
     from ztb.execution.live_guard import LiveGuard

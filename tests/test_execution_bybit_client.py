@@ -667,6 +667,45 @@ def test_validate_qty_exceeds_max_caps(mock_client_cls: MagicMock) -> None:
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
+def test_validate_qty_empty_instrument_info_fail_soft(mock_client_cls: MagicMock) -> None:
+    """_validate_qty should not crash when instrument info has no lotSizeFilter."""
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {"list": [{"symbol": "BTCUSDT"}]},
+    }
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client._validate_qty("BTCUSDT", 1.0)
+    assert result["skipped"] is False
+    assert result["qty"] == 1.0
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_validate_qty_empty_instrument_list_fail_soft(mock_client_cls: MagicMock) -> None:
+    """_validate_qty should not crash when instrument list is empty."""
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": []}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client._validate_qty("BTCUSDT", 1.0)
+    assert result["skipped"] is False
+    assert result["qty"] == 1.0
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
 def test_http_status_error_503_retry_then_raise(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
