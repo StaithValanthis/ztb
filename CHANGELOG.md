@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.4 (2026-06-14)
+
+- **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
+- **Tests:** 3 new executor tests (reconcile adoption does not overwrite initial_cash, preserves configured cash, still adopts position) + 1 updated — 78/78 executor tests pass; 836/836 full suite pass
+- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
+- V&R PASS on SHA `f22440c` ([ZTB-1382](/ZTB/issues/ZTB-1382), [ZTB-1386](/ZTB/issues/ZTB-1386), [ZTB-1383](/ZTB/issues/ZTB-1383))
+- **PR:** [#58](https://github.com/StaithValanthis/ztb/pull/58) — `fix/reconcile-cash`
+- **Merge commit:** `3e193b6` — two-key merge (CI green + V&R PASS on SHA `f22440c`)
+- **Tag:** v1.1.4
+
 ## v1.1.3 (2026-06-13)
 
 - **Fix(exec):** Use actual Bybit wallet balance for equity calculation — each run now fetches real `wallet_balance`/`total_equity` instead of fresh PnLCalculator($100), eliminating "ab not enough for new order" rejections on demo account with prior PnL
