@@ -481,9 +481,8 @@ class Executor:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
-            reduce_only = (
-                (delta < 0 and current_position > 0)
-                or (delta > 0 and current_position < 0)
+            reduce_only = (delta < 0 and current_position > 0) or (
+                delta > 0 and current_position < 0
             )
 
             order_result = self.client.place_order(
