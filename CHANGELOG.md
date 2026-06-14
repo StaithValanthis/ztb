@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.1.4 (2026-06-14)
+
+- **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
+- **Tests:** 3 new executor tests (reconcile adoption does not overwrite initial_cash, preserves configured cash, still adopts position) + 1 updated — 78/78 executor tests pass; 836/836 full suite pass
+- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
+- V&R PASS on SHA `f22440c` ([ZTB-1382](/ZTB/issues/ZTB-1382), [ZTB-1386](/ZTB/issues/ZTB-1386), [ZTB-1383](/ZTB/issues/ZTB-1383))
+- **PR:** [#58](https://github.com/StaithValanthis/ztb/pull/58) — `fix/reconcile-cash`
+- **Merge commit:** `3e193b6` — two-key merge (CI green + V&R PASS on SHA `f22440c`)
+- **Tag:** v1.1.4
+
+## v1.1.3 (2026-06-13)
+
+- **Fix(exec):** Use actual Bybit wallet balance for equity calculation — each run now fetches real `wallet_balance`/`total_equity` instead of fresh PnLCalculator($100), eliminating "ab not enough for new order" rejections on demo account with prior PnL
+- **Fix(exec):** Graceful `ClientError` handling in `step()` — returns skipped result instead of crashing, enabling `--mode demo --loop` to survive transient API errors (40 such errors in 6h outage resolved)
+- **Fix(exec):** Warmup reconciliation adopts actual wallet balance — `initial_cash` calibrated to `actual_equity - unrealized_pnl` so subsequent `equity()` calls reflect real account state
+- **Fix(exec):** `--loop` mode continuity — state tracked correctly on skipped/killswitch early returns; signal init moved before order placement
+- **Fix(engine):** `PnLCalculator.set_initial_cash()` — new method to update starting equity in place for warmup sync
+- **Fix(reconcile):** `ReconcileReport.actual_wallet_balance` / `actual_equity` — carry Bybit account state through reconciliation for warmup adoption
+- **Tests:** 11 new executor tests (wallet balance adoption, ClientError→skipped, polling loop resilience, results.db path) — 75/75 executor tests pass; 833/833 full suite pass
+- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
+- V&R PASS on SHA `5a57c8d` ([ZTB-1286](/ZTB/issues/ZTB-1286), [ZTB-1348](/ZTB/issues/ZTB-1348))
+- **PR:** [#56](https://github.com/StaithValanthis/ztb/pull/56) — `feat/fix-executor-wallet`
+- **Merge commit:** `2ef3d92` — two-key merge (CI green + V&R PASS on SHA `5a57c8d`)
+- **Tag:** v1.1.3
+
+## v1.1.2 (2026-06-13)
+
+- **Fix(exec):** Trade only on signal change — executor skips fill when position/signal/edge unchanged, reducing unnecessary churn
+- **Fix(exec):** Startup reconciliation — `ReconcileEngine.load_state` restores active position + accrued costs on warm start, enabling continuity across `ztb run` restarts
+- **Feat(pnl):** `PnLCalculator.adopt_state` — restore PnL state from persisted data (position, avg price, realized PnL, open costs) for startup reconciliation
+- **Tests:** 112 executor+PnL tests pass (trade-on-signal-change: skipped fill paths, flip from flat, flip from opposing; startup reconciliation: warm start restores position, cold start begins flat, open-cost carry-over, cross-session equity identity)
+- Coverage: 92% total (822 tests)
+- V&R PASS on SHA `359ae17` ([ZTB-1285](/ZTB/issues/ZTB-1285))
+- **PR:** [#52](https://github.com/StaithValanthis/ztb/pull/52) — `feat/ztb-1285-demo-over-trade-fix`
+- **Merge commit:** `01a5d06` — two-key merge (CI green + V&R PASS on SHA `359ae17`)
+- **Tag:** v1.1.2
+
 ## v1.1.0 (2026-06-13)
 
 - **Feat(demo-exec):** Continuous polling loop with SIGTERM handling, 3-retry, killswitch integration — `ztb run --loop` / `--poll-interval` / `--lookback-bars`
@@ -63,6 +100,17 @@
 - **PR:** [#32](https://github.com/StaithValanthis/ztb/pull/32) — `feat/vr-pass-fix`
 - **Merge commit:** `1f59beb` — two-key merge (CI green + V&R PASS on SHA `8379f29836ab`)
 - **Tag:** v1.0.6
+
+## v1.0.6 (2026-06-13)
+
+- **Feat(security):** HMAC-SHA256 board token verification via `arm_auth.py` — `load_arm_hash`, `compute_arm_hash`, `verify_board_token`
+- **Feat(security):** `LiveGuard.BOARD_TOKEN_VAR` (`ZTB_BOARD_TOKEN`) — token verification on `arm()`, refuses arm on hash mismatch
+- **Feat(security):** `LiveArmFailedError` for token verification failures
+- **Feat(security):** Tamper-evident `audit_log` table (schema v8) with SHA-256 hash chain — `ensure_audit_table`, `log_audit_event`, `get_audit_log`, `verify_audit_chain`
+- **Feat(security):** `BybitClient` live mode writes audit log row on successful API calls
+- **Tests:** 18 new arm_auth/LiveGuard token tests; 6 new audit log chain tests; 724 total passed, 91% coverage
+- Version bumped to 1.0.6
+- **Branch:** `feat/ztb-852-arm-security`
 
 ## v1.0.5 (2026-06-13)
 

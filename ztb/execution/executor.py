@@ -14,6 +14,7 @@ from ztb.data.timeframes import interval_to_ms
 from ztb.engine.pnl import PnLCalculator
 from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
+    ClientError,
     ExecutionError,
 )
 from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
@@ -55,6 +56,8 @@ class Executor:
         self._killswitch = killswitch
         self._original_sigterm: Any = None
         self._sigterm_stop: bool = False
+        self._last_executed_signal: float = 0.0
+        self._signal_initialized: bool = False
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -308,6 +311,26 @@ class Executor:
 
         try:
             return self._step_impl(data)
+        except ClientError as exc:
+            error_msg = f"step ClientError: {exc}"
+            assert self.state is not None
+            self.state.errors.append(error_msg)
+            from ztb.store.exec_io import save_exec_error
+
+            save_exec_error(
+                self._store_conn,
+                {
+                    "exec_run_id": self.state.exec_run_id,
+                    "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "error_type": type(exc).__name__,
+                    "message": error_msg,
+                },
+            )
+            return {
+                "bar_ts": str(data.index[-1] if len(data) > 0 else ""),
+                "client_error": True,
+                "error": error_msg,
+            }
         except Exception as exc:
             error_msg = f"step error: {exc}"
             assert self.state is not None
@@ -341,6 +364,17 @@ class Executor:
         current_position = self._pnl.position
 
         equity = self._pnl.equity(close_price)
+
+        if not self.config.dry_run and self.client is not None:
+            try:
+                wallet = self.client.get_wallet_balance(coin="USDT")
+                from ztb.execution.reconcile import compute_account_state
+
+                actual = compute_account_state([], wallet)
+                if actual.total_equity > 0:
+                    equity = actual.total_equity
+            except Exception:
+                pass
 
         if self._killswitch is not None:
             self._killswitch.check_account_dd(equity)
@@ -388,9 +422,19 @@ class Executor:
             self._save_pnl(
                 self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
             )
+            self._last_executed_signal = target_signal
+            self._signal_initialized = True
             return result
 
-        if abs(delta) > 1e-12:
+        signal_changed = (
+            not self._signal_initialized or abs(target_signal - self._last_executed_signal) > 1e-6
+        )
+
+        if signal_changed:
+            self._last_executed_signal = target_signal
+            self._signal_initialized = True
+
+        if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
                 self.state.strategy_name, symbol, bar_ts, intent_hash
@@ -430,10 +474,16 @@ class Executor:
                 if self._killswitch.is_tripped:
                     self._save_kill_events()
                     result["killswitch_tripped"] = True
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
                     return result
 
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
+
+            reduce_only = (delta < 0 and current_position > 0) or (
+                delta > 0 and current_position < 0
+            )
 
             order_result = self.client.place_order(
                 symbol=symbol,
@@ -441,11 +491,24 @@ class Executor:
                 qty=qty,
                 order_type=OrderType.MARKET,
                 order_link_id=order_link_id,
+                reduce_only=reduce_only,
             )
             if order_result.get("skipped"):
                 result["order_skipped"] = True
                 result["skip_reason"] = order_result.get("reason", "")
                 self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
+                self.state.bars_processed += 1
+                self.state.last_bar_ts = bar_ts
+                self._sync_pnl_state()
+                unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                equity = self._pnl.equity(close_price)
+                self._save_position_snapshot()
+                self._save_pnl(
+                    self._pnl.realized_pnl,
+                    unrealized_pnl,
+                    self._pnl.equity(close_price),
+                    bar_ts,
+                )
                 return result
 
             order_id = order_result.get("orderId", "")
@@ -589,6 +652,12 @@ class Executor:
             self._killswitch.heartbeat()
         self._setup_sigterm()
 
+        if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
+            try:
+                self.client.top_up_demo_account("USDT", str(self.config.initial_cash))
+            except Exception as exc:
+                self._save_error("DemoAccountTopUpError", str(exc))
+
         data = load_data(
             symbol=symbol,
             timeframe=timeframe,
@@ -618,7 +687,19 @@ class Executor:
             try:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
                 close_price = float(warmup_data["close"].iloc[-1])
-                self._reconcile(0.0, close_price, str(warmup_data.index[-1]))
+                bar_ts = str(warmup_data.index[-1])
+                report = self._reconcile(0.0, close_price, bar_ts)
+                if abs(report.actual_position) > 1e-8:
+                    actual_avg = (
+                        report.actual_avg_price
+                        if abs(report.actual_avg_price) > 1e-8
+                        else close_price
+                    )
+                    self._pnl.adopt_state(
+                        position=report.actual_position,
+                        avg_entry_price=actual_avg,
+                    )
+                self._sync_pnl_state()
             except Exception:
                 pass
 
@@ -699,8 +780,12 @@ class Executor:
             try:
                 time_module.sleep(poll_interval)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
-                self.step(data)
+                result = self.step(data)
+                if result.get("client_error"):
+                    continue
                 consecutive_errors = 0
+            except ClientError:
+                continue
             except Exception as exc:
                 consecutive_errors += 1
                 err_msg = f"Polling loop error ({consecutive_errors}/{max_errors}): {exc}"

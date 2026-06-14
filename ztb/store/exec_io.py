@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import suppress
 from typing import Any
@@ -117,6 +118,7 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (6)")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
+    ensure_audit_table(conn)
     conn.commit()
 
 
@@ -417,3 +419,98 @@ def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any]
            ORDER BY ke.event_id DESC LIMIT 1"""
     ).fetchall()
     return dict(rows[0]) if rows else None
+
+
+def ensure_audit_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            prev_hash TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL
+        )"""
+    )
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (8)")
+
+
+def _compute_content_hash(
+    timestamp: str,
+    event_type: str,
+    source: str,
+    detail: str,
+    prev_hash: str,
+) -> str:
+    raw = f"{timestamp}|{event_type}|{source}|{detail}|{prev_hash}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def log_audit_event(
+    conn: sqlite3.Connection,
+    event_type: str,
+    source: str = "",
+    detail: str = "",
+    timestamp: str = "",
+) -> dict[str, Any]:
+    from datetime import UTC, datetime
+
+    ts = timestamp or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = conn.execute(
+        "SELECT content_hash FROM audit_log ORDER BY entry_id DESC LIMIT 1"
+    ).fetchone()
+    prev_hash = row["content_hash"] if row else ""
+    content_hash = _compute_content_hash(ts, event_type, source, detail, prev_hash)
+    conn.execute(
+        """INSERT INTO audit_log (timestamp, event_type, source, detail, prev_hash, content_hash)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (ts, event_type, source, detail, prev_hash, content_hash),
+    )
+    conn.commit()
+    return {
+        "timestamp": ts,
+        "event_type": event_type,
+        "source": source,
+        "detail": detail,
+        "prev_hash": prev_hash,
+        "content_hash": content_hash,
+    }
+
+
+def get_audit_log(
+    conn: sqlite3.Connection,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM audit_log ORDER BY entry_id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def verify_audit_chain(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT * FROM audit_log ORDER BY entry_id ASC").fetchall()
+    violations: list[dict[str, Any]] = []
+    expected_prev = ""
+    for row in rows:
+        r = dict(row)
+        expected_hash = _compute_content_hash(
+            r["timestamp"],
+            r["event_type"],
+            r["source"],
+            r["detail"],
+            expected_prev,
+        )
+        if r["content_hash"] != expected_hash:
+            violations.append(
+                {
+                    "entry_id": r["entry_id"],
+                    "expected": expected_hash,
+                    "actual": r["content_hash"],
+                }
+            )
+        expected_prev = r["content_hash"]
+    return violations
