@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.7 (2026-06-14)
+
+- **Fix(exec):** Add `PollingError(ExecutionError)` exception class — raise in DEMO polling loop after 3 consecutive step failures, catch gracefully in `run()`
+- **Tests:** 3 new tests (class_exists, raises_on_max_errors, sigterm_no_polling_error) + 1 updated (test_polling_loop_error_retry_then_stop) — 873/873 pass both 3.11/3.13, 92.49% coverage, ruff/mypy clean
+- V&R PASS on SHA `067c1c1` ([ZTB-1442](/ZTB/issues/ZTB-1442))
+- **PR:** [#65](https://github.com/StaithValanthis/ztb/pull/65) — `fix/polling-error-class`
+- **Merge commit:** `f5d1971` — two-key merge (CI green + V&R PASS on SHA `067c1c1`)
+- **Tag:** v1.1.7
+
 ## v1.1.6 (2026-06-14)
 
 - **Fix(arm):** Remove CLI-level `LiveGuard.is_armed()` check from `ztb run` — arm enforcement moved to `BybitClient` (execution layer) per M7 design, aligning with disarmed-by-default invariant
