@@ -75,6 +75,7 @@ class AccountState:
     wallet_balance: float
     unrealized_pnl: float
     available_balance: float = 0.0
+    total_available_balance: float = 0.0
     positions: dict[str, Position] = field(default_factory=dict)
     timestamp: str = ""
 
@@ -95,6 +96,7 @@ class ExecRunConfig:
     risk_enabled: bool = True
     max_position_pct: float = 0.50
     max_leverage: float = 3.0
+    order_sizing_buffer: float = 0.95
 
     def __post_init__(self) -> None:
         if self.loop is None:

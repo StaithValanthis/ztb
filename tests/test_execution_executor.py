@@ -480,7 +480,9 @@ def test_executor_idempotency_restores_order(
     from ztb.execution.idempotency import make_intent_hash, make_order_link_id
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, order_sizing_buffer=1.0
+    )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -761,7 +763,7 @@ def test_executor_step_equity_no_inflation(
     """Step equity uses unrealized PnL, not position*price, for position sizing."""
     mock_load.return_value = sample_data
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=1.0)
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -789,7 +791,7 @@ def test_executor_equity_short_position_no_inflation(
     """Short position equity uses unrealized PnL (negative), not abs(pos)*price."""
     mock_load.return_value = sample_data
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=1.0)
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -1752,8 +1754,9 @@ def test_warmup_reconcile_adopts_wallet_balance(
     close_price = float(sample_data["close"].iloc[-1])
     assert exe._pnl.position == pytest.approx(1.5)
     assert exe._pnl.avg_entry_price == pytest.approx(30000.0)
-    expected_equity = 100000.0 + (close_price - 30000.0) * 1.5
+    expected_equity = 145000.0 + (close_price - 30000.0) * 1.5
     assert exe._pnl.equity(close_price) == pytest.approx(expected_equity, abs=1.0)
+    assert exe._pnl.snapshot.initial_cash == pytest.approx(145000.0)
 
 
 @patch("ztb.execution.executor.load_data")
@@ -1784,7 +1787,9 @@ def test_step_impl_uses_wallet_balance(
     mock_bybit_cls.return_value = mock_client
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False, order_sizing_buffer=1.0
+    )
     exe = Executor(signal_strat, config=config, client=mock_client)
     result = exe.run(
         symbol="BTCUSDT",
@@ -1870,7 +1875,7 @@ def test_polling_loop_skips_client_error(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_reconcile_adoption_does_not_overwrite_initial_cash(
+def test_startup_reconcile_syncs_initial_cash_with_wallet(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
@@ -1920,13 +1925,14 @@ def test_reconcile_adoption_does_not_overwrite_initial_cash(
     )
     assert result.status == "completed"
     close_price = float(sample_data["close"].iloc[-1])
-    expected_equity = 100.0 + (close_price - 30000.0) * 1.5
+    expected_equity = 145000.0 + (close_price - 30000.0) * 1.5
     assert exe._pnl.equity(close_price) == pytest.approx(expected_equity, abs=1.0)
+    assert exe._pnl.snapshot.initial_cash == pytest.approx(145000.0)
 
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_reconcile_adoption_preserves_configured_cash(
+def test_startup_reconcile_syncs_initial_cash_even_with_position(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
@@ -1975,7 +1981,7 @@ def test_reconcile_adoption_preserves_configured_cash(
         db_path=":memory:",
     )
     assert result.status == "completed"
-    assert exe._pnl.snapshot.initial_cash == pytest.approx(42.0)
+    assert exe._pnl.snapshot.initial_cash == pytest.approx(90000.0)
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2286,6 +2292,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2329,6 +2336,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "50.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2343,7 +2351,9 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     }
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0, order_sizing_buffer=1.0
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -2374,6 +2384,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "0.0001",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2416,6 +2427,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "1.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2512,3 +2524,114 @@ def test_polling_loop_sigterm_no_polling_error(
     exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     assert not any("Max polling errors" in e for e in exe.state.errors)
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1407: initial_cash sync with wallet balance + order sizing safety buffer
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_startup_reconcile_syncs_initial_cash_no_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """initial_cash is synced with wallet balance even when no position exists."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "500.0",
+                        "walletBalance": "500.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+    )
+    exe = Executor(fake_strategy, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.snapshot.initial_cash == pytest.approx(500.0)
+
+
+@patch("ztb.execution.executor.load_data")
+def test_order_sizing_buffer_reduces_position(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Default order_sizing_buffer=0.95 reduces position size vs buffer=1.0."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+
+    config_full = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True, order_sizing_buffer=1.0)
+    exe_full = Executor(signal_strat, config=config_full)
+    result_full = exe_full.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result_full.status == "completed"
+
+    config_buf = ExecRunConfig(mode=Mode.DEMO, dry_run=True, once=True, order_sizing_buffer=0.5)
+    exe_buf = Executor(signal_strat, config=config_buf)
+    result_buf = exe_buf.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result_buf.status == "completed"
+
+    assert exe_buf.state.current_position == pytest.approx(
+        exe_full.state.current_position * 0.5, abs=1e-8
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_order_sizing_buffer_unit(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Buffer directly scales equity used for target_qty."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=0.8)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    assert exe.state is not None
+    exe._pnl.apply_fill(1.0, 30000.0)
+    exe._sync_pnl_state()
+    result = exe.step(sample_data)
+    close_price = float(sample_data["close"].iloc[-1])
+    expected_upnl = (50000.0 - 30000.0) * 1.0
+    expected_equity = (config.initial_cash + expected_upnl) * 0.8
+    target_qty = round(0.5 * expected_equity / close_price, config.asset_precision)
+    assert result["target_position"] == pytest.approx(target_qty)
