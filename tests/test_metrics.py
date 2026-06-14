@@ -13,7 +13,7 @@ def test_metrics_short_series_no_trades() -> None:
     eq = Series([100.0])
     m = compute_metrics(eq, [])
     assert m.num_trades == 0
-    assert m.credible is False
+    assert m.sufficient_sample is False
 
 
 def test_metrics_rising() -> None:
@@ -56,11 +56,11 @@ def test_turnover_zero_with_no_trades() -> None:
     assert m.turnover == 0.0
 
 
-def test_credible_false_with_few_trades() -> None:
+def test_sufficient_sample_false_with_few_trades() -> None:
     eq = _rising_equity(50)
     trades = [{"pnl": 10.0, "size": 1.0}]
     m = compute_metrics(eq, trades, min_trades=30)
-    assert m.credible is False
+    assert m.sufficient_sample is False
     assert "insufficient" in m.reason
 
 

@@ -9,7 +9,7 @@ def _metrics(
     total_return: float | None = 0.25,
     profit_factor: float | None = 2.0,
     max_drawdown: float | None = -0.10,
-    credible: bool = True,
+    sufficient_sample: bool = True,
 ) -> MetricsResult:
     return MetricsResult(
         total_return=total_return,
@@ -22,7 +22,7 @@ def _metrics(
         win_rate=0.5,
         turnover=1000.0,
         exposure_time=0.8,
-        credible=credible,
+        sufficient_sample=sufficient_sample,
     )
 
 

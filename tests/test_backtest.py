@@ -93,7 +93,7 @@ def test_flat_strategy() -> None:
     strat = FlatStrat()
     result = run_backtest(strat, df)
     assert result.full.num_trades == 0
-    assert result.full.credible is False
+    assert result.full.sufficient_sample is False
 
 
 def test_long_strategy_has_trades() -> None:

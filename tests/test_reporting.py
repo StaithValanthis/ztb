@@ -23,7 +23,7 @@ def _sample_run() -> dict:
         "code_version": "0.4.0",
         "parameters": '{"fast": 10, "slow": 30}',
         "created_at": "2026-06-10T12:00:00",
-        "credible": 1,
+        "sufficient_sample": 1,
     }
 
 
@@ -41,7 +41,7 @@ def _sample_metrics() -> list[dict]:
             "win_rate": 0.55,
             "turnover": 100.0,
             "exposure_time": 200.0,
-            "credible": 1,
+            "sufficient_sample": 1,
         },
         {
             "scope": "is",
@@ -55,7 +55,7 @@ def _sample_metrics() -> list[dict]:
             "win_rate": 0.60,
             "turnover": 70.0,
             "exposure_time": 140.0,
-            "credible": 1,
+            "sufficient_sample": 1,
         },
         {
             "scope": "oos",
@@ -69,7 +69,7 @@ def _sample_metrics() -> list[dict]:
             "win_rate": 0.50,
             "turnover": 30.0,
             "exposure_time": 60.0,
-            "credible": 1,
+            "sufficient_sample": 1,
         },
     ]
 
@@ -163,7 +163,7 @@ def test_format_backtest_result() -> None:
         win_rate=0.55,
         turnover=100.0,
         exposure_time=200.0,
-        credible=True,
+        sufficient_sample=True,
     )
     m_is = MetricsResult(
         total_return=0.20,
@@ -176,7 +176,7 @@ def test_format_backtest_result() -> None:
         win_rate=0.60,
         turnover=70.0,
         exposure_time=140.0,
-        credible=True,
+        sufficient_sample=True,
     )
     m_oos = MetricsResult(
         total_return=0.10,
@@ -189,7 +189,7 @@ def test_format_backtest_result() -> None:
         win_rate=0.50,
         turnover=30.0,
         exposure_time=60.0,
-        credible=True,
+        sufficient_sample=True,
     )
     ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
     result = BacktestResult(
@@ -214,8 +214,8 @@ def test_format_backtest_result() -> None:
     assert "1.500" in output  # sharpe formatted with 3 decimals
 
 
-# RP-3d: format_backtest_result with non-credible
-def test_format_backtest_result_non_credible() -> None:
+# RP-3d: format_backtest_result with non-sufficient_sample
+def test_format_backtest_result_non_sufficient_sample() -> None:
     m_full = MetricsResult(
         total_return=None,
         sharpe=None,
@@ -227,7 +227,7 @@ def test_format_backtest_result_non_credible() -> None:
         win_rate=None,
         turnover=0.0,
         exposure_time=0.0,
-        credible=False,
+        sufficient_sample=False,
         reason="not enough trades",
     )
     m_oos = MetricsResult(
@@ -241,7 +241,7 @@ def test_format_backtest_result_non_credible() -> None:
         win_rate=None,
         turnover=0.0,
         exposure_time=0.0,
-        credible=False,
+        sufficient_sample=False,
         reason="no trades in OOS",
     )
     m_is = MetricsResult(
@@ -255,7 +255,7 @@ def test_format_backtest_result_non_credible() -> None:
         win_rate=0.0,
         turnover=0.0,
         exposure_time=0.0,
-        credible=True,
+        sufficient_sample=True,
     )
     ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
     result = BacktestResult(
@@ -365,7 +365,7 @@ def test_format_forwardtest_result() -> None:
         win_rate=0.50,
         turnover=20.0,
         exposure_time=50.0,
-        credible=True,
+        sufficient_sample=True,
     )
     ps = PortfolioState(cash=95000.0, position=0.5, trades=[], equity=[], timestamps=[])
     result = ForwardtestResult(
@@ -389,8 +389,8 @@ def test_format_forwardtest_result() -> None:
     assert "0.800" in output
 
 
-# RP-12: format_forwardtest_result with non-credible
-def test_format_forwardtest_result_non_credible() -> None:
+# RP-12: format_forwardtest_result with non-sufficient_sample
+def test_format_forwardtest_result_non_sufficient_sample() -> None:
     from ztb.engine.forwardtest import ForwardtestResult
     from ztb.reporting.format import format_forwardtest_result
 
@@ -405,7 +405,7 @@ def test_format_forwardtest_result_non_credible() -> None:
         win_rate=None,
         turnover=0.0,
         exposure_time=0.0,
-        credible=False,
+        sufficient_sample=False,
         reason="not enough trades",
     )
     ps = PortfolioState(cash=100000.0, position=0.0, trades=[], equity=[], timestamps=[])
@@ -440,7 +440,7 @@ def test_format_forwardtest_result_with_decay() -> None:
         win_rate=0.50,
         turnover=20.0,
         exposure_time=50.0,
-        credible=True,
+        sufficient_sample=True,
     )
     ps = PortfolioState(cash=95000.0, position=0.5, trades=[], equity=[], timestamps=[])
     result = ForwardtestResult(
