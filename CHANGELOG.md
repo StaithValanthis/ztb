@@ -1,106 +1,15 @@
 # Changelog
 
-## v1.1.4 (2026-06-14)
-
-- **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
-- **Tests:** 3 new executor tests (reconcile adoption does not overwrite initial_cash, preserves configured cash, still adopts position) + 1 updated — 78/78 executor tests pass; 836/836 full suite pass
-- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
-- V&R PASS on SHA `f22440c` ([ZTB-1382](/ZTB/issues/ZTB-1382), [ZTB-1386](/ZTB/issues/ZTB-1386), [ZTB-1383](/ZTB/issues/ZTB-1383))
-- **PR:** [#58](https://github.com/StaithValanthis/ztb/pull/58) — `fix/reconcile-cash`
-- **Merge commit:** `3e193b6` — two-key merge (CI green + V&R PASS on SHA `f22440c`)
-- **Tag:** v1.1.4
-
-## v1.1.3 (2026-06-13)
-
-- **Fix(exec):** Use actual Bybit wallet balance for equity calculation — each run now fetches real `wallet_balance`/`total_equity` instead of fresh PnLCalculator($100), eliminating "ab not enough for new order" rejections on demo account with prior PnL
-- **Fix(exec):** Graceful `ClientError` handling in `step()` — returns skipped result instead of crashing, enabling `--mode demo --loop` to survive transient API errors (40 such errors in 6h outage resolved)
-- **Fix(exec):** Warmup reconciliation adopts actual wallet balance — `initial_cash` calibrated to `actual_equity - unrealized_pnl` so subsequent `equity()` calls reflect real account state
-- **Fix(exec):** `--loop` mode continuity — state tracked correctly on skipped/killswitch early returns; signal init moved before order placement
-- **Fix(engine):** `PnLCalculator.set_initial_cash()` — new method to update starting equity in place for warmup sync
-- **Fix(reconcile):** `ReconcileReport.actual_wallet_balance` / `actual_equity` — carry Bybit account state through reconciliation for warmup adoption
-- **Tests:** 11 new executor tests (wallet balance adoption, ClientError→skipped, polling loop resilience, results.db path) — 75/75 executor tests pass; 833/833 full suite pass
-- Coverage: executor 86%, pnl.py 95%, reconcile.py 78% (92% total)
-- V&R PASS on SHA `5a57c8d` ([ZTB-1286](/ZTB/issues/ZTB-1286), [ZTB-1348](/ZTB/issues/ZTB-1348))
-- **PR:** [#56](https://github.com/StaithValanthis/ztb/pull/56) — `feat/fix-executor-wallet`
-- **Merge commit:** `2ef3d92` — two-key merge (CI green + V&R PASS on SHA `5a57c8d`)
-- **Tag:** v1.1.3
-
-## v1.1.2 (2026-06-13)
-
-- **Fix(exec):** Trade only on signal change — executor skips fill when position/signal/edge unchanged, reducing unnecessary churn
-- **Fix(exec):** Startup reconciliation — `ReconcileEngine.load_state` restores active position + accrued costs on warm start, enabling continuity across `ztb run` restarts
-- **Feat(pnl):** `PnLCalculator.adopt_state` — restore PnL state from persisted data (position, avg price, realized PnL, open costs) for startup reconciliation
-- **Tests:** 112 executor+PnL tests pass (trade-on-signal-change: skipped fill paths, flip from flat, flip from opposing; startup reconciliation: warm start restores position, cold start begins flat, open-cost carry-over, cross-session equity identity)
-- Coverage: 92% total (822 tests)
-- V&R PASS on SHA `359ae17` ([ZTB-1285](/ZTB/issues/ZTB-1285))
-- **PR:** [#52](https://github.com/StaithValanthis/ztb/pull/52) — `feat/ztb-1285-demo-over-trade-fix`
-- **Merge commit:** `01a5d06` — two-key merge (CI green + V&R PASS on SHA `359ae17`)
-- **Tag:** v1.1.2
-
-## v1.1.0 (2026-06-13)
-
-- **Feat(demo-exec):** Continuous polling loop with SIGTERM handling, 3-retry, killswitch integration — `ztb run --loop` / `--poll-interval` / `--lookback-bars`
-- **Feat(bybit-client):** `get_instrument_info`, `round_to_step`, `minOrderQty`/`maxOrderQty` validation
-- **Fix(DEFECT-1):** `_step_impl` skipped-order `UnboundLocalError` — early return on skip, no cost on skipped order
-- **Fix(DEFECT-2):** Competing SIGTERM handlers consolidated
-- **Fix(CI):** vr-pass runs on PR events as required status check
-- **Tests:** 59 executor tests pass (3.11/3.13 matrix); skipped-order path coverage; 179 new bybit_client tests, 119 revised CLI tests
-- Coverage: 92% total (executor 86%, bybit_client 93%, CLI 86%)
-- V&R PASS on SHA `807e306` ([ZTB-1212](/ZTB/issues/ZTB-1212))
-- **PR:** [#39](https://github.com/StaithValanthis/ztb/pull/39) — `feat/demo-execution-loop`
-- **Merge commit:** `2eda279` — two-key merge (CI green + V&R PASS on SHA `807e306`)
-- **Tag:** v1.1.0
-
-## v1.0.9 (2026-06-13)
-
-- **Fix(pnl-calculator):** Resolve 3 V&R-defects on `feat/pnl-calculator` — signed cash formula (no `abs(position)`), costs on bar 0, costs in dry_run path
-- **Fix(executor):** dry_run path passes commission+slippage to `PnLCalculator.apply_fill()` (DEFECT-3)
-- **Fix(engine/portfolio):** `single_symbol_portfolio` cash uses signed `position` (DEFECT-1); first-bar trades incur costs (DEFECT-2)
-- **Fix(risk/portfolio):** `risk_adjusted_signals` and `multi_symbol_portfolio` apply costs on bar 0
-- **Refactor(engine):** Extract `PnLCalculator` from inline avg-price/UPnP logic in executor, engine portfolio, risk portfolio — single shared PnL primitive with fees+slippage (E5 shared accounting)
-- **Refactor(executor):** Remove `_update_avg_entry_price`, `_compute_unrealized_pnl`, delegating to `PnLCalculator` via `apply_fill()` + `_sync_pnl_state()`
-- **Tests:** 3 new V&R gap-detection tests (`test_short_open_position_cash_identity`, `test_first_bar_signals_skip_costs`, `test_executor_dry_run_no_costs`); 783 total tests pass, 0 fail, 93% coverage; PnLCalculator 100% coverage
-- V&R PASS on SHA `da5fb44` ([ZTB-1037](/ZTB/issues/ZTB-1037))
-- **PR:** [#36](https://github.com/StaithValanthis/ztb/pull/36) — `feat/pnl-calculator`
-- **Merge commit:** `bea8d26` — two-key merge (CI green + V&R PASS on SHA `da5fb44`)
-- **Tag:** v1.0.9
-
-## v1.0.8 (2026-06-13)
-
-- **Tests(vr-pass-bridge):** Add comprehensive T1–T12 test suite + notify-mode tests for `scripts/ztb-vr-pass-bridge.py`
-- **Tests:** Covers PASS/FAIL outcomes vs CI states (green/red/pending), gh CLI error handling (not found, API error, non-JSON, timeout), git remote URL parsing (HTTPS, SSH), self-filter (ztb/vr-pass excluded from CI conclusion), and notify mode
-- **Tests:** 17 bridge-specific tests; 723 total tests collected
-- V&R PASS on SHA `70ba5e8` ([ZTB-1008](/ZTB/issues/ZTB-1008))
-- **PR:** [#19](https://github.com/StaithValanthis/ztb/pull/19) — `feat/vr-pass-bridge`
-- **Merge commit:** `9330cc4` — two-key merge (CI green + V&R PASS on SHA `70ba5e8`)
-- **Tag:** v1.0.8
-
-## v1.0.7 (2026-06-13)
-
-- **Feat(sizing):** Unify backtest-executor position sizing to fraction-of-equity convention (`target_qty = target_frac * equity / price`) — signals in both environments now produce identical position quantities
-- **Feat(portfolio):** `single_symbol_portfolio` and `multi_symbol_portfolio` compute pre-trade equity, convert fraction to target qty, apply costs on delta basis
-- **Feat(executor):** `_apply_risk` computes `target_qty = target_signal * equity / price`; reduce path uses fraction-of-equity scale
-- **Feat(risk):** `risk_adjusted_signals` converts internally to qty for risk evaluation, outputs fractions
-- **Feat(backtest/forwardtest):** Leverage calculation uses `abs(sig)` (fraction) instead of `abs(sig) * price / eq`
-- **Tests:** 7 new fraction-of-equity tests (`test_fraction_of_equity_trade_size`, `test_fraction_of_equity_equity_consistency`, `test_fraction_multi_symbol`, `test_fraction_multi_symbol_exact_sizing`, `test_fraction_multi_symbol_flip`, `test_fraction_zero_signal_no_trade`, `test_fraction_full_leverage`); portfolio.py coverage 53% → 93%
-- 711 total tests passed, 92.74% coverage
-- V&R PASS on SHA `6cb6c7f` ([ZTB-878](/ZTB/issues/ZTB-878))
-- **PR:** [#33](https://github.com/StaithValanthis/ztb/pull/33) — `feat/sizing-unification`
-- **Merge commit:** `f827eb9` — two-key merge (CI green + V&R PASS on SHA `6cb6c7f`, rebased same diff)
-- **Tag:** v1.0.7
-
 ## v1.0.6 (2026-06-13)
 
-- **Feat(vr-pass-bridge):** Add `--mode notify` for CI-on-push path (posts pending status, no auto-PASS)
-- **Feat(vr-pass-bridge):** `--outcome` is optional (only required with `--mode outcome`); default is `--mode outcome` for backward compat
-- **Ci:** `vr-pass` job uses `--mode notify` instead of `--outcome PASS` — no commit reaches main with auto-PASS
-- **Tests:** Conftest-based bridge tests; 5 tests covering notify mode, outcome PASS/FAIL, and graceful gh absence
-- **Docs:** Updated `vr-pass-bridge.md` with notify mode usage
-- V&R PASS on SHA `8379f29836ab` ([ZTB-883](/ZTB/issues/ZTB-883))
-- **PR:** [#32](https://github.com/StaithValanthis/ztb/pull/32) — `feat/vr-pass-fix`
-- **Merge commit:** `1f59beb` — two-key merge (CI green + V&R PASS on SHA `8379f29836ab`)
-- **Tag:** v1.0.6
-
+- **Feat(security):** HMAC-SHA256 board token verification via `arm_auth.py` — `load_arm_hash`, `compute_arm_hash`, `verify_board_token`
+- **Feat(security):** `LiveGuard.BOARD_TOKEN_VAR` (`ZTB_BOARD_TOKEN`) — token verification on `arm()`, refuses arm on hash mismatch
+- **Feat(security):** `LiveArmFailedError` for token verification failures
+- **Feat(security):** Tamper-evident `audit_log` table (schema v8) with SHA-256 hash chain — `ensure_audit_table`, `log_audit_event`, `get_audit_log`, `verify_audit_chain`
+- **Feat(security):** `BybitClient` live mode writes audit log row on successful API calls
+- **Tests:** 18 new arm_auth/LiveGuard token tests; 6 new audit log chain tests; 724 total passed, 91% coverage
+- Version bumped to 1.0.6
+- **Branch:** `feat/ztb-852-arm-security`
 ## v1.0.5 (2026-06-13)
 
 - **Feat(killswitch):** Persist LiveKillSwitch state (HWM equity, tripped flag, last heartbeat) so process restart preserves safety invariant
