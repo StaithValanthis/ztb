@@ -54,7 +54,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.55,
             turnover=100.0,
             exposure_time=200.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         is_=MetricsResult(
             total_return=0.20,
@@ -67,7 +67,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.60,
             turnover=70.0,
             exposure_time=140.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         oos=MetricsResult(
             total_return=0.10,
@@ -80,7 +80,7 @@ def sample_result() -> BacktestResult:
             win_rate=0.50,
             turnover=30.0,
             exposure_time=60.0,
-            credible=True,
+            sufficient_sample=True,
         ),
         portfolio=PortfolioState(
             cash=50000.0,

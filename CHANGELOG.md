@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.1.8 (2026-06-14)
+
+- **[Board][CRITICAL][C1] Fix(exec):** Replace synthetic fills with real exchange executions — `_step_impl()` now calls `get_executions()` after `place_order()` to fetch real fill data, persists to `exec_fills` table, derives PnL from real fill prices (slippage=0 with real fills), records assumed-vs-actual reconciliation metric (`price_divergence`, `qty_divergence`). Schema v9: rename `credible` → `sufficient_sample` across all exec + results tables + reporting/CLI. Fallback to synthetic on API error with `_save_error()`.
+- **Tests:** 15 new fill-pipeline tests + updated credible→sufficient_sample tests — 895/895 pass both 3.11/3.13, 93% coverage, ruff/mypy clean
+- V&R PASS on SHA `0f5b18d` ([ZTB-1568](/ZTB/issues/ZTB-1568), [ZTB-1577](/ZTB/issues/ZTB-1577))
+- **PR:** [#72](https://github.com/StaithValanthis/ztb/pull/72) — `feat/real-fill-pipeline`
+- **Merge commit:** `45c37ec` — two-key merge (CI green + V&R PASS on SHA `0f5b18d`)
+- **Tag:** v1.1.8
+
+## v1.1.7 (2026-06-14)
+
+- **Fix(exec):** Add `PollingError(ExecutionError)` exception class — raise in DEMO polling loop after 3 consecutive step failures, catch gracefully in `run()`
+- **Tests:** 3 new tests (class_exists, raises_on_max_errors, sigterm_no_polling_error) + 1 updated (test_polling_loop_error_retry_then_stop) — 873/873 pass both 3.11/3.13, 92.49% coverage, ruff/mypy clean
+- V&R PASS on SHA `067c1c1` ([ZTB-1442](/ZTB/issues/ZTB-1442))
+- **PR:** [#65](https://github.com/StaithValanthis/ztb/pull/65) — `fix/polling-error-class`
+- **Merge commit:** `f5d1971` — two-key merge (CI green + V&R PASS on SHA `067c1c1`)
+- **Tag:** v1.1.7
+
+## v1.1.6 (2026-06-14)
+
+- **Fix(arm):** Remove CLI-level `LiveGuard.is_armed()` check from `ztb run` — arm enforcement moved to `BybitClient` (execution layer) per M7 design, aligning with disarmed-by-default invariant
+- **Test:** `test_run_accepts_live_mode` updated — no `LiveGuard.arm()`/`disarm()`, uses `--db=:memory:` for isolation
+- Conflict resolution: rebased over main commit `7349bd7` (which added `_setup_arm`/`_cleanup_arm` helpers) — Platform Engineer's approach wins (LiveGuard belongs in execution layer, not CLI)
+- **Tests:** 213/213 pass, ruff/mypy clean
+- V&R PASS on SHA `989d0b4` ([ZTB-1450](/ZTB/issues/ZTB-1450), [ZTB-1454](/ZTB/issues/ZTB-1454))
+- **PR:** [#64](https://github.com/StaithValanthis/ztb/pull/64) — `feat/ztb-1266-arm-security-fix`
+- **Merge commit:** `db8c689` — two-key merge (CI green + V&R PASS on SHA `989d0b4`)
+- **Tag:** v1.1.6
+
 ## v1.1.4 (2026-06-14)
 
 - **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
@@ -100,6 +129,17 @@
 - **PR:** [#32](https://github.com/StaithValanthis/ztb/pull/32) — `feat/vr-pass-fix`
 - **Merge commit:** `1f59beb` — two-key merge (CI green + V&R PASS on SHA `8379f29836ab`)
 - **Tag:** v1.0.6
+
+## v1.0.6 (2026-06-13)
+
+- **Feat(security):** HMAC-SHA256 board token verification via `arm_auth.py` — `load_arm_hash`, `compute_arm_hash`, `verify_board_token`
+- **Feat(security):** `LiveGuard.BOARD_TOKEN_VAR` (`ZTB_BOARD_TOKEN`) — token verification on `arm()`, refuses arm on hash mismatch
+- **Feat(security):** `LiveArmFailedError` for token verification failures
+- **Feat(security):** Tamper-evident `audit_log` table (schema v8) with SHA-256 hash chain — `ensure_audit_table`, `log_audit_event`, `get_audit_log`, `verify_audit_chain`
+- **Feat(security):** `BybitClient` live mode writes audit log row on successful API calls
+- **Tests:** 18 new arm_auth/LiveGuard token tests; 6 new audit log chain tests; 724 total passed, 91% coverage
+- Version bumped to 1.0.6
+- **Branch:** `feat/ztb-852-arm-security`
 
 ## v1.0.5 (2026-06-13)
 

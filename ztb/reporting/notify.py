@@ -14,7 +14,7 @@ def format_discord_payload(scorecard: dict[str, Any]) -> list[dict[str, Any]]:
 
     embed: dict[str, Any] = {
         "title": f"Backtest: {scorecard.get('strategy_name', '?')} / {scorecard.get('symbol', '?')}",  # noqa: E501
-        "color": 0x00FF00 if scorecard.get("credible", False) else 0xFF0000,
+        "color": 0x00FF00 if scorecard.get("sufficient_sample", False) else 0xFF0000,
         "fields": [
             {"name": "Strategy", "value": scorecard.get("strategy_name", "?"), "inline": True},
             {"name": "Symbol", "value": scorecard.get("symbol", "?"), "inline": True},

@@ -20,7 +20,7 @@ def test_format_discord_payload_structure() -> None:
         "timeframe": "60",
         "code_version": "1.0.0",
         "generated_at": "2026-01-01T00:00:00Z",
-        "credible": True,
+        "sufficient_sample": True,
         "metrics": {
             "oos": {"sharpe": 1.5, "total_return": 0.1, "max_drawdown": -0.05},
             "full": {"pass_fail": {"sharpe": "PASS"}},

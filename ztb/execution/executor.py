@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import time as time_module
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,7 @@ from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
     ClientError,
     ExecutionError,
+    PollingError,
 )
 from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
 from ztb.execution.killswitch import LiveKillSwitch
@@ -32,6 +34,8 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
+
+logger = logging.getLogger(__name__)
 
 
 class Executor:
@@ -134,7 +138,7 @@ class Executor:
                 "position": self.state.current_position,
                 "avg_price": price,
                 "unrealized_pnl": 0.0,
-                "credible": 1,
+                "sufficient_sample": 1,
                 "code_version": __version__,
             },
         )
@@ -160,7 +164,7 @@ class Executor:
                 "realized_pnl": realized,
                 "unrealized_pnl": unrealized,
                 "total_equity": equity,
-                "credible": 1,
+                "sufficient_sample": 1,
                 "code_version": __version__,
             },
         )
@@ -364,6 +368,7 @@ class Executor:
         current_position = self._pnl.position
 
         equity = self._pnl.equity(close_price)
+        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -373,6 +378,7 @@ class Executor:
                 actual = compute_account_state([], wallet)
                 if actual.total_equity > 0:
                     equity = actual.total_equity
+                available_balance = actual.available_balance
             except Exception:
                 pass
 
@@ -481,12 +487,48 @@ class Executor:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
+            reduce_only = (delta < 0 and current_position > 0) or (
+                delta > 0 and current_position < 0
+            )
+
+            if not reduce_only and available_balance > 0 and close_price > 0:
+                max_notional = available_balance * self.config.max_leverage
+                max_qty = round(max_notional / close_price, asset_precision)
+                if qty > max_qty + 1e-12:
+                    self.state.errors.append(
+                        f"Qty capped by available balance: {qty} -> {max_qty} "
+                        f"(available={available_balance:.2f}, max_notional={max_notional:.2f})"
+                    )
+                    qty = max_qty
+                    if qty < 1e-12:
+                        result["order_skipped"] = True
+                        result["skip_reason"] = (
+                            f"Qty capped to {max_qty} by balance limit, below minimum"
+                        )
+                        self.state.errors.append(result["skip_reason"])
+                        self.state.bars_processed += 1
+                        self.state.last_bar_ts = bar_ts
+                        self._sync_pnl_state()
+                        unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                        equity = self._pnl.equity(close_price)
+                        self._save_position_snapshot()
+                        self._save_pnl(
+                            self._pnl.realized_pnl,
+                            unrealized_pnl,
+                            self._pnl.equity(close_price),
+                            bar_ts,
+                        )
+                        self._last_executed_signal = target_signal
+                        self._signal_initialized = True
+                        return result
+
             order_result = self.client.place_order(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 order_type=OrderType.MARKET,
                 order_link_id=order_link_id,
+                reduce_only=reduce_only,
             )
             if order_result.get("skipped"):
                 result["order_skipped"] = True
@@ -509,39 +551,117 @@ class Executor:
             order_id = order_result.get("orderId", "")
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            commission_cost = qty * close_price * self.config.commission
-            slippage_cost = qty * close_price * self.config.slippage
-            self._pnl.apply_fill(
-                delta, close_price, commission=commission_cost, slippage=slippage_cost
-            )
-            self._sync_pnl_state()
+            # Real fill pipeline: fetch actual fills from exchange
+            real_fills: list[dict[str, Any]] = []
+            from ztb.execution.reconcile import parse_fills as _parse_fills
+
+            try:
+                raw_fills = self.client.get_executions(order_id=order_id)
+                for f in _parse_fills(raw_fills):
+                    real_fills.append(
+                        {
+                            "fill_id": f.exec_id,
+                            "order_link_id": order_link_id,
+                            "exec_run_id": self.state.exec_run_id,
+                            "order_id": f.order_id,
+                            "symbol": f.symbol,
+                            "side": f.side.value,
+                            "price": f.price,
+                            "qty": f.qty,
+                            "commission": f.commission,
+                            "realized_pnl": f.realized_pnl,
+                            "filled_at": f.timestamp,
+                            "sufficient_sample": 1,
+                            "code_version": __version__,
+                        }
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to fetch fills for order %s, falling back to synthetic fill",
+                    order_id,
+                )
+                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
+                real_fills = []
+
+            if real_fills:
+                total_fill_qty = sum(f["qty"] for f in real_fills)
+                total_fill_commission = sum(f["commission"] for f in real_fills)
+                avg_fill_price = (
+                    sum(f["price"] * f["qty"] for f in real_fills) / total_fill_qty
+                    if total_fill_qty > 0
+                    else close_price
+                )
+                self._pnl.apply_fill(
+                    total_fill_qty if delta > 0 else -total_fill_qty,
+                    avg_fill_price,
+                    commission=total_fill_commission,
+                    slippage=0.0,
+                )
+                self._sync_pnl_state()
+                result["real_fills"] = real_fills
+                cum_exec_qty = total_fill_qty
+                cum_exec_value = sum(f["price"] * f["qty"] for f in real_fills)
+                cum_exec_fee = total_fill_commission
+                from ztb.store.exec_io import save_exec_order
+
+                save_exec_order(
+                    self._store_conn,
+                    {
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": order_id,
+                        "symbol": symbol,
+                        "side": side.value,
+                        "order_type": "Market",
+                        "price": avg_fill_price,
+                        "qty": total_fill_qty,
+                        "status": "Filled",
+                        "created_at": bar_ts,
+                        "cum_exec_qty": cum_exec_qty,
+                        "cum_exec_value": cum_exec_value,
+                        "cum_exec_fee": cum_exec_fee,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    },
+                )
+                for fill in real_fills:
+                    from ztb.store.exec_io import save_exec_fill
+
+                    save_exec_fill(self._store_conn, fill)
+            else:
+                commission_cost = qty * close_price * self.config.commission
+                slippage_cost = qty * close_price * self.config.slippage
+                self._pnl.apply_fill(
+                    delta, close_price, commission=commission_cost, slippage=slippage_cost
+                )
+                self._sync_pnl_state()
+                from ztb.store.exec_io import save_exec_order
+
+                save_exec_order(
+                    self._store_conn,
+                    {
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": order_id,
+                        "symbol": symbol,
+                        "side": side.value,
+                        "order_type": "Market",
+                        "price": close_price,
+                        "qty": qty,
+                        "status": "Filled",
+                        "created_at": bar_ts,
+                        "cum_exec_qty": qty,
+                        "cum_exec_value": qty * close_price,
+                        "cum_exec_fee": commission_cost,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    },
+                )
+
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
             self._reconcile(target_qty, close_price, bar_ts)
-
-            from ztb.store.exec_io import save_exec_order
-
-            save_exec_order(
-                self._store_conn,
-                {
-                    "order_link_id": order_link_id,
-                    "exec_run_id": self.state.exec_run_id,
-                    "order_id": order_id,
-                    "symbol": symbol,
-                    "side": side.value,
-                    "order_type": "Market",
-                    "price": close_price,
-                    "qty": qty,
-                    "status": "Filled",
-                    "created_at": bar_ts,
-                    "cum_exec_qty": qty,
-                    "cum_exec_value": qty * close_price,
-                    "cum_exec_fee": commission_cost,
-                    "credible": 1,
-                    "code_version": __version__,
-                },
-            )
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
@@ -647,6 +767,12 @@ class Executor:
             self._killswitch.heartbeat()
         self._setup_sigterm()
 
+        if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
+            try:
+                self.client.top_up_demo_account("USDT", str(self.config.initial_cash))
+            except Exception as exc:
+                self._save_error("DemoAccountTopUpError", str(exc))
+
         data = load_data(
             symbol=symbol,
             timeframe=timeframe,
@@ -724,7 +850,11 @@ class Executor:
                         )
 
         if self.config.loop and not self.config.once:
-            self._run_polling_loop(data, symbol, timeframe, category)
+            try:
+                self._run_polling_loop(data, symbol, timeframe, category)
+            except PollingError as e:
+                self._save_error("PollingError", str(e))
+                self.state.errors.append(str(e))
 
         from ztb.store.exec_io import update_exec_run_status
 
@@ -782,4 +912,4 @@ class Executor:
                 self._save_error("PollingError", str(exc))
                 if consecutive_errors >= max_errors:
                     self.state.errors.append("Max polling errors reached — stopping")
-                    break
+                    raise PollingError(err_msg) from exc

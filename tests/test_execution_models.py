@@ -56,6 +56,19 @@ def test_account_state_defaults() -> None:
     a = AccountState(total_equity=100000.0, wallet_balance=100000.0, unrealized_pnl=0.0)
     assert a.positions == {}
     assert a.timestamp == ""
+    assert a.available_balance == 0.0
+
+
+def test_account_state_with_available_balance() -> None:
+    a = AccountState(
+        total_equity=100000.0,
+        wallet_balance=95000.0,
+        available_balance=80000.0,
+        unrealized_pnl=5000.0,
+    )
+    assert a.available_balance == 80000.0
+    assert a.wallet_balance == 95000.0
+    assert a.total_equity == 100000.0
 
 
 def test_exec_run_config_defaults() -> None:

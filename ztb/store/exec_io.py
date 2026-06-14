@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import suppress
 from typing import Any
@@ -104,6 +105,18 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN credible INTEGER NOT NULL DEFAULT 1")
         with suppress(sqlite3.OperationalError):
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN code_version TEXT DEFAULT NULL")
+    # Schema v9: add sufficient_sample columns alongside credible (migration)
+    for tbl in ("exec_orders", "exec_fills", "exec_positions_snapshots", "exec_pnl_ledger"):
+        with suppress(sqlite3.OperationalError):
+            conn.execute(
+                f"ALTER TABLE {tbl} ADD COLUMN sufficient_sample INTEGER NOT NULL DEFAULT 1"
+            )
+        with suppress(sqlite3.OperationalError):
+            conn.execute(
+                f"UPDATE {tbl} SET sufficient_sample = credible WHERE credible IS NOT NULL"
+            )
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (9)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS killswitch_state (
             exec_run_id TEXT PRIMARY KEY,
@@ -117,6 +130,7 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (6)")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
+    ensure_audit_table(conn)
     conn.commit()
 
 
@@ -157,7 +171,7 @@ def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
         """INSERT OR IGNORE INTO exec_orders
            (order_link_id, exec_run_id, order_id, symbol, side, order_type,
             price, qty, status, created_at, cum_exec_qty, cum_exec_value, cum_exec_fee,
-            credible, code_version)
+            sufficient_sample, code_version)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             order["order_link_id"],
@@ -173,7 +187,7 @@ def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
             order.get("cum_exec_qty", 0.0),
             order.get("cum_exec_value", 0.0),
             order.get("cum_exec_fee", 0.0),
-            order.get("credible", 1),
+            order.get("sufficient_sample", 1),
             order.get("code_version"),
         ),
     )
@@ -202,7 +216,7 @@ def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
         """INSERT OR IGNORE INTO exec_fills
            (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
             price, qty, commission, realized_pnl, filled_at,
-            credible, code_version)
+            sufficient_sample, code_version)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             fill["fill_id"],
@@ -216,7 +230,7 @@ def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
             fill.get("commission", 0.0),
             fill.get("realized_pnl", 0.0),
             fill.get("filled_at", ""),
-            fill.get("credible", 1),
+            fill.get("sufficient_sample", 1),
             fill.get("code_version"),
         ),
     )
@@ -227,7 +241,7 @@ def save_position_snapshot(conn: sqlite3.Connection, snap: dict[str, Any]) -> No
     conn.execute(
         """INSERT INTO exec_positions_snapshots
            (exec_run_id, symbol, timestamp, position, avg_price, unrealized_pnl,
-            credible, code_version)
+            sufficient_sample, code_version)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             snap["exec_run_id"],
@@ -236,7 +250,7 @@ def save_position_snapshot(conn: sqlite3.Connection, snap: dict[str, Any]) -> No
             snap["position"],
             snap.get("avg_price", 0.0),
             snap.get("unrealized_pnl", 0.0),
-            snap.get("credible", 1),
+            snap.get("sufficient_sample", 1),
             snap.get("code_version"),
         ),
     )
@@ -247,7 +261,7 @@ def save_pnl_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO exec_pnl_ledger
            (exec_run_id, timestamp, symbol, realized_pnl, unrealized_pnl, total_equity,
-            credible, code_version)
+            sufficient_sample, code_version)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             entry["exec_run_id"],
@@ -256,7 +270,7 @@ def save_pnl_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
             entry.get("realized_pnl", 0.0),
             entry.get("unrealized_pnl", 0.0),
             entry.get("total_equity", 0.0),
-            entry.get("credible", 1),
+            entry.get("sufficient_sample", 1),
             entry.get("code_version"),
         ),
     )
@@ -333,11 +347,14 @@ def get_kill_events(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str
     return [dict(r) for r in rows]
 
 
-def get_credible_pnl_ledger(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM exec_pnl_ledger WHERE exec_run_id = ? AND credible = 1 ORDER BY entry_id",
-        (exec_run_id,),
-    ).fetchall()
+def get_sufficient_sample_pnl_ledger(
+    conn: sqlite3.Connection, exec_run_id: str
+) -> list[dict[str, Any]]:
+    sql = (
+        "SELECT * FROM exec_pnl_ledger"
+        " WHERE exec_run_id = ? AND sufficient_sample = 1 ORDER BY entry_id"
+    )
+    rows = conn.execute(sql, (exec_run_id,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -360,7 +377,7 @@ def quarantine_corrupt_ledger_rows(
     if corrupt_ids:
         placeholders = ",".join("?" for _ in corrupt_ids)
         sql = (
-            "UPDATE exec_pnl_ledger SET credible = 0, code_version = '0.7.0'"
+            "UPDATE exec_pnl_ledger SET sufficient_sample = 0, credible = 0, code_version = '0.7.0'"
             f" WHERE entry_id IN ({placeholders})"
         )
         conn.execute(sql, corrupt_ids)
@@ -369,7 +386,8 @@ def quarantine_corrupt_ledger_rows(
 
 
 def count_quarantined_rows(conn: sqlite3.Connection) -> int:
-    row = conn.execute("SELECT COUNT(*) AS cnt FROM exec_pnl_ledger WHERE credible = 0").fetchone()
+    sql = "SELECT COUNT(*) AS cnt FROM exec_pnl_ledger WHERE sufficient_sample = 0"
+    row = conn.execute(sql).fetchone()
     return row["cnt"] if row else 0
 
 
@@ -417,3 +435,98 @@ def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any]
            ORDER BY ke.event_id DESC LIMIT 1"""
     ).fetchall()
     return dict(rows[0]) if rows else None
+
+
+def ensure_audit_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            prev_hash TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL
+        )"""
+    )
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (8)")
+
+
+def _compute_content_hash(
+    timestamp: str,
+    event_type: str,
+    source: str,
+    detail: str,
+    prev_hash: str,
+) -> str:
+    raw = f"{timestamp}|{event_type}|{source}|{detail}|{prev_hash}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def log_audit_event(
+    conn: sqlite3.Connection,
+    event_type: str,
+    source: str = "",
+    detail: str = "",
+    timestamp: str = "",
+) -> dict[str, Any]:
+    from datetime import UTC, datetime
+
+    ts = timestamp or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = conn.execute(
+        "SELECT content_hash FROM audit_log ORDER BY entry_id DESC LIMIT 1"
+    ).fetchone()
+    prev_hash = row["content_hash"] if row else ""
+    content_hash = _compute_content_hash(ts, event_type, source, detail, prev_hash)
+    conn.execute(
+        """INSERT INTO audit_log (timestamp, event_type, source, detail, prev_hash, content_hash)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (ts, event_type, source, detail, prev_hash, content_hash),
+    )
+    conn.commit()
+    return {
+        "timestamp": ts,
+        "event_type": event_type,
+        "source": source,
+        "detail": detail,
+        "prev_hash": prev_hash,
+        "content_hash": content_hash,
+    }
+
+
+def get_audit_log(
+    conn: sqlite3.Connection,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM audit_log ORDER BY entry_id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def verify_audit_chain(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT * FROM audit_log ORDER BY entry_id ASC").fetchall()
+    violations: list[dict[str, Any]] = []
+    expected_prev = ""
+    for row in rows:
+        r = dict(row)
+        expected_hash = _compute_content_hash(
+            r["timestamp"],
+            r["event_type"],
+            r["source"],
+            r["detail"],
+            expected_prev,
+        )
+        if r["content_hash"] != expected_hash:
+            violations.append(
+                {
+                    "entry_id": r["entry_id"],
+                    "expected": expected_hash,
+                    "actual": r["content_hash"],
+                }
+            )
+        expected_prev = r["content_hash"]
+    return violations

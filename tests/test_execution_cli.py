@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 from pandas import DataFrame, date_range
 
 from ztb.cli import cli
+from ztb.execution.arm_auth import compute_arm_hash
+from ztb.execution.live_guard import LiveGuard
+
+_TEST_TOKEN = "brd-tkn"
+
+
+def _setup_arm(tmp_path: Path) -> Path:
+    """Set up board token + hash file, return hash path."""
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = _TEST_TOKEN
+    hash_path = tmp_path / "board-arm-hash"
+    hash_path.write_text(compute_arm_hash(_TEST_TOKEN))
+    return hash_path
+
+
+def _cleanup_arm() -> None:
+    LiveGuard.disarm()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
 
 
 def test_run_command_exists() -> None:
@@ -15,11 +34,10 @@ def test_run_command_exists() -> None:
     assert "Execute a strategy" in result.output or "Usage" in result.output
 
 
-def test_run_accepts_live_mode() -> None:
+def test_run_accepts_live_mode(tmp_path: Path) -> None:
     """--mode=live accepted when LiveGuard is armed."""
-    from ztb.execution.live_guard import LiveGuard
-
-    LiveGuard.arm()
+    hash_path = _setup_arm(tmp_path)
+    LiveGuard.arm(hash_path=hash_path)
     try:
         n = 200
         df = DataFrame(
@@ -46,12 +64,14 @@ def test_run_accepts_live_mode() -> None:
                     "--no-risk",
                     "--start=2026-01-01",
                     "--end=2026-01-03",
+                    "--db=:memory:",
                 ],
+                env=os.environ,
             )
         assert result.exit_code == 0, f"stderr={result.output}"
         assert "Mode:" in result.output
     finally:
-        LiveGuard.disarm()
+        _cleanup_arm()
 
 
 def test_run_rejects_unknown_strategy() -> None:

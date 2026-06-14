@@ -43,17 +43,17 @@ def format_backtest_result(result: BacktestResult) -> str:
     lines.append(header)
     lines.append(f"  {'-' * 66}")
     for label, m in [("FULL", result.full), ("IS", result.is_), ("OOS", result.oos)]:
-        credible = "\u2713" if m.credible else "\u2717"
+        sufficient = "\u2713" if m.sufficient_sample else "\u2717"
         lines.append(
             f"  {label:12s} {fmt_metric(m.total_return, 4):>10s} "
             f"{fmt_metric(m.sharpe, 3):>10s} {fmt_metric(m.max_drawdown, 4):>10s} "
             f"{str(m.num_trades):>8s} {fmt_metric(m.win_rate, 3):>8s} "
-            f"{fmt_metric(m.profit_factor, 3):>8s}  {credible}"
+            f"{fmt_metric(m.profit_factor, 3):>8s}  {sufficient}"
         )
-    if not result.full.credible:
-        lines.append(f"\n  Not credible: {result.full.reason}")
-    if not result.oos.credible:
-        lines.append(f"\n  OOS not credible: {result.oos.reason}")
+    if not result.full.sufficient_sample:
+        lines.append(f"\n  Insufficient sample: {result.full.reason}")
+    if not result.oos.sufficient_sample:
+        lines.append(f"\n  OOS insufficient sample: {result.oos.reason}")
     lines.append(sep)
     return "\n".join(lines)
 
@@ -73,15 +73,15 @@ def format_forwardtest_result(result: ForwardtestResult) -> str:
     lines.append(header)
     lines.append(f"  {'-' * 66}")
     m = result.metrics
-    credible = "\u2713" if m.credible else "\u2717"
+    sufficient = "\u2713" if m.sufficient_sample else "\u2717"
     lines.append(
         f"  {'FORWARD':12s} {fmt_metric(m.total_return, 4):>10s} "
         f"{fmt_metric(m.sharpe, 3):>10s} {fmt_metric(m.max_drawdown, 4):>10s} "
         f"{str(m.num_trades):>8s} {fmt_metric(m.win_rate, 3):>8s} "
-        f"{fmt_metric(m.profit_factor, 3):>8s}  {credible}"
+        f"{fmt_metric(m.profit_factor, 3):>8s}  {sufficient}"
     )
-    if not m.credible:
-        lines.append(f"\n  Not credible: {m.reason}")
+    if not m.sufficient_sample:
+        lines.append(f"\n  Insufficient sample: {m.reason}")
     if result.decay_score is not None:
         lines.append(f"\n  Decay score: {result.decay_score:.4f}")
     if result.decay_alarm is not None:

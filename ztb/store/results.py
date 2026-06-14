@@ -71,6 +71,20 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE runs ADD COLUMN {col} TEXT")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (3)")
+
+    # Schema v4: add sufficient_sample column (replaces credible)
+    try:
+        conn.execute("SELECT sufficient_sample FROM runs LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE runs ADD COLUMN sufficient_sample INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE runs SET sufficient_sample = credible WHERE credible IS NOT NULL")
+    try:
+        conn.execute("SELECT sufficient_sample FROM metrics LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE metrics ADD COLUMN sufficient_sample INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE metrics SET sufficient_sample = credible WHERE credible IS NOT NULL")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (4)")
     conn.commit()
 
 
@@ -87,7 +101,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
         conn.execute(
             """INSERT OR IGNORE INTO runs
                (run_id, strategy_name, symbol, timeframe, run_type, parameters,
-                splits, code_version, credible,
+                splits, code_version, sufficient_sample,
                 risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
                VALUES (?, ?, ?, ?, 'backtest', ?, ?, ?, ?,
                 ?, ?, ?, ?)""",
@@ -99,7 +113,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 json.dumps(result.parameters),
                 json.dumps(result.splits),
                 __version__,
-                1 if result.full.credible else 0,
+                1 if result.full.sufficient_sample else 0,
                 1 if result.risk_aware else 0,
                 result.max_portfolio_dd_realized,
                 result.kill_count,
@@ -112,7 +126,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                 """INSERT OR IGNORE INTO metrics
                    (run_id, scope, total_return, sharpe, sortino, max_drawdown,
                     max_drawdown_duration, num_trades, profit_factor, win_rate,
-                    turnover, exposure_time, credible, reason)
+                    turnover, exposure_time, sufficient_sample, reason)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
@@ -127,7 +141,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                     m.win_rate,
                     m.turnover,
                     m.exposure_time,
-                    1 if m.credible else 0,
+                    1 if m.sufficient_sample else 0,
                     m.reason,
                 ),
             )
@@ -208,7 +222,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
         conn.execute(
             """INSERT OR IGNORE INTO runs
                (run_id, strategy_name, symbol, timeframe, run_type, parameters,
-                splits, code_version, credible,
+                splits, code_version, sufficient_sample,
                 risk_aware, max_portfolio_dd_realized, kill_count, mean_gross_leverage)
                VALUES (?, ?, ?, ?, 'forward', ?, ?, ?, ?,
                 ?, ?, ?, ?)""",
@@ -220,7 +234,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 json.dumps(result.parameters),
                 json.dumps(splits),
                 __version__,
-                1 if result.metrics.credible else 0,
+                1 if result.metrics.sufficient_sample else 0,
                 1 if result.risk_aware else 0,
                 result.max_portfolio_dd_realized,
                 result.kill_count,
@@ -233,8 +247,8 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
             """INSERT OR IGNORE INTO metrics
                (run_id, scope, total_return, sharpe, sortino, max_drawdown,
                 max_drawdown_duration, num_trades, profit_factor, win_rate,
-                turnover, exposure_time, credible, reason)
-               VALUES (?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 turnover, exposure_time, sufficient_sample, reason)
+                VALUES (?, 'full', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id,
                 m.total_return,
@@ -247,7 +261,7 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                 m.win_rate,
                 m.turnover,
                 m.exposure_time,
-                1 if m.credible else 0,
+                1 if m.sufficient_sample else 0,
                 m.reason,
             ),
         )
@@ -321,7 +335,10 @@ def get_metrics(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-_RUN_COLS = "run_id, strategy_name, symbol, timeframe, run_type, code_version, created_at, credible"
+_RUN_COLS = (
+    "run_id, strategy_name, symbol, timeframe,"
+    " run_type, code_version, created_at, sufficient_sample"
+)
 
 
 def list_runs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -358,7 +375,7 @@ def best_runs(
                    r.created_at, m.{metric} AS metric_value
             FROM runs r
             JOIN metrics m ON m.run_id = r.run_id
-            WHERE m.scope = ? AND r.credible = 1 AND m.{metric} IS NOT NULL
+            WHERE m.scope = ? AND r.sufficient_sample = 1 AND m.{metric} IS NOT NULL
             ORDER BY m.{metric} DESC
             LIMIT ?""",
         (scope, limit),

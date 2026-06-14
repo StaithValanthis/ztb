@@ -91,13 +91,10 @@ def risk_adjusted_signals(
         if abs(delta) > 1e-12:
             comm_cost = abs(delta) * price * commission
             slip_cost = abs(delta) * price * slippage
-            if i == 0:
-                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
-            else:
-                realized_before = pnl.realized_pnl
-                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
-                trade_pnl = pnl.realized_pnl - realized_before
-                decisions[-1]["trade_pnl"] = trade_pnl
+            realized_before = pnl.realized_pnl
+            pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+            trade_pnl = pnl.realized_pnl - realized_before
+            decisions[-1]["trade_pnl"] = trade_pnl
 
         adjusted.append(final_target_frac)
 
@@ -141,24 +138,21 @@ def multi_symbol_portfolio(
             if abs(delta) > 1e-12:
                 comm_cost = abs(delta) * price * commission
                 slip_cost = abs(delta) * price * slippage
-                if i == 0:
-                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
-                else:
-                    realized_before = calc.realized_pnl
-                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
-                    trade_pnl = calc.realized_pnl - realized_before
-                    trades.append(
-                        {
-                            "timestamp": idx,
-                            "symbol": sym,
-                            "side": "buy" if delta > 0 else "sell",
-                            "price": price,
-                            "size": abs(delta),
-                            "pnl": trade_pnl,
-                            "commission": comm_cost,
-                            "slippage": slip_cost,
-                        }
-                    )
+                realized_before = calc.realized_pnl
+                calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+                trade_pnl = calc.realized_pnl - realized_before
+                trades.append(
+                    {
+                        "timestamp": idx,
+                        "symbol": sym,
+                        "side": "buy" if delta > 0 else "sell",
+                        "price": price,
+                        "size": abs(delta),
+                        "pnl": trade_pnl,
+                        "commission": comm_cost,
+                        "slippage": slip_cost,
+                    }
+                )
 
             total_equity += calc.equity(price)
 
