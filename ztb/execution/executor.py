@@ -16,6 +16,7 @@ from ztb.execution.bybit_client import BybitClient
 from ztb.execution.errors import (
     ClientError,
     ExecutionError,
+    PollingError,
 )
 from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
 from ztb.execution.killswitch import LiveKillSwitch
@@ -768,7 +769,11 @@ class Executor:
                         )
 
         if self.config.loop and not self.config.once:
-            self._run_polling_loop(data, symbol, timeframe, category)
+            try:
+                self._run_polling_loop(data, symbol, timeframe, category)
+            except PollingError as e:
+                self._save_error("PollingError", str(e))
+                self.state.errors.append(str(e))
 
         from ztb.store.exec_io import update_exec_run_status
 
@@ -826,4 +831,4 @@ class Executor:
                 self._save_error("PollingError", str(exc))
                 if consecutive_errors >= max_errors:
                     self.state.errors.append("Max polling errors reached — stopping")
-                    break
+                    raise PollingError(err_msg) from exc

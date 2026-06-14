@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ztb.execution.errors import ExecutionError
+from ztb.execution.errors import ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
 from ztb.execution.models import AccountState, Mode, Position
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
@@ -1062,20 +1062,19 @@ def test_polling_loop_error_retry_then_stop(
     exe._init_run()
     exe._init_store(":memory:")
 
-    original_step = exe.step
-
     call_count = 0
 
     def failing_step(data: pd.DataFrame) -> dict:
         nonlocal call_count
         call_count += 1
-        if call_count <= 3:
-            raise ValueError("poll error")
-        return original_step(data)
+        raise ValueError("poll error")
 
-    exe.step = failing_step
-    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
-    assert any("Max polling errors" in e for e in exe.state.errors)
+    exe.step = failing_step  # type: ignore[assignment]
+
+    with pytest.raises(PollingError, match="poll error"):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert call_count == 3
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2311,8 +2310,6 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
 
     result = exe.step(sample_data)
 
-    # Signal=0.5, equity=1000, price=50000 -> target=0.01 before cap
-    # After cap: max_qty = 500 * 2.0 / 50000 = 0.02, so still 0.01 (balance sufficient)
     assert result.get("order_skipped") is not True
     assert result["order_placed"] is True
 
@@ -2359,7 +2356,6 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     assert result["order_placed"] is True
     call_kwargs = mock_client.place_order.call_args.kwargs
     capped_qty = call_kwargs["qty"]
-    # max_qty = 50 * 1.0 / 50000 = 0.001
     assert capped_qty == 0.001
 
 
@@ -2461,7 +2457,6 @@ def test_balance_cap_does_not_apply_to_reduce_only(
     assert result["order_placed"] is True
     call_kwargs = mock_client.place_order.call_args.kwargs
     assert call_kwargs.get("reduce_only") is True
-    # Qty should be the full delta (not capped) even though available_balance is tiny
     assert call_kwargs["qty"] > 0.001
 
 
@@ -2490,3 +2485,30 @@ def test_balance_cap_does_not_apply_when_no_wallet_data(
 
     result = exe.step(sample_data)
     assert result["order_placed"] is True
+
+
+def test_polling_error_class_exists() -> None:
+    assert issubclass(PollingError, ExecutionError)
+    err = PollingError("test message")
+    assert str(err) == "test message"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_sigterm_no_polling_error(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    exe._sigterm_stop = True
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert not any("Max polling errors" in e for e in exe.state.errors)
