@@ -115,6 +115,8 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"UPDATE {tbl} SET sufficient_sample = credible WHERE credible IS NOT NULL"
             )
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (9)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS killswitch_state (
             exec_run_id TEXT PRIMARY KEY,
@@ -345,7 +347,9 @@ def get_kill_events(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str
     return [dict(r) for r in rows]
 
 
-def get_credible_pnl_ledger(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str, Any]]:
+def get_sufficient_sample_pnl_ledger(
+    conn: sqlite3.Connection, exec_run_id: str
+) -> list[dict[str, Any]]:
     sql = (
         "SELECT * FROM exec_pnl_ledger"
         " WHERE exec_run_id = ? AND sufficient_sample = 1 ORDER BY entry_id"

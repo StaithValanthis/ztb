@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import time as time_module
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,8 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
+
+logger = logging.getLogger(__name__)
 
 
 class Executor:
@@ -550,10 +553,10 @@ class Executor:
 
             # Real fill pipeline: fetch actual fills from exchange
             real_fills: list[dict[str, Any]] = []
+            from ztb.execution.reconcile import parse_fills as _parse_fills
+
             try:
                 raw_fills = self.client.get_executions(order_id=order_id)
-                from ztb.execution.reconcile import parse_fills as _parse_fills
-
                 for f in _parse_fills(raw_fills):
                     real_fills.append(
                         {
@@ -573,6 +576,11 @@ class Executor:
                         }
                     )
             except Exception:
+                logger.warning(
+                    "Failed to fetch fills for order %s, falling back to synthetic fill",
+                    order_id,
+                )
+                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
                 real_fills = []
 
             if real_fills:
@@ -591,12 +599,8 @@ class Executor:
                 )
                 self._sync_pnl_state()
                 result["real_fills"] = real_fills
-                for fill in real_fills:
-                    from ztb.store.exec_io import save_exec_fill
-
-                    save_exec_fill(self._store_conn, fill)
                 cum_exec_qty = total_fill_qty
-                cum_exec_value = sum(f["qty"] * f["price"] for f in real_fills)
+                cum_exec_value = sum(f["price"] * f["qty"] for f in real_fills)
                 cum_exec_fee = total_fill_commission
                 from ztb.store.exec_io import save_exec_order
 
@@ -620,6 +624,10 @@ class Executor:
                         "code_version": __version__,
                     },
                 )
+                for fill in real_fills:
+                    from ztb.store.exec_io import save_exec_fill
+
+                    save_exec_fill(self._store_conn, fill)
             else:
                 commission_cost = qty * close_price * self.config.commission
                 slippage_cost = qty * close_price * self.config.slippage

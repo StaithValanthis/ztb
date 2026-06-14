@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from ztb.store.exec_io import (
     get_exec_orders,
     get_exec_run,
     get_pnl_ledger,
+    get_sufficient_sample_pnl_ledger,
     list_exec_runs,
     log_audit_event,
     quarantine_corrupt_ledger_rows,
@@ -27,14 +29,11 @@ from ztb.store.exec_io import (
     update_exec_run_status,
     verify_audit_chain,
 )
-from ztb.store.exec_io import (
-    get_credible_pnl_ledger as get_sufficient_sample_pnl_ledger,
-)
 from ztb.store.results import connect
 
 
 @pytest.fixture
-def conn(tmp_path: Path) -> sqlite3.Connection:
+def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     db_path = str(tmp_path / "test_exec.db")
     c = connect(db_path)
     ensure_exec_tables(c)
@@ -538,8 +537,14 @@ def test_get_audit_log_ordering(conn: sqlite3.Connection) -> None:
     assert len(events_all) == 3
 
 
-def test_ensure_audit_table_schema_version(conn: sqlite3.Connection) -> None:
+def test_schema_meta_version_8(conn: sqlite3.Connection) -> None:
     ensure_audit_table(conn)
     row = conn.execute("SELECT version FROM schema_meta WHERE version = 8").fetchone()
     assert row is not None
     assert row["version"] == 8
+
+
+def test_schema_meta_version_9(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT version FROM schema_meta WHERE version = 9").fetchone()
+    assert row is not None
+    assert row["version"] == 9
