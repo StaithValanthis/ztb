@@ -302,4 +302,3 @@ class BybitClient:
 
     def close(self) -> None:
         self._client.close()
-
