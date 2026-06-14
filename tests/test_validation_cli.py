@@ -5,78 +5,43 @@ from click.testing import CliRunner
 from ztb.cli import cli
 
 
-def test_validate_group_exists() -> None:
+def test_validate_command_exists() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", "--help"])
+    assert result.exit_code == 0
+    assert "OOS validation gate" in result.output
+
+
+def test_validate_missing_strategy_exits_2() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", "nonexistent_strat", "BTCUSDT"])
+    assert result.exit_code == 2
+    assert "Error" in result.output
+
+
+def test_validate_has_all_options() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", "--help"])
+    assert "--walk-forward-windows" in result.output
+    assert "--train-ratio" in result.output
+    assert "--persist" in result.output
+    assert "--db" in result.output
+    assert "--cash" in result.output
+    assert "--commission" in result.output
+    assert "--slippage" in result.output
+    assert "--timeframe" in result.output
+    assert "--category" in result.output
+
+
+def test_validate_requires_strategy_and_symbol() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
-    assert result.exit_code == 0
-    assert "Validation commands" in result.output
-
-
-def test_validate_walkforward_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "walkforward", "--help"])
-    assert result.exit_code == 0
-    assert "Run walk-forward analysis" in result.output
-
-
-def test_validate_scorecard_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "scorecard", "--help"])
-    assert result.exit_code == 0
-    assert "validation scorecard" in result.output
-
-
-def test_validate_lookahead_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "lookahead", "--help"])
-    assert result.exit_code == 0
-    assert "look-ahead bias" in result.output.lower()
-
-
-def test_validate_dsr_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "dsr", "--help"])
-    assert result.exit_code == 0
-    assert "Deflated Sharpe" in result.output
-
-
-def test_validate_report_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "report", "--help"])
-    assert result.exit_code == 0
-    assert "validation results" in result.output
-
-
-def test_validate_walkforward_no_args_fails() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "walkforward"])
     assert result.exit_code != 0
     assert "Missing argument" in result.output
 
 
-def test_validate_dsr_no_args_fails() -> None:
+def test_validate_requires_symbol() -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "dsr"])
+    result = runner.invoke(cli, ["validate", "sma_cross"])
     assert result.exit_code != 0
     assert "Missing argument" in result.output
-
-
-def test_validate_scorecard_no_args_fails() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "scorecard"])
-    assert result.exit_code != 0
-    assert "Missing argument" in result.output
-
-
-def test_validate_lookahead_no_args_fails() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "lookahead"])
-    assert result.exit_code != 0
-    assert "Missing argument" in result.output
-
-
-def test_validate_report_no_args_defaults() -> None:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["validate", "report"])
-    assert result.exit_code == 0 or result.exit_code == 1
-    assert "No validation runs found" in result.output or "validation" in result.output.lower()

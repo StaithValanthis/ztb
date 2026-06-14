@@ -1,141 +1,119 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
-from ztb.engine.metrics import MetricsResult
-from ztb.validation.dsr import compute_dsr
-from ztb.validation.walkforward import WalkforwardResult
+from ztb.validation.deflated_sharpe import DeflatedSharpeResult
+from ztb.validation.lookahead import LookaheadResult
+from ztb.validation.walk_forward import WalkForwardResult
 
 
-@dataclass
-class Scorecard:
-    overall_score: float
-    oos_sharpe_score: float
-    dsr_score: float
-    walkforward_score: float
-    consistency_score: float
-    drawdown_score: float
-    details: dict[str, Any] = field(default_factory=dict)
+def evaluate_acceptance_criteria(
+    wf_result: WalkForwardResult,
+    dsr_result: DeflatedSharpeResult,
+    lookahead_result: LookaheadResult,
+    min_trades_total: int = 50,
+) -> dict[str, Any]:
+    criteria: list[dict[str, Any]] = []
+    agg = wf_result.aggregate
 
-
-def _sharpe_score(sharpe: float | None) -> float:
-    if sharpe is None or sharpe <= 0.0:
-        return 0.0
-    if sharpe >= 3.0:
-        return 1.0
-    return sharpe / 3.0
-
-
-def _dsr_weight(dsr: float) -> float:
-    return min(dsr, 1.0)
-
-
-def _walkforward_score(wf: WalkforwardResult | None) -> float:
-    if wf is None:
-        return 0.0
-    if wf.n_windows == 0:
-        return 0.0
-
-    scores: list[float] = []
-
-    if wf.avg_oos_sharpe is not None:
-        scores.append(_sharpe_score(wf.avg_oos_sharpe))
-
-    cv_sharpe = wf.sharpe_consistency
-    if cv_sharpe < 0.5:
-        scores.append(1.0)
-    elif cv_sharpe < 1.0:
-        scores.append(1.0 - (cv_sharpe - 0.5) * 2.0)
-    else:
-        scores.append(0.0)
-
-    valid_ratio = wf.all_windows_valid
-    scores.append(1.0 if valid_ratio else 0.3)
-
-    return sum(scores) / len(scores) if scores else 0.0
-
-
-def _consistency_score(wf: WalkforwardResult | None) -> float:
-    if wf is None or wf.n_windows < 2:
-        return 0.5
-
-    cv_sharpe = wf.sharpe_consistency
-    cv_return = wf.return_consistency
-    cv_maxdd = wf.maxdd_consistency
-
-    scores = [
-        1.0 / (1.0 + cv_sharpe),
-        1.0 / (1.0 + cv_return),
-        1.0 / (1.0 + cv_maxdd),
-    ]
-    return sum(scores) / len(scores)
-
-
-def _drawdown_score(max_drawdown: float | None) -> float:
-    if max_drawdown is None or max_drawdown >= 0.0:
-        return 0.0
-    dd_abs = abs(max_drawdown)
-    if dd_abs <= 0.05:
-        return 1.0
-    if dd_abs <= 0.10:
-        return 0.8
-    if dd_abs <= 0.20:
-        return 0.5
-    if dd_abs <= 0.30:
-        return 0.2
-    return 0.0
-
-
-def compute_scorecard(
-    oos_metrics: MetricsResult | None = None,
-    returns_series: Any = None,
-    walkforward_result: WalkforwardResult | None = None,
-    num_trials: int = 1,
-    periods_per_year: float = 365 * 24,
-) -> Scorecard:
-    oos_sharpe = oos_metrics.sharpe if oos_metrics else None
-    oos_maxdd = oos_metrics.max_drawdown if oos_metrics else None
-
-    sharpe_score = _sharpe_score(oos_sharpe)
-
-    if returns_series is not None and oos_sharpe is not None and oos_sharpe > 0:
-        dsr_val = compute_dsr(
-            sharpe=oos_sharpe,
-            returns=returns_series,
-            num_trials=num_trials,
-            periods_per_year=periods_per_year,
-        )
-    else:
-        dsr_val = 0.0
-
-    wf_s = _walkforward_score(walkforward_result)
-    cons_s = _consistency_score(walkforward_result)
-    dd_s = _drawdown_score(oos_maxdd)
-
-    weights = {"sharpe": 0.25, "dsr": 0.20, "walkforward": 0.25, "consistency": 0.15, "dd": 0.15}
-    overall = (
-        weights["sharpe"] * sharpe_score
-        + weights["dsr"] * dsr_val
-        + weights["walkforward"] * wf_s
-        + weights["consistency"] * cons_s
-        + weights["dd"] * dd_s
+    oos_sharpe = agg.sharpe if agg.sharpe is not None else 0.0
+    c1 = oos_sharpe >= 0.5
+    criteria.append(
+        {
+            "id": 1,
+            "name": "OOS Sharpe (cost-aware)",
+            "pass": c1,
+            "value": oos_sharpe,
+            "threshold": ">= 0.5",
+        }
     )
 
-    return Scorecard(
-        overall_score=round(overall, 4),
-        oos_sharpe_score=round(sharpe_score, 4),
-        dsr_score=round(dsr_val, 4),
-        walkforward_score=round(wf_s, 4),
-        consistency_score=round(cons_s, 4),
-        drawdown_score=round(dd_s, 4),
-        details={
-            "weights": weights,
-            "oos_sharpe": oos_sharpe,
-            "num_trials": num_trials,
-            "n_walkforward_windows": walkforward_result.n_windows if walkforward_result else 0,
-            "all_windows_valid": bool(
-                walkforward_result and walkforward_result.all_windows_valid
-            ),
-        },
+    c2 = dsr_result.is_significant
+    criteria.append(
+        {
+            "id": 2,
+            "name": "Deflated Sharpe ratio",
+            "pass": c2,
+            "value": dsr_result.dsr,
+            "threshold": ">= 0.95",
+        }
     )
+
+    max_dd = agg.max_drawdown if agg.max_drawdown is not None else 0.0
+    c3 = max_dd >= -0.25
+    criteria.append(
+        {
+            "id": 3,
+            "name": "OOS max DD",
+            "pass": c3,
+            "value": max_dd,
+            "threshold": "<= 25%",
+        }
+    )
+
+    win_rate = agg.win_rate if agg.win_rate is not None else 0.0
+    c4 = win_rate >= 0.30
+    criteria.append(
+        {
+            "id": 4,
+            "name": "OOS win rate",
+            "pass": c4,
+            "value": win_rate,
+            "threshold": ">= 30%",
+        }
+    )
+
+    c5 = wf_result.n_windows_credible >= 3
+    criteria.append(
+        {
+            "id": 5,
+            "name": "Walk-forward credible windows",
+            "pass": c5,
+            "value": wf_result.n_windows_credible,
+            "threshold": ">= 3",
+        }
+    )
+
+    stability = wf_result.stability if wf_result.stability is not None else 999.0
+    c6 = stability <= 0.5
+    criteria.append(
+        {
+            "id": 6,
+            "name": "Walk-forward stability",
+            "pass": c6,
+            "value": stability,
+            "threshold": "<= 0.5",
+        }
+    )
+
+    c7 = lookahead_result.passed
+    criteria.append(
+        {
+            "id": 7,
+            "name": "Look-ahead tripwire",
+            "pass": c7,
+            "value": "PASS" if c7 else "FAIL",
+            "threshold": "PASS",
+        }
+    )
+
+    total_trades = agg.num_trades
+    c8 = total_trades >= min_trades_total
+    criteria.append(
+        {
+            "id": 8,
+            "name": "Min trades OOS",
+            "pass": c8,
+            "value": total_trades,
+            "threshold": f">= {min_trades_total}",
+        }
+    )
+
+    overall_pass = all(c["pass"] for c in criteria)
+    exit_code = 0 if overall_pass else 1
+
+    return {
+        "pass": overall_pass,
+        "exit_code": exit_code,
+        "criteria": criteria,
+    }

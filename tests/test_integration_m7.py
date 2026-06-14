@@ -211,18 +211,15 @@ def test_cli_run_dry_run() -> None:
 
 
 def test_validate_command_group() -> None:
-    """ztb validate is now a command group with subcommands."""
+    """ztb validate is now a single command requiring strategy and symbol args."""
     proc = subprocess.run(
-        [sys.executable, "-m", "ztb.cli", "validate"],
+        [sys.executable, "-m", "ztb.cli", "validate", "--help"],
         capture_output=True,
         text=True,
         timeout=15,
     )
     assert proc.returncode == 0
-    assert "Validation commands" in proc.stdout
-    assert "walkforward" in proc.stdout
-    assert "scorecard" in proc.stdout
-    assert "lookahead" in proc.stdout
+    assert "OOS validation gate" in proc.stdout
 
 
 def test_strategy_sma_cross_no_regression(strat_and_data) -> None:

@@ -1,83 +1,149 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-import pytest
 from pandas import DataFrame, Series
 
-from ztb.validation.lookahead import LookaheadReport, check_lookahead, _same_bar
+from ztb.strategies.base import Strategy
+from ztb.validation.lookahead import LookaheadResult, run_lookahead_tripwire
 
 
-def _sample_df(n: int = 100) -> DataFrame:
-    return DataFrame(
+class SmaCross(Strategy):
+    name = "sma_cross"
+    symbols = []
+    timeframe = "60"
+    params = {}
+    warmup = 20
+
+    def generate_signals(self, df: DataFrame) -> Series:
+        close = df["close"]
+        fast = close.rolling(5).mean()
+        slow = close.rolling(20).mean()
+        signal = Series(0.0, index=df.index)
+        signal[fast > slow] = 1.0
+        signal[fast < slow] = -1.0
+        return signal.shift(1).fillna(0.0)
+
+
+class BrokenStrat(Strategy):
+    name = "broken"
+    symbols = []
+    timeframe = "60"
+    params = {}
+    warmup = 0
+
+    def generate_signals(self, df: DataFrame) -> Series:
+        close = df["close"]
+        return close.shift(-1).fillna(0.0)
+
+
+class LookaheadByOHLCStrat(Strategy):
+    name = "lookahead_ohlc"
+    symbols = []
+    timeframe = "60"
+    params = {}
+    warmup = 0
+
+    def generate_signals(self, df: DataFrame) -> Series:
+        high = df["high"]
+        return high.shift(-1).fillna(0.0)
+
+
+class CloseOnlyStrat(Strategy):
+    name = "close_only"
+    symbols = []
+    timeframe = "60"
+    params = {}
+    warmup = 0
+
+    def generate_signals(self, df: DataFrame) -> Series:
+        close = df["close"]
+        fast = close.rolling(5).mean()
+        slow = close.rolling(20).mean()
+        signal = Series(0.0, index=df.index)
+        signal[fast > slow] = 1.0
+        signal[fast < slow] = -1.0
+        return signal.shift(1).fillna(0.0)
+
+
+def _make_clean_data(n: int = 200) -> DataFrame:
+    np.random.seed(42)
+    idx = pd.date_range("2020-01-01", periods=n, freq="h")
+    close = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
+    data = DataFrame(
         {
-            "open": [100.0 + i * 0.1 for i in range(n)],
-            "high": [101.0 + i * 0.1 for i in range(n)],
-            "low": [99.0 + i * 0.1 for i in range(n)],
-            "close": [100.0 + i * 0.1 for i in range(n)],
-            "volume": [1000.0] * n,
+            "open": close * 0.999,
+            "high": close * 1.002,
+            "low": close * 0.998,
+            "close": close,
+            "volume": np.random.uniform(800, 1200, n),
         },
-        index=pd.date_range("2020-01-01", periods=n, freq="h"),
+        index=idx,
     )
+    return data
 
 
-def test_check_lookahead_returns_report() -> None:
-    df = _sample_df()
-    signals = Series(0.0, index=df.index)
-    report = check_lookahead(signals, df)
-    assert isinstance(report, LookaheadReport)
+def _data_factory(data: DataFrame):
+    def _factory() -> DataFrame:
+        return data[["open", "high", "low", "close", "volume"]].copy()
+
+    return _factory
 
 
-def test_flat_signals_always_pass() -> None:
-    df = _sample_df()
-    signals = Series(0.0, index=df.index)
-    report = check_lookahead(signals, df)
-    assert report.passed
-    assert report.score == 1.0
+def test_sma_cross_passes() -> None:
+    data = _make_clean_data(300)
+    strat = SmaCross()
+    result = run_lookahead_tripwire(strat, _data_factory(data))
+    assert result.passed
+    assert result.mode == "frame"
+    assert result.bars_checked > 0
 
 
-def test_signal_length_mismatch() -> None:
-    df = _sample_df(100)
-    signals = Series(0.0, index=df.index[:50])
-    report = check_lookahead(signals, df)
-    assert not report.passed
-    assert report.score == 0.0
+def test_broken_strategy_fails() -> None:
+    data = _make_clean_data(200)
+    strat = BrokenStrat()
+    result = run_lookahead_tripwire(strat, _data_factory(data))
+    assert not result.passed
+    assert len(result.details) > 0
 
 
-def test_warmup_nonzero_is_flagged() -> None:
-    df = _sample_df(100)
-    signals = Series(0.0, index=df.index)
-    signals.iloc[2] = 0.5
-    report = check_lookahead(signals, df, warmup=10)
-    assert not report.passed
-    assert not report.warmup_enforced
-    assert any("Warmup" in d for d in report.details)
+def test_lookahead_ohlc_strategy_fails() -> None:
+    data = _make_clean_data(200)
+    strat = LookaheadByOHLCStrat()
+    result = run_lookahead_tripwire(strat, _data_factory(data))
+    assert not result.passed
+    assert len(result.details) > 0
 
 
-def test_warmup_zero_is_fine() -> None:
-    df = _sample_df(100)
-    signals = Series(0.0, index=df.index)
-    signals.iloc[10] = 0.5
-    report = check_lookahead(signals, df, warmup=0)
-    assert report.passed
-    assert report.score == 1.0
+def test_close_only_passes_with_all_columns_corrupted() -> None:
+    data = _make_clean_data(200)
+    strat = CloseOnlyStrat()
+    result = run_lookahead_tripwire(strat, _data_factory(data))
+    assert result.passed
 
 
-def test_future_trades_flagged() -> None:
-    from datetime import datetime
-
-    df = _sample_df(100)
-    signals = Series(0.0, index=df.index)
-    trades = [
-        {"timestamp": pd.Timestamp("2025-01-01"), "side": "Buy", "price": 105.0, "size": 1.0, "pnl": 0.0},
-    ]
-    timestamps = list(df.index)
-    report = check_lookahead(signals, df, trades=trades, timestamps=timestamps)
-    assert report.trades_use_future_close
+def test_empty_data_returns_pass() -> None:
+    empty = DataFrame(columns=["open", "high", "low", "close", "volume"])
+    strat = SmaCross()
+    result = run_lookahead_tripwire(strat, lambda: empty)
+    assert result.passed
+    assert result.bars_checked == 0
 
 
-def test_same_bar() -> None:
-    assert _same_bar(100.0, 100.0)
-    assert _same_bar(100.0, 100.0000001)
-    assert _same_bar(100.0, 100.001) is False
-    assert _same_bar(0.0, 0.0)
-    assert _same_bar(-1.0, -1.0)
+def test_result_type() -> None:
+    data = _make_clean_data(200)
+    strat = SmaCross()
+    result = run_lookahead_tripwire(strat, _data_factory(data))
+    assert isinstance(result, LookaheadResult)
+    assert isinstance(result.passed, bool)
+    assert isinstance(result.details, list)
+    assert isinstance(result.bars_checked, int)
+    assert isinstance(result.mode, str)
+
+
+def test_missing_columns_detected() -> None:
+    bad_data = DataFrame({"close": [100.0] * 50})
+    strat = SmaCross()
+    result = run_lookahead_tripwire(strat, lambda: bad_data)
+    assert not result.passed
+    assert any("Missing" in d for d in result.details)

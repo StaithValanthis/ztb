@@ -78,55 +78,7 @@ CREATE TABLE IF NOT EXISTS risk_decisions (
 
 CREATE INDEX IF NOT EXISTS idx_risk_decisions_run ON risk_decisions(run_id);
 
-CREATE TABLE IF NOT EXISTS validation_runs (
-    val_run_id TEXT PRIMARY KEY,
-    strategy_name TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    timeframe TEXT NOT NULL,
-    val_type TEXT NOT NULL DEFAULT 'walkforward',
-    n_windows INTEGER NOT NULL DEFAULT 0,
-    avg_oos_sharpe REAL,
-    avg_oos_return REAL,
-    avg_oos_maxdd REAL,
-    avg_oos_trades REAL NOT NULL DEFAULT 0.0,
-    sharpe_consistency REAL,
-    return_consistency REAL,
-    maxdd_consistency REAL,
-    all_windows_valid INTEGER NOT NULL DEFAULT 0,
-    overall_score REAL,
-    sharpe_score REAL,
-    dsr_score REAL,
-    walkforward_score REAL,
-    consistency_score REAL,
-    drawdown_score REAL,
-    parameters TEXT NOT NULL DEFAULT '{}',
-    details TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 
-CREATE TABLE IF NOT EXISTS validation_windows (
-    window_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    val_run_id TEXT NOT NULL REFERENCES validation_runs(val_run_id),
-    window_idx INTEGER NOT NULL,
-    train_start INTEGER NOT NULL,
-    train_end INTEGER NOT NULL,
-    test_start INTEGER NOT NULL,
-    test_end INTEGER NOT NULL,
-    train_duration_bars INTEGER NOT NULL DEFAULT 0,
-    test_duration_bars INTEGER NOT NULL DEFAULT 0,
-    train_sharpe REAL,
-    train_return REAL,
-    train_maxdd REAL,
-    train_trades INTEGER NOT NULL DEFAULT 0,
-    test_sharpe REAL,
-    test_return REAL,
-    test_maxdd REAL,
-    test_trades INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(val_run_id, window_idx)
-);
-
-CREATE INDEX IF NOT EXISTS idx_val_windows_run ON validation_windows(val_run_id);
-CREATE INDEX IF NOT EXISTS idx_val_runs_score ON validation_runs(overall_score);
 
 INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
 INSERT OR IGNORE INTO schema_meta (version) VALUES (2);
