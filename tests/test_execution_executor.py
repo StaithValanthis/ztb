@@ -1055,20 +1055,19 @@ def test_polling_loop_error_retry_then_stop(
     exe._init_run()
     exe._init_store(":memory:")
 
-    original_step = exe.step
-
     call_count = 0
 
     def failing_step(data: pd.DataFrame) -> dict:
         nonlocal call_count
         call_count += 1
-        if call_count <= 3:
-            raise ValueError("poll error")
-        return original_step(data)
+        raise ValueError("poll error")
 
-    exe.step = failing_step
-    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
-    assert any("Max polling errors" in e for e in exe.state.errors)
+    exe.step = failing_step  # type: ignore[assignment]
+
+    with pytest.raises(PollingError, match="poll error"):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert call_count == 3
 
 
 @patch("ztb.execution.executor.load_data")
@@ -1116,35 +1115,6 @@ def test_polling_error_class_exists() -> None:
     assert issubclass(PollingError, ExecutionError)
     err = PollingError("test")
     assert str(err) == "test"
-
-
-@patch("ztb.execution.executor.load_data")
-@patch("ztb.execution.executor.time_module.sleep")
-def test_polling_loop_raises_polling_error(
-    mock_sleep: MagicMock,
-    mock_load: MagicMock,
-    fake_strategy: FakeStrategy,
-    sample_data: pd.DataFrame,
-) -> None:
-    mock_load.return_value = sample_data
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
-    exe = Executor(fake_strategy, config=config)
-    exe._init_run()
-    exe._init_store(":memory:")
-
-    call_count = 0
-
-    def failing_step(data: pd.DataFrame) -> dict:
-        nonlocal call_count
-        call_count += 1
-        raise ValueError("poll error")
-
-    exe.step = failing_step  # type: ignore[assignment]
-
-    with pytest.raises(PollingError, match="poll error"):
-        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
-
-    assert call_count == 3
 
 
 @patch("ztb.execution.executor.load_data")
