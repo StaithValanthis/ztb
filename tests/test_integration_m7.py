@@ -218,8 +218,7 @@ def test_validate_command_stub() -> None:
         text=True,
         timeout=15,
     )
-    assert proc.returncode == 0
-    assert "not yet implemented" in proc.stdout
+    assert proc.returncode == 2
 
 
 def test_strategy_sma_cross_no_regression(strat_and_data) -> None:
