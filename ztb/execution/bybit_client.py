@@ -300,5 +300,17 @@ class BybitClient:
         except Exception:
             pass
 
+    def top_up_demo_account(self, coin: str, amount: str) -> dict[str, Any]:
+        if self._config.mode != Mode.DEMO:
+            return {}
+        try:
+            body = {
+                "adjustType": 0,
+                "utaDemoApplyMoney": [{"coin": coin, "amountStr": amount}],
+            }
+            return self._request("POST", "/v5/account/demo-apply-money", body=body)
+        except Exception:
+            return {}
+
     def close(self) -> None:
         self._client.close()

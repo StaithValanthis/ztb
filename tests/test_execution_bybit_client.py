@@ -805,3 +805,58 @@ def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
     assert "GET /v5/account/wallet-balance: success" in api_events[0]["detail"]
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+
+
+# ---------------------------------------------------------------------------
+# top_up_demo_account
+# ---------------------------------------------------------------------------
+
+
+def test_top_up_demo_account_calls_api() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        mock_request.return_value = {"result": "ok"}
+        result = client.top_up_demo_account("USDT", "100000")
+        mock_request.assert_called_once_with(
+            "POST",
+            "/v5/account/demo-apply-money",
+            body={
+                "adjustType": 0,
+                "utaDemoApplyMoney": [{"coin": "USDT", "amountStr": "100000"}],
+            },
+        )
+        assert result == {"result": "ok"}
+    client.close()
+
+
+def test_top_up_demo_account_live_mode_skips() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
+    from ztb.execution.arm_auth import compute_arm_hash
+    from ztb.execution.live_guard import LiveGuard
+
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
+    hp = Path("/tmp/test-arm-hash-top-up-live")
+    hp.write_text(compute_arm_hash("test-token"))
+    LiveGuard.arm("1", hash_path=hp)
+    try:
+        client = BybitClient(cfg)
+        with patch.object(client, "_request") as mock_request:
+            result = client.top_up_demo_account("USDT", "100000")
+            mock_request.assert_not_called()
+            assert result == {}
+        client.close()
+    finally:
+        LiveGuard.disarm()
+        os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+        hp.unlink(missing_ok=True)
+
+
+def test_top_up_demo_account_exception_returns_empty() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        mock_request.side_effect = Exception("API error")
+        result = client.top_up_demo_account("USDT", "100000")
+        assert result == {}
+    client.close()
