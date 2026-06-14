@@ -83,14 +83,25 @@ class ExecRunConfig:
     mode: Mode = Mode.DEMO
     dry_run: bool = False
     once: bool = False
+    loop: bool | None = None
+    poll_interval_seconds: float | None = None
     initial_cash: float = 100_000.0
     commission: float = 0.0005
     slippage: float = 0.0005
     asset_precision: int = 8
     warmup_bars: int = 100
+    lookback_bars: int | None = None
     risk_enabled: bool = True
     max_position_pct: float = 0.50
     max_leverage: float = 3.0
+
+    def __post_init__(self) -> None:
+        if self.loop is None:
+            self.loop = self.mode == Mode.DEMO and not self.once and not self.dry_run
+        if self.poll_interval_seconds is None:
+            self.poll_interval_seconds = 60
+        if self.lookback_bars is None:
+            self.lookback_bars = 0
 
 
 @dataclass

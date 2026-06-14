@@ -6,6 +6,8 @@ from typing import Any
 import pandas as pd
 from pandas import Series
 
+from ztb.engine.pnl import PnLCalculator
+
 
 @dataclass
 class PortfolioState:
@@ -24,77 +26,49 @@ def single_symbol_portfolio(
     commission: float = 0.0005,
     slippage: float = 0.0005,
 ) -> PortfolioState:
-    cash = initial_cash
-    pos = 0.0
-    avg_price = 0.0
+    pnl = PnLCalculator(initial_cash=initial_cash)
     trades: list[dict[str, Any]] = []
     equity: list[float] = []
     timestamps: list[pd.Timestamp] = []
 
     for i, idx in enumerate(signals.index):
         price = float(close.iloc[i])
-        target = float(signals.iloc[i])
+        target_frac = float(signals.iloc[i])
+        current_equity = pnl.equity(price)
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+        delta = target_qty - pnl.position
 
-        pnl = 0.0
-
-        if i == 0:
-            if abs(target) > 0:
-                avg_price = price
-            pos = target
-        elif abs(target - pos) > 1e-12:
-            delta = target - pos
-
-            if pos > 0:
-                if target > 0:
-                    if delta > 0:
-                        avg_price = (avg_price * pos + delta * price) / target
-                    else:
-                        pnl = (price - avg_price) * abs(delta)
-                else:
-                    pnl = (price - avg_price) * pos
-                    avg_price = price if target < 0 else 0.0
-            elif pos < 0:
-                if target < 0:
-                    if delta < 0:
-                        avg_price = (avg_price * abs(pos) + abs(delta) * price) / abs(target)
-                    else:
-                        pnl = (avg_price - price) * abs(delta)
-                else:
-                    pnl = (avg_price - price) * abs(pos)
-                    avg_price = price if target > 0 else 0.0
+        if abs(delta) > 1e-12:
+            if i == 0:
+                comm_cost = abs(delta) * price * commission
+                slip_cost = abs(delta) * price * slippage
+                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
             else:
-                avg_price = price
+                realized_before = pnl.realized_pnl
+                comm_cost = abs(delta) * price * commission
+                slip_cost = abs(delta) * price * slippage
+                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+                trade_pnl = pnl.realized_pnl - realized_before
+                trades.append(
+                    {
+                        "timestamp": idx,
+                        "side": "buy" if delta > 0 else "sell",
+                        "price": price,
+                        "size": abs(delta),
+                        "pnl": trade_pnl,
+                        "commission": comm_cost,
+                        "slippage": slip_cost,
+                    }
+                )
 
-            costs = abs(delta) * price * (commission + slippage)
-            net_pnl = pnl - costs
-
-            if abs(delta) > 0:
-                if delta > 0:
-                    cash -= delta * price * (1 + commission + slippage)
-                else:
-                    cash += abs(delta) * price * (1 - commission - slippage)
-
-            trades.append(
-                {
-                    "timestamp": idx,
-                    "side": "buy" if delta > 0 else "sell",
-                    "price": price,
-                    "size": abs(delta),
-                    "pnl": net_pnl,
-                    "commission": abs(delta) * price * commission,
-                    "slippage": abs(delta) * price * slippage,
-                }
-            )
-
-            pos = target
-
-        equity.append(cash + pos * price)
+        equity.append(pnl.equity(price))
         timestamps.append(idx)
 
+    cash = equity[-1] - pnl.position * float(close.iloc[-1]) if len(equity) > 0 else initial_cash
     return PortfolioState(
         cash=cash,
-        position=pos,
-        positions={"": pos},
+        position=pnl.position,
+        positions={"": pnl.position},
         equity=equity,
         timestamps=timestamps,
         trades=trades,
@@ -113,86 +87,61 @@ def multi_symbol_portfolio(
         return PortfolioState(cash=initial_cash, position=0.0, positions={})
 
     index = signals[symbols[0]].index
-    cash = initial_cash
-    positions: dict[str, float] = {sym: 0.0 for sym in symbols}
-    avg_prices: dict[str, float] = {sym: 0.0 for sym in symbols}
+    pnl_calculators: dict[str, PnLCalculator] = {
+        sym: PnLCalculator(initial_cash=initial_cash / len(symbols)) for sym in symbols
+    }
     trades: list[dict[str, Any]] = []
-    equity: list[float] = []
+    equity_list: list[float] = []
     timestamps: list[pd.Timestamp] = []
 
     for i, idx in enumerate(index):
+        pre_trade_equity = sum(
+            pnl_calculators[sym].equity(float(closes[sym].iloc[i])) for sym in symbols
+        )
+        total_equity = 0.0
         for sym in symbols:
             price = float(closes[sym].iloc[i])
-            target = float(signals[sym].iloc[i])
-            pos = positions[sym]
-            avg_price = avg_prices[sym]
+            target_frac = float(signals[sym].iloc[i])
+            calc = pnl_calculators[sym]
+            target_qty = target_frac * pre_trade_equity / price if price > 0 else 0.0
+            delta = target_qty - calc.position
 
-            pnl = 0.0
-
-            if i == 0:
-                if abs(target) > 0:
-                    avg_prices[sym] = price
-                positions[sym] = target
-            elif abs(target - pos) > 1e-12:
-                delta = target - pos
-
-                if pos > 0:
-                    if target > 0:
-                        if delta > 0:
-                            avg_prices[sym] = (avg_price * pos + delta * price) / target
-                        else:
-                            pnl = (price - avg_price) * abs(delta)
-                    else:
-                        pnl = (price - avg_price) * pos
-                        avg_prices[sym] = price if target < 0 else 0.0
-                elif pos < 0:
-                    if target < 0:
-                        if delta < 0:
-                            avg_prices[sym] = (avg_price * abs(pos) + abs(delta) * price) / abs(
-                                target
-                            )
-                        else:
-                            pnl = (avg_price - price) * abs(delta)
-                    else:
-                        pnl = (avg_price - price) * abs(pos)
-                        avg_prices[sym] = price if target > 0 else 0.0
+            if abs(delta) > 1e-12:
+                if i == 0:
+                    comm_cost = abs(delta) * price * commission
+                    slip_cost = abs(delta) * price * slippage
+                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
                 else:
-                    avg_prices[sym] = price
+                    realized_before = calc.realized_pnl
+                    comm_cost = abs(delta) * price * commission
+                    slip_cost = abs(delta) * price * slippage
+                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+                    trade_pnl = calc.realized_pnl - realized_before
+                    trades.append(
+                        {
+                            "timestamp": idx,
+                            "symbol": sym,
+                            "side": "buy" if delta > 0 else "sell",
+                            "price": price,
+                            "size": abs(delta),
+                            "pnl": trade_pnl,
+                            "commission": comm_cost,
+                            "slippage": slip_cost,
+                        }
+                    )
 
-                costs = abs(delta) * price * (commission + slippage)
-                net_pnl = pnl - costs
+            total_equity += calc.equity(price)
 
-                if abs(delta) > 0:
-                    if delta > 0:
-                        cash -= delta * price * (1 + commission + slippage)
-                    else:
-                        cash += abs(delta) * price * (1 - commission - slippage)
-
-                trades.append(
-                    {
-                        "timestamp": idx,
-                        "symbol": sym,
-                        "side": "buy" if delta > 0 else "sell",
-                        "price": price,
-                        "size": abs(delta),
-                        "pnl": net_pnl,
-                        "commission": abs(delta) * price * commission,
-                        "slippage": abs(delta) * price * slippage,
-                    }
-                )
-
-                positions[sym] = target
-
-        total_equity = cash + sum(positions[sym] * float(closes[sym].iloc[i]) for sym in symbols)
-        equity.append(total_equity)
+        equity_list.append(total_equity)
         timestamps.append(idx)
 
+    positions = {sym: calc.position for sym, calc in pnl_calculators.items()}
     total_position = sum(abs(v) for v in positions.values())
     return PortfolioState(
-        cash=cash,
+        cash=initial_cash,
         position=total_position * (1 if any(v > 0 for v in positions.values()) else -1),
         positions=positions,
-        equity=equity,
+        equity=equity_list,
         timestamps=timestamps,
         trades=trades,
     )

@@ -16,8 +16,11 @@ class ReconcileReport:
     unexpected_fills: list[dict[str, Any]] = field(default_factory=list)
     expected_position: float = 0.0
     actual_position: float = 0.0
+    actual_avg_price: float = 0.0
     expected_pnl: float = 0.0
     actual_pnl: float = 0.0
+    actual_wallet_balance: float = 0.0
+    actual_equity: float = 0.0
     issues: list[str] = field(default_factory=list)
     reconciled: bool = False
     irreconcilable: bool = False
@@ -55,6 +58,7 @@ def reconcile_account(
     if exp_pos is not None and act_pos is not None:
         report.expected_position = exp_pos.size
         report.actual_position = act_pos.size
+        report.actual_avg_price = act_pos.avg_price
         report.position_drift = act_pos.size - exp_pos.size
     elif exp_pos is not None:
         report.expected_position = exp_pos.size
@@ -63,6 +67,7 @@ def reconcile_account(
     elif act_pos is not None:
         report.expected_position = 0.0
         report.actual_position = act_pos.size
+        report.actual_avg_price = act_pos.avg_price
         report.position_drift = act_pos.size
 
     if abs(report.position_drift) > tolerance:
@@ -71,6 +76,8 @@ def reconcile_account(
             f"actual={report.actual_position:.6f}"
         )
     report.actual_pnl = actual.unrealized_pnl
+    report.actual_wallet_balance = actual.wallet_balance
+    report.actual_equity = actual.total_equity
     report.matched = len(report.issues) == 0
     return report
 

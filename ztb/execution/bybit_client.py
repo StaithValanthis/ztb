@@ -48,6 +48,7 @@ class BybitClient:
                 self._time_synced = self.get_server_time()
             except Exception:
                 self._time_synced = 0
+        self._instrument_cache: dict[str, dict[str, Any]] = {}
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
         payload = f"{timestamp}{self._config.api_key}{_RECV_WINDOW}{body}"
@@ -139,6 +140,10 @@ class BybitClient:
         reduce_only: bool = False,
         category: str = "linear",
     ) -> dict[str, Any]:
+        validated = self._validate_qty(symbol, qty, category)
+        if validated.get("skipped"):
+            return validated
+        qty = validated["qty"]
         body: dict[str, Any] = {
             "category": category,
             "symbol": symbol,
@@ -236,6 +241,49 @@ class BybitClient:
         result = self._request("GET", "/v5/market/time")
         return int(result.get("timeSecond", 0))
 
+    def get_instrument_info(
+        self,
+        symbol: str,
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        cache_key = f"{category}:{symbol}"
+        if cache_key in self._instrument_cache:
+            return self._instrument_cache[cache_key]
+        result = self._request(
+            "GET",
+            "/v5/market/instruments-info",
+            params={"category": category, "symbol": symbol},
+        )
+        items: list[dict[str, Any]] = result.get("list", [])
+        info = items[0] if items else {}
+        self._instrument_cache[cache_key] = info
+        return info
+
+    @staticmethod
+    def round_to_step(qty: float, qty_step: float) -> float:
+        if qty_step <= 0:
+            return qty
+        floored = int(qty / qty_step) * qty_step
+        return round(floored, 8)
+
+    def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
+        info = self.get_instrument_info(symbol, category)
+        ls = info.get("lotSizeFilter", {})
+        qty_step = float(ls.get("qtyStep", "0.001"))
+        min_qty = float(ls.get("minOrderQty", "0"))
+        max_qty = float(ls.get("maxOrderQty", "0"))
+
+        qty = self.round_to_step(qty, qty_step)
+
+        if qty < min_qty - 1e-12:
+            return {
+                "skipped": True,
+                "reason": f"Qty {qty} below minOrderQty {min_qty} for {symbol}",
+            }
+        if max_qty > 0 and qty > max_qty + 1e-12:
+            qty = self.round_to_step(max_qty, qty_step)
+        return {"skipped": False, "qty": qty}
+
     def _log_audit(self, event_type: str, detail: str) -> None:
         store_path = self._config.store_path
         if not store_path:
@@ -254,3 +302,4 @@ class BybitClient:
 
     def close(self) -> None:
         self._client.close()
+

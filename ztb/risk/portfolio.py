@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 from pandas import Series
 
+from ztb.engine.pnl import PnLCalculator
 from ztb.risk.dd_budget import dd_budget_scalar
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskDecisionAction
@@ -29,26 +30,27 @@ def risk_adjusted_signals(
     commission: float = 0.0005,
     slippage: float = 0.0005,
 ) -> tuple[Series, list[dict[str, Any]], list[float]]:
-    cash = initial_cash
-    pos = 0.0
+    pnl = PnLCalculator(initial_cash=initial_cash)
     decisions: list[dict[str, Any]] = []
     adjusted: list[float] = []
     equity_values: list[float] = []
 
     for i, idx in enumerate(signals.index):
         price = float(close.iloc[i])
-        target = float(signals.iloc[i])
-        current_equity = cash + pos * price
+        target_frac = float(signals.iloc[i])
+        current_equity = pnl.equity(price)
         equity_values.append(current_equity)
 
         if i == 0:
             risk_manager.kill_switch.update(current_equity)
 
+        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+
         portfolio_state: dict[str, Any] = {
-            "cash": cash,
-            "positions": {"_": pos},
+            "cash": initial_cash,
+            "positions": {"_": pnl.position},
         }
-        proposed = {"_": target}
+        proposed = {"_": target_qty}
         prices = {"_": price}
 
         decision = risk_manager.evaluate(
@@ -56,7 +58,7 @@ def risk_adjusted_signals(
         )
 
         if decision.action == RiskDecisionAction.halt:
-            target = 0.0
+            target_frac = 0.0
 
         current_dd = risk_manager._compute_current_dd(current_equity)
         scalar = 1.0
@@ -67,7 +69,8 @@ def risk_adjusted_signals(
                 risk_manager.config.dd_budget_scalar_power,
             )
 
-        final_target = target * scalar
+        final_target_frac = target_frac * scalar
+        final_target_qty = final_target_frac * current_equity / price if price > 0 else 0.0
 
         decisions.append(
             {
@@ -84,20 +87,24 @@ def risk_adjusted_signals(
             }
         )
 
-        delta = final_target - pos
+        delta = final_target_qty - pnl.position
         if abs(delta) > 1e-12:
-            if delta > 0:
-                cash -= delta * price * (1 + commission + slippage)
+            comm_cost = abs(delta) * price * commission
+            slip_cost = abs(delta) * price * slippage
+            if i == 0:
+                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
             else:
-                cash += abs(delta) * price * (1 - commission - slippage)
-            pos = final_target
+                realized_before = pnl.realized_pnl
+                pnl.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+                trade_pnl = pnl.realized_pnl - realized_before
+                decisions[-1]["trade_pnl"] = trade_pnl
 
-        adjusted.append(pos)
+        adjusted.append(final_target_frac)
 
         if i == 0:
             risk_manager.update_portfolio_equity(current_equity)
         else:
-            new_equity = cash + pos * price
+            new_equity = pnl.equity(price)
             risk_manager.update_portfolio_equity(new_equity)
         risk_manager.cooldown_tick()
 
@@ -116,84 +123,53 @@ def multi_symbol_portfolio(
         return MultiSymbolPortfolioState(cash=initial_cash, positions={})
 
     index = signals[symbols[0]].index
-    cash = initial_cash
-    positions: dict[str, float] = {sym: 0.0 for sym in symbols}
-    avg_prices: dict[str, float] = {sym: 0.0 for sym in symbols}
+    pnl_calculators: dict[str, PnLCalculator] = {
+        sym: PnLCalculator(initial_cash=initial_cash / len(symbols)) for sym in symbols
+    }
     trades: list[dict[str, Any]] = []
-    equity: list[float] = []
+    equity_list: list[float] = []
     timestamps: list[pd.Timestamp] = []
 
     for i, idx in enumerate(index):
+        total_equity = 0.0
         for sym in symbols:
             price = float(closes[sym].iloc[i])
             target = float(signals[sym].iloc[i])
-            pos = positions[sym]
-            avg_price = avg_prices[sym]
+            calc = pnl_calculators[sym]
+            delta = target - calc.position
 
-            pnl = 0.0
-
-            if i == 0:
-                if abs(target) > 0:
-                    avg_prices[sym] = price
-                positions[sym] = target
-            elif abs(target - pos) > 1e-12:
-                delta = target - pos
-
-                if pos > 0:
-                    if target > 0:
-                        if delta > 0:
-                            avg_prices[sym] = (avg_price * pos + delta * price) / target
-                        else:
-                            pnl = (price - avg_price) * abs(delta)
-                    else:
-                        pnl = (price - avg_price) * pos
-                        avg_prices[sym] = price if target < 0 else 0.0
-                elif pos < 0:
-                    if target < 0:
-                        if delta < 0:
-                            avg_prices[sym] = (avg_price * abs(pos) + abs(delta) * price) / abs(
-                                target
-                            )
-                        else:
-                            pnl = (avg_price - price) * abs(delta)
-                    else:
-                        pnl = (avg_price - price) * abs(pos)
-                        avg_prices[sym] = price if target > 0 else 0.0
+            if abs(delta) > 1e-12:
+                comm_cost = abs(delta) * price * commission
+                slip_cost = abs(delta) * price * slippage
+                if i == 0:
+                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
                 else:
-                    avg_prices[sym] = price
+                    realized_before = calc.realized_pnl
+                    calc.apply_fill(delta, price, commission=comm_cost, slippage=slip_cost)
+                    trade_pnl = calc.realized_pnl - realized_before
+                    trades.append(
+                        {
+                            "timestamp": idx,
+                            "symbol": sym,
+                            "side": "buy" if delta > 0 else "sell",
+                            "price": price,
+                            "size": abs(delta),
+                            "pnl": trade_pnl,
+                            "commission": comm_cost,
+                            "slippage": slip_cost,
+                        }
+                    )
 
-                costs = abs(delta) * price * (commission + slippage)
-                net_pnl = pnl - costs
+            total_equity += calc.equity(price)
 
-                if abs(delta) > 0:
-                    if delta > 0:
-                        cash -= delta * price * (1 + commission + slippage)
-                    else:
-                        cash += abs(delta) * price * (1 - commission - slippage)
-
-                trades.append(
-                    {
-                        "timestamp": idx,
-                        "symbol": sym,
-                        "side": "buy" if delta > 0 else "sell",
-                        "price": price,
-                        "size": abs(delta),
-                        "pnl": net_pnl,
-                        "commission": abs(delta) * price * commission,
-                        "slippage": abs(delta) * price * slippage,
-                    }
-                )
-
-                positions[sym] = target
-
-        total_equity = cash + sum(positions[sym] * float(closes[sym].iloc[i]) for sym in symbols)
-        equity.append(total_equity)
+        equity_list.append(total_equity)
         timestamps.append(idx)
 
+    positions = {sym: calc.position for sym, calc in pnl_calculators.items()}
     return MultiSymbolPortfolioState(
-        cash=cash,
+        cash=initial_cash,
         positions=positions,
-        equity=equity,
+        equity=equity_list,
         timestamps=timestamps,
         trades=trades,
     )

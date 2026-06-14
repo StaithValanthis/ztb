@@ -10,7 +10,6 @@
 - **Tests:** 18 new arm_auth/LiveGuard token tests; 6 new audit log chain tests; 724 total passed, 91% coverage
 - Version bumped to 1.0.6
 - **Branch:** `feat/ztb-852-arm-security`
-
 ## v1.0.5 (2026-06-13)
 
 - **Feat(killswitch):** Persist LiveKillSwitch state (HWM equity, tripped flag, last heartbeat) so process restart preserves safety invariant
