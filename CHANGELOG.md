@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.6 (2026-06-14)
+
+- **Fix(arm):** Remove CLI-level `LiveGuard.is_armed()` check from `ztb run` — arm enforcement moved to `BybitClient` (execution layer) per M7 design, aligning with disarmed-by-default invariant
+- **Test:** `test_run_accepts_live_mode` updated — no `LiveGuard.arm()`/`disarm()`, uses `--db=:memory:` for isolation
+- Conflict resolution: rebased over main commit `7349bd7` (which added `_setup_arm`/`_cleanup_arm` helpers) — Platform Engineer's approach wins (LiveGuard belongs in execution layer, not CLI)
+- **Tests:** 213/213 pass, ruff/mypy clean
+- V&R PASS on SHA `989d0b4` ([ZTB-1450](/ZTB/issues/ZTB-1450), [ZTB-1454](/ZTB/issues/ZTB-1454))
+- **PR:** [#64](https://github.com/StaithValanthis/ztb/pull/64) — `feat/ztb-1266-arm-security-fix`
+- **Merge commit:** `db8c689` — two-key merge (CI green + V&R PASS on SHA `989d0b4`)
+- **Tag:** v1.1.6
+
 ## v1.1.4 (2026-06-14)
 
 - **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
