@@ -887,6 +887,9 @@ class Executor:
 
         assert self.state is not None
 
+        warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
+        start = str(data.index[0]) if len(data) > 0 else None
+
         consecutive_errors = 0
         max_errors = 3
 
@@ -899,6 +902,8 @@ class Executor:
             try:
                 time_module.sleep(poll_interval)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
+                if len(data) < warmup + 1:
+                    data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
                 result = self.step(data)
                 if result.get("client_error"):
                     continue
