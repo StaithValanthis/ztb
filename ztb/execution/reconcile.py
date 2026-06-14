@@ -20,6 +20,7 @@ class ReconcileReport:
     expected_pnl: float = 0.0
     actual_pnl: float = 0.0
     actual_wallet_balance: float = 0.0
+    actual_available_balance: float = 0.0
     actual_equity: float = 0.0
     issues: list[str] = field(default_factory=list)
     reconciled: bool = False
@@ -77,6 +78,7 @@ def reconcile_account(
         )
     report.actual_pnl = actual.unrealized_pnl
     report.actual_wallet_balance = actual.wallet_balance
+    report.actual_available_balance = actual.available_balance
     report.actual_equity = actual.total_equity
     report.matched = len(report.issues) == 0
     return report
@@ -103,6 +105,7 @@ def compute_account_state(
 
     total_equity = 0.0
     wallet_balance = 0.0
+    available_balance = 0.0
     unrealized_pnl = 0.0
     if wallet_raw:
         for account_info in wallet_raw.get("list", []):
@@ -110,11 +113,13 @@ def compute_account_state(
                 if coin_entry.get("coin", "") in ("USDT", "USDC"):
                     total_equity += float(coin_entry.get("equity", 0.0))
                     wallet_balance += float(coin_entry.get("walletBalance", 0.0))
+                    available_balance += float(coin_entry.get("availableBalance", 0.0))
                     unrealized_pnl += float(coin_entry.get("unrealisedPnl", 0.0))
 
     return AccountState(
         total_equity=total_equity,
         wallet_balance=wallet_balance,
+        available_balance=available_balance,
         unrealized_pnl=unrealized_pnl,
         positions=positions,
         timestamp="",
