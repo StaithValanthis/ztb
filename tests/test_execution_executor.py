@@ -2301,7 +2301,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
                         "availableBalance": "500.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2345,7 +2345,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
                         "availableBalance": "50.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2393,7 +2393,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
                         "availableBalance": "0.0001",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2436,7 +2436,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
                         "availableBalance": "1.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
