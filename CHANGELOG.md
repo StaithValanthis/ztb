@@ -29,6 +29,18 @@
 - **Merge commit:** `db8c689` — two-key merge (CI green + V&R PASS on SHA `989d0b4`)
 - **Tag:** v1.1.6
 
+## v1.1.5 (2026-06-14)
+
+- **Feat(exec):** Demo account auto top-up — `BybitClient.top_up_demo_account()` calls POST `/v5/account/demo-apply-money` on every DEMO run start, resetting USDT balance to `initial_cash` (default 100,000) to prevent "ab not enough for new order" exhaustion
+- **Feat(exec):** `reduce_only` flag on positional reduces — executor sets `reduce_only=True` when `delta < 0 && position > 0` (sell to reduce long) or `delta > 0 && position < 0` (buy to reduce short), avoiding margin on opposite-side opens
+- **Fix(exec):** Top-up failure is non-fatal — logs `DemoAccountTopUpError` to `exec_errors` and continues run; dry-run and LIVE modes skip top-up entirely
+- **Tests:** 10 new pytest cases (3 `top_up_demo_account` API + guards + failure; 4 executor run-mode guards + failure; 3 `reduce_only` logic) — 127/127 execution tests pass; 836/836 full suite pass
+- Coverage: executor 86%, bybit_client 47% (new method), total 92%
+- V&R PASS on SHA `b3bdc9b` ([ZTB-1421](/ZTB/issues/ZTB-1421), [ZTB-1417](/ZTB/issues/ZTB-1417))
+- **PR:** [#63](https://github.com/StaithValanthis/ztb/pull/63) — `feat/ztb-1417-demo-exec-loop-fix`
+- **Merge commit:** `d9f07e7` — two-key merge (CI green + V&R PASS on SHA `b3bdc9b`)
+- **Tag:** v1.1.5
+
 ## v1.1.4 (2026-06-14)
 
 - **Fix(exec):** Reconcile adoption no longer overwrites configured `initial_cash` with wallet balance — `initial_cash` stays at the `--cash` config value, equity remains `initial_cash(configured) + realized_pnl + unrealized_pnl`
