@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.8 (2026-06-14)
+
+- **[Board][CRITICAL][C1] Fix(exec):** Replace synthetic fills with real exchange executions — `_step_impl()` now calls `get_executions()` after `place_order()` to fetch real fill data, persists to `exec_fills` table, derives PnL from real fill prices (slippage=0 with real fills), records assumed-vs-actual reconciliation metric (`price_divergence`, `qty_divergence`). Schema v9: rename `credible` → `sufficient_sample` across all exec + results tables + reporting/CLI. Fallback to synthetic on API error with `_save_error()`.
+- **Tests:** 15 new fill-pipeline tests + updated credible→sufficient_sample tests — 895/895 pass both 3.11/3.13, 93% coverage, ruff/mypy clean
+- V&R PASS on SHA `0f5b18d` ([ZTB-1568](/ZTB/issues/ZTB-1568), [ZTB-1577](/ZTB/issues/ZTB-1577))
+- **PR:** [#72](https://github.com/StaithValanthis/ztb/pull/72) — `feat/real-fill-pipeline`
+- **Merge commit:** `45c37ec` — two-key merge (CI green + V&R PASS on SHA `0f5b18d`)
+- **Tag:** v1.1.8
+
 ## v1.1.7 (2026-06-14)
 
 - **Fix(exec):** Add `PollingError(ExecutionError)` exception class — raise in DEMO polling loop after 3 consecutive step failures, catch gracefully in `run()`
