@@ -194,6 +194,63 @@ class TestWalkForward:
         assert result.n_windows_total == 4
         assert len(result.per_window) >= 1
 
+    def test_config_none_creates_default(self):
+        data = _make_data(6000)
+        strat = SmaCrossLike()
+        result = run_walk_forward(strat, data)
+        assert result.n_windows_total == 4
+
+    def test_explicit_step_size(self):
+        data = _make_data(2000)
+        strat = SmaCrossLike()
+        cfg = WalkForwardConfig(
+            n_windows=2,
+            step_size=500,
+            min_trades=0,
+            min_train_bars=50,
+            min_oos_bars=25,
+        )
+        result = run_walk_forward(strat, data, cfg)
+        assert result.n_windows_total == 2
+
+    def test_short_data_no_windows(self):
+        strat = FlatStrategy()
+        data = _make_data(50)
+        cfg = WalkForwardConfig(
+            n_windows=4,
+            min_train_bars=40,
+            min_oos_bars=5,
+        )
+        result = run_walk_forward(strat, data, cfg)
+        if len(result.per_window) == 0:
+            assert result.aggregate.sharpe is None
+            assert result.stability is None
+            assert result.n_windows_credible == 0
+
+    def test_boundary_clamping(self):
+        strat = SmaCrossLike()
+        data = _make_data(300)
+        cfg = WalkForwardConfig(
+            n_windows=2,
+            min_trades=0,
+            min_train_bars=5,
+            min_oos_bars=250,
+        )
+        result = run_walk_forward(strat, data, cfg)
+        assert result.n_windows_total == 2
+
+    def test_many_windows_with_small_data(self):
+        strat = SmaCrossLike()
+        data = _make_data(500)
+        cfg = WalkForwardConfig(
+            n_windows=8,
+            min_trades=0,
+            min_train_bars=20,
+            min_oos_bars=10,
+        )
+        result = run_walk_forward(strat, data, cfg)
+        assert result.n_windows_total == 8
+
 
 # ── Deflated Sharpe tests ──────────────────────────────────────
 
