@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 
@@ -69,6 +69,20 @@ class IdempotencyLedger:
         val = row["order_id"]
         return str(val) if val else None
 
+    def count(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS cnt FROM idempotency").fetchone()
+        return row["cnt"] if row else 0
+
+    def clear_stale(self, ttl_hours: int = 24) -> int:
+        cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+        deleted = self.conn.execute(
+            "DELETE FROM idempotency WHERE status IN ('placed', 'filled') AND created_at < ?",
+            (cutoff_str,),
+        )
+        self.conn.commit()
+        return deleted.rowcount
+
 
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -88,5 +102,10 @@ def _ensure_idempotency_table(conn: sqlite3.Connection) -> None:
         conn.execute(
             """CREATE INDEX IF NOT EXISTS idx_idempotency_link
                ON idempotency(order_link_id)"""
+        )
+    with suppress(sqlite3.OperationalError):
+        conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_idempotency_stale
+               ON idempotency(status, created_at)"""
         )
     conn.commit()

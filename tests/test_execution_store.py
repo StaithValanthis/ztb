@@ -548,3 +548,31 @@ def test_schema_meta_version_9(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_meta WHERE version = 9").fetchone()
     assert row is not None
     assert row["version"] == 9
+
+
+def test_save_exec_fill_auto_creates_parent_order(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec_orphan", "run_orphan", "s", "BTCUSDT", "60")
+    save_exec_fill(
+        conn,
+        {
+            "fill_id": "orphan_fill",
+            "order_link_id": "orphan_olid",
+            "exec_run_id": "exec_orphan",
+            "order_id": "orphan_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "price": 50000.0,
+            "qty": 0.1,
+            "commission": 2.5,
+            "realized_pnl": 0.0,
+            "filled_at": "2026-01-01T00:00:05Z",
+        },
+    )
+    fills = get_exec_fills(conn, "exec_orphan")
+    assert len(fills) == 1
+    assert fills[0]["fill_id"] == "orphan_fill"
+
+    orders = get_exec_orders(conn, "exec_orphan")
+    assert len(orders) == 1
+    assert orders[0]["order_link_id"] == "orphan_olid"
+    assert orders[0]["order_id"] == "orphan_oid"
