@@ -60,19 +60,28 @@ def test_smoke_test_success(tmp_path: pytest.TempPathFactory) -> None:
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-            "--poll-interval", "1",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+                "--poll-interval",
+                "1",
+            ],
+        )
 
     assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
     assert "SMOKE TEST PASSED" in result.output
@@ -122,18 +131,26 @@ def test_smoke_test_side_always_buy(tmp_path: pytest.TempPathFactory) -> None:
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+            ],
+        )
 
     assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
     assert "SMOKE TEST PASSED" in result.output
@@ -163,18 +180,26 @@ def test_smoke_test_order_skipped(tmp_path: pytest.TempPathFactory) -> None:
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "skipped" in result.output
@@ -190,18 +215,26 @@ def test_smoke_test_api_error(tmp_path: pytest.TempPathFactory) -> None:
     mock_class = MagicMock()
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "Smoke test error" in result.output
@@ -233,19 +266,28 @@ def test_smoke_test_zero_fills(tmp_path: pytest.TempPathFactory) -> None:
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "3",
-            "--poll-interval", "0.5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "3",
+                "--poll-interval",
+                "0.5",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "no exec_fills row found" in result.output
@@ -285,18 +327,26 @@ def test_smoke_test_zero_commission_fails(tmp_path: pytest.TempPathFactory) -> N
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "zero commission" in result.output
@@ -336,18 +386,26 @@ def test_smoke_test_zero_price_fails(tmp_path: pytest.TempPathFactory) -> None:
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "5",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "5",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "zero price" in result.output
@@ -391,19 +449,28 @@ def test_smoke_test_poll_retries_until_fills(tmp_path: pytest.TempPathFactory) -
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "10",
-            "--poll-interval", "0.3",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "10",
+                "--poll-interval",
+                "0.3",
+            ],
+        )
 
     assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
     assert "SMOKE TEST PASSED" in result.output
@@ -435,19 +502,28 @@ def test_smoke_test_poll_timeout_no_fills(tmp_path: pytest.TempPathFactory) -> N
     mock_class.round_to_step.return_value = 0.001
 
     with (
-        patch.dict(os.environ, {"ZTB_BYBIT_API_KEY": "test-key",
-                                "ZTB_BYBIT_API_SECRET": "test-secret"}),
+        patch.dict(
+            os.environ, {"ZTB_BYBIT_API_KEY": "test-key", "ZTB_BYBIT_API_SECRET": "test-secret"}
+        ),
         patch("ztb.execution.bybit_client.BybitClient", mock_class),
     ):
         mock_class.return_value = mock_client
-        result = runner.invoke(cli, [
-            "smoke-test",
-            "--symbol", "BTCUSDT",
-            "--qty", "0.001",
-            "--db", db_path,
-            "--timeout", "1",
-            "--poll-interval", "0.2",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "smoke-test",
+                "--symbol",
+                "BTCUSDT",
+                "--qty",
+                "0.001",
+                "--db",
+                db_path,
+                "--timeout",
+                "1",
+                "--poll-interval",
+                "0.2",
+            ],
+        )
 
     assert result.exit_code == 1
     assert "no exec_fills row found" in result.output
@@ -457,11 +533,17 @@ def test_smoke_test_poll_timeout_no_fills(tmp_path: pytest.TempPathFactory) -> N
 def test_smoke_test_network() -> None:
     """Live smoke test against Bybit demo. Requires ZTB_BYBIT_API_KEY and ZTB_BYBIT_API_SECRET."""
     runner = CliRunner()
-    result = runner.invoke(cli, [
-        "smoke-test",
-        "--symbol", "BTCUSDT",
-        "--qty", "0.001",
-        "--timeout", "30",
-    ])
+    result = runner.invoke(
+        cli,
+        [
+            "smoke-test",
+            "--symbol",
+            "BTCUSDT",
+            "--qty",
+            "0.001",
+            "--timeout",
+            "30",
+        ],
+    )
     assert result.exit_code == 0, f"Exit {result.exit_code}: {result.output}"
     assert "SMOKE TEST PASSED" in result.output
