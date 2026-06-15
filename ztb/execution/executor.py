@@ -378,11 +378,12 @@ class Executor:
                 actual = compute_account_state([], wallet)
                 if actual.total_equity > 0:
                     equity = actual.total_equity
-                if self.config.mode == Mode.DEMO:
-                    equity = min(equity, self.config.initial_cash)
                 total_available_balance = actual.total_available_balance
             except Exception:
                 pass
+
+            if self.config.mode == Mode.DEMO:
+                equity = min(equity, self.config.initial_cash)
 
         if self._killswitch is not None:
             self._killswitch.check_account_dd(equity)
