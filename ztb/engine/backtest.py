@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import pandas as pd
 from pandas import DataFrame, Series
 
 from ztb.data.loader import load as _default_loader
