@@ -14,6 +14,7 @@ def empty_db(tmp_path: Path) -> str:
     conn = sqlite3.connect(str(p))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     schema_sql = """
         CREATE TABLE IF NOT EXISTS schema_meta (
             version INTEGER PRIMARY KEY,
