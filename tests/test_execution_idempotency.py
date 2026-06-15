@@ -45,7 +45,7 @@ def test_make_order_link_id_same_run_stable() -> None:
 
 
 def test_make_order_link_id_cross_run_collision() -> None:
-    """Prove same inputs + different exec_run_id → different output (cross-run collision eliminated)."""
+    """Same inputs + different exec_run_id → different output (cross-run collision eliminated)."""
     intent = "abc123"
     id_run_a = make_order_link_id("strat", "SYM", "T1", intent, "run_a")
     id_run_b = make_order_link_id("strat", "SYM", "T1", intent, "run_b")
