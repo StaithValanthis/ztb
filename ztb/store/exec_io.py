@@ -133,9 +133,7 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     # Schema v10: remove FK from exec_fills.order_link_id
     existing_v10 = None
     with suppress(sqlite3.OperationalError):
-        existing_v10 = conn.execute(
-            "SELECT 1 FROM schema_meta WHERE version = 10"
-        ).fetchone()
+        existing_v10 = conn.execute("SELECT 1 FROM schema_meta WHERE version = 10").fetchone()
     if existing_v10 is None:
         with suppress(sqlite3.OperationalError):
             conn.execute("DROP TABLE IF EXISTS exec_fills_v10")
