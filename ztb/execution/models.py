@@ -105,6 +105,8 @@ class ExecRunConfig:
     risk_enabled: bool = True
     max_position_pct: float = 0.50
     max_leverage: float = 3.0
+    fill_retry_count: int = 5
+    fill_retry_delay_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if self.loop is None:
