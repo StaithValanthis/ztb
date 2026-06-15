@@ -532,20 +532,25 @@ class Executor:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
-            reduce_only = (delta < 0 and current_position > 0) or (
-                delta > 0 and current_position < 0
+            flip = (
+                delta < 0 and current_position > 0 and abs(delta) > current_position + 1e-12
+            ) or (delta > 0 and current_position < 0 and abs(delta) > abs(current_position) + 1e-12)
+            reduce_only = not flip and (
+                (delta < 0 and current_position > 0) or (delta > 0 and current_position < 0)
             )
 
             if not reduce_only and total_available_balance > 0 and close_price > 0:
                 max_notional = total_available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)
-                if qty > max_qty + 1e-12:
+                require_margin_qty = max(0.0, qty - abs(current_position)) if flip else qty
+                if require_margin_qty > max_qty + 1e-12:
+                    capped_qty = round(qty - require_margin_qty + max_qty, asset_precision)
                     self.state.errors.append(
-                        f"Qty capped by total available balance: {qty} -> {max_qty} "
+                        f"Qty capped by total available balance: {qty} -> {capped_qty} "
                         f"(total_available={total_available_balance:.2f}, "
                         f"max_notional={max_notional:.2f})"
                     )
-                    qty = max_qty
+                    qty = capped_qty
                     if qty < 1e-12:
                         result["order_skipped"] = True
                         result["skip_reason"] = (
