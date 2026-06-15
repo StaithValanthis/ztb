@@ -3278,3 +3278,132 @@ def test_both_order_and_fill_persisted_together(
     assert len(orders) >= 1
     assert len(fills) >= 1
     assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_stale_pending_fallback_generates_new_link_id(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Stale pending entry forces new order_link_id with nonce, not reuse of old one."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "new_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    equity = config.initial_cash
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    original_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    exe._idempotency.try_claim(original_link_id)
+    assert exe._idempotency.get(original_link_id)["status"] == "pending"
+
+    exe.step(sample_data)
+
+    mock_client.place_order.assert_called_once()
+    called_link_id = mock_client.place_order.call_args[1]["order_link_id"]
+    assert called_link_id != original_link_id
+    set_link_id = exe._idempotency.get(called_link_id)
+    assert set_link_id is not None
+    assert set_link_id["status"] == "placed"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_stale_pending_fallback_resolves_old_entry(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Old stale-pending entry is resolved to 'failed' after fallback."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "new_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    equity = config.initial_cash
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    original_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    exe._idempotency.try_claim(original_link_id)
+    assert exe._idempotency.get(original_link_id)["status"] == "pending"
+
+    exe.step(sample_data)
+
+    old_entry = exe._idempotency.get(original_link_id)
+    assert old_entry is not None
+    assert old_entry["status"] == "failed"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_restore_path_unchanged(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Restore path still works: existing entry with real order_id skips place_order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "should_not_be_called"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    equity = config.initial_cash
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    exe._idempotency.try_claim(order_link_id, "existing_order_1")
+    exe._idempotency.resolve(order_link_id, "placed", "existing_order_1")
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["order"]["order_id"] == "existing_order_1"
+    assert result["order"]["restored"] is True
+    mock_client.place_order.assert_not_called()

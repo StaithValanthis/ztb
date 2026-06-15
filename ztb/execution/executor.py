@@ -514,6 +514,13 @@ class Executor:
                         bar_ts,
                     )
                     return result
+                if existing:
+                    self._idempotency.resolve(order_link_id, "failed")
+                    nonce = str(time_module.time_ns())
+                    order_link_id = make_order_link_id(
+                        self.state.strategy_name, symbol, bar_ts, intent_hash, nonce=nonce
+                    )
+                    claimed = self._idempotency.try_claim(order_link_id)
 
             if self.client is None:
                 raise ExecutionError("No BybitClient configured for live trading")
