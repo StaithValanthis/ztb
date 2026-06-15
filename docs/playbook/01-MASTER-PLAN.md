@@ -38,7 +38,7 @@ Spine: `M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7`. M4 builds the forw
 
 ### 0.4 The merge gate is CI-green AND V&R-PASS on the same SHA (fix #3)
 Every PR, every milestone:
-1. CI green on the **PR head commit** (lint + types + full pytest + secret-scan + version-consistency). A red CI never reaches V&R.
+1. CI green on the **PR head commit** (lint + types + full pytest + **smoke-test** + secret-scan + version-consistency). The smoke-test exercises the full execution pipeline against the Bybit DEMO exchange (places a real MARKET BUY, retrieves fills, validates commission + price scaling + store persistence + FK consistency). A red CI never reaches V&R.
 2. Head of V&R PASS recorded **against that same SHA**.
 3. Head of Eng's merge requires **both**, verified against the identical commit. Branch protection on `main` enforces require-PR-+-green-CI.
 

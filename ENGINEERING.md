@@ -55,6 +55,7 @@ CI runs on every push to a PR. **Python 3.11 and 3.13 matrix.** Each job runs al
 - `ruff-format` — formatting check.
 - `mypy` — static types.
 - `pytest --cov-fail-under=90` — full test suite, coverage floor 90%.
+- **smoke-test** — end-to-end demo order execution via Bybit DEMO API (places real MARKET BUY, validates fills + persistence + commission).
 - **secret-scan** — no credential in the diff (from M0).
 - **version-consistency** — `__version__` matches the SemVer tag / `importlib.metadata.version`.
 

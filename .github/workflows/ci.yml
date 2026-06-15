@@ -49,8 +49,28 @@ jobs:
           print(f'Version OK: {ver}')
           "
 
-  vr-pass:
+  smoke-test:
     needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Smoke test (DEMO)
+        env:
+          ZTB_BYBIT_API_KEY: ${{ secrets.ZTB_BYBIT_API_KEY }}
+          ZTB_BYBIT_API_SECRET: ${{ secrets.ZTB_BYBIT_API_SECRET }}
+        run: ztb smoke-test --timeout 60
+
+  vr-pass:
+    needs: [test, smoke-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

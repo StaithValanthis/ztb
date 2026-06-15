@@ -64,6 +64,7 @@ Every push runs on **Python 3.11 and 3.13** (matrix, not single-version):
 | Tests + coverage | `pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing` |
 | Secret scan | `python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null \|\| find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' \| grep -v __pycache__ \| grep -v .git)` |
 | Version consistency | `__version__` matches `importlib.metadata.version('ztb')` |
+| Smoke test (DEMO) | `ztb smoke-test --timeout 60` (separate `smoke-test` job, runs after `test`, blocks `vr-pass`) |
 | V&R PASS bridge (separate `vr-pass` job, `main` push only) | `python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --outcome PASS` on Python 3.11 |
 
 CI configuration: `.github/workflows/ci.yml`
