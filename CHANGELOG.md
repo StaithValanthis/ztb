@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.14 (2026-06-15)
+
+- **Fix(validation):** DEFECT 1-3 — thread actual `cash`, `commission`, `slippage` params through walk-forward harness (were hardcoded to `0.0`/`0`/`0.0`). Fix ruff-format trailing blank lines in `walk_forward.py`.
+- **Tests:** New test for threaded params in walk-forward — 21 lines added to `test_validation_walkforward.py`. CI + vr-pass SUCCESS on SHA `0b75e34`.
+- **PR:** [#85](https://github.com/StaithValanthis/ztb/pull/85) — `feat/validation-package`
+- **Merge commit:** `24d5da3` — two-key merge (CI green + vr-pass SUCCESS on SHA `0b75e34`)
+- **Tag:** v1.1.14
+
 ## v1.1.12 (2026-06-15)
 
 - **Fix(exec):** Size against actual wallet balance, verify top-up with `TopUpResult`/wallet read-back, backoff on `'ab not enough'` (ClientError) — skip bar, no retry. Wallet fetch failure skips bar (no fallback to PnLCalculator). Uses per-coin `available_balance * max_leverage` for order sizing instead of `equity` alone. DEMO equity cap preserved outside the wallet-fetch try/except.
