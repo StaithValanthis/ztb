@@ -62,7 +62,7 @@ def test_median_aggregation() -> None:
     df = _trending_data(3000)
     strat = SmaCross()
     cfg = WalkForwardConfig(
-        n_windows=5, min_trades=1, min_train_bars=100, min_oos_bars=50, warmup=20
+        n_windows=5, min_trades=1, min_train_bars=100, min_oos_bars=50
     )
     result = run_walk_forward(strat, df, cfg)
     assert result.aggregate.sharpe is not None
@@ -82,7 +82,7 @@ def test_stability_computed() -> None:
     df = _trending_data(2000)
     strat = SmaCross()
     cfg = WalkForwardConfig(
-        n_windows=4, min_trades=1, min_train_bars=100, min_oos_bars=50, warmup=20
+        n_windows=4, min_trades=1, min_train_bars=100, min_oos_bars=50
     )
     result = run_walk_forward(strat, df, cfg)
     if len(result.per_window) >= 2:
@@ -114,7 +114,6 @@ def test_walkforward_config_defaults() -> None:
     assert cfg.min_oos_bars == 100
     assert cfg.min_trades == 30
     assert cfg.step_size is None
-    assert cfg.warmup is None
     assert cfg.initial_cash == 100_000.0
     assert cfg.commission == 0.0005
     assert cfg.slippage == 0.0005
@@ -142,7 +141,7 @@ def test_per_window_metrics() -> None:
     df = _trending_data(2000)
     strat = SmaCross()
     cfg = WalkForwardConfig(
-        n_windows=3, min_trades=1, min_train_bars=100, min_oos_bars=50, warmup=20
+        n_windows=3, min_trades=1, min_train_bars=100, min_oos_bars=50
     )
     result = run_walk_forward(strat, df, cfg)
     for w in result.per_window:
@@ -155,7 +154,7 @@ def test_credible_count() -> None:
     df = _trending_data(2000)
     strat = SmaCross()
     cfg = WalkForwardConfig(
-        n_windows=4, min_trades=1, min_train_bars=100, min_oos_bars=50, warmup=20
+        n_windows=4, min_trades=1, min_train_bars=100, min_oos_bars=50
     )
     result = run_walk_forward(strat, df, cfg)
     assert result.n_windows_credible >= 0

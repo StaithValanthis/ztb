@@ -18,7 +18,6 @@ class WalkForwardConfig:
     step_size: int | None = None
     min_train_bars: int = 500
     min_oos_bars: int = 100
-    warmup: int | None = None
     min_trades: int = 30
     initial_cash: float = 100_000.0
     commission: float = 0.0005

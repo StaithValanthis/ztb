@@ -471,7 +471,7 @@ def validate(
     result_str = "PASS" if passed else "FAIL"
     click.echo(f"RESULT: {result_str} ({n_pass}/{n_total}) — exit code {scorecard['exit_code']}")
 
-    if persist and passed:
+    if persist:
         from ztb.store.results import connect as store_connect
         from ztb.validation.store import save_validation_run
 
