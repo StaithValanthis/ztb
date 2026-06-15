@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
-from contextlib import suppress
+import time
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,69 @@ from typing import Any
 from ztb import __version__
 from ztb.engine.backtest import BacktestResult
 from ztb.engine.forwardtest import ForwardtestResult
+
+_MIGRATION_LOCK_TIMEOUT = 60.0
+_RETRY_MAX = 3
+_RETRY_DELAY = 0.5
+
+
+@contextmanager
+def _migration_lock(db_path: Path, timeout: float = _MIGRATION_LOCK_TIMEOUT):
+    import fcntl
+
+    lock_path = db_path.with_name(f".{db_path.name}.migrate.lock")
+    lock_file: int | None = None
+    try:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    os.close(lock_fd)
+                    raise RuntimeError(
+                        f"Migration lock timeout after {timeout}s for {db_path}"
+                    ) from None
+                time.sleep(0.1)
+        lock_file = lock_fd
+        yield
+    finally:
+        if lock_file is not None:
+            with suppress(OSError):
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+            os.close(lock_file)
+
+
+def _get_db_path_from_conn(conn: sqlite3.Connection) -> Path:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return Path(row[2])
+
+
+def execute_with_retry(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: tuple[Any, ...] | None = None,
+    max_retries: int = _RETRY_MAX,
+    delay: float = _RETRY_DELAY,
+) -> sqlite3.Cursor:
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            if params is not None:
+                return conn.execute(sql, params)
+            return conn.execute(sql)
+        except sqlite3.OperationalError as e:
+            err_str = str(e).lower()
+            if "database is locked" not in err_str and "database is busy" not in err_str:
+                raise
+            last_error = e
+            if attempt < max_retries - 1:
+                time.sleep(delay * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise sqlite3.OperationalError("execute_with_retry exhausted retries")
 
 _METRIC_NAMES = frozenset(
     {
@@ -42,12 +107,13 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     path = _get_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
-    _run_migrations(conn)
+    with _migration_lock(path):
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _ensure_schema(conn)
+        _run_migrations(conn)
     return conn
 
 

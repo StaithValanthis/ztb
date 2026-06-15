@@ -12,6 +12,8 @@ data_cache/
 logs/
 *.sqlite
 *.db
+# Migration lock files (created by file-based advisory locking)
+*.migrate.lock
 .paperclip/
 # Python
 __pycache__/
