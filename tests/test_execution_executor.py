@@ -2825,6 +2825,8 @@ def test_executor_instrument_bounds_enforced(
     result = exe.step(sample_data)
     assert result.get("order_skipped") is True
     assert "Qty below minOrderQty" in result.get("skip_reason", "")
+
+
 # ZTB-1513: Warmup refill in polling loop
 # ---------------------------------------------------------------------------
 
@@ -2866,8 +2868,9 @@ def test_polling_loop_warmup_refill_triggers_when_short(
         ensure_called = True
         return sample_data
 
-    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
-        exe, "_ensure_warmup", side_effect=tracking_ensure
+    with (
+        patch.object(exe, "_fetch_new_bars", return_value=short_data),
+        patch.object(exe, "_ensure_warmup", side_effect=tracking_ensure),
     ):
         exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
@@ -2898,9 +2901,10 @@ def test_polling_loop_warmup_refill_skipped_when_sufficient(
 
     enough_data = sample_data.iloc[:150]
 
-    with patch.object(exe, "_fetch_new_bars", return_value=enough_data), patch.object(
-        exe, "_ensure_warmup", wraps=exe._ensure_warmup
-    ) as mock_ensure:
+    with (
+        patch.object(exe, "_fetch_new_bars", return_value=enough_data),
+        patch.object(exe, "_ensure_warmup", wraps=exe._ensure_warmup) as mock_ensure,
+    ):
         exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     mock_ensure.assert_not_called()
@@ -2930,9 +2934,11 @@ def test_polling_loop_warmup_refill_fails_when_no_data(
 
     short_data = sample_data.iloc[:30]
 
-    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
-        exe, "_ensure_warmup", side_effect=failing_ensure
-    ), pytest.raises(ExecutionError, match="Cannot fetch enough historical data"):
+    with (
+        patch.object(exe, "_fetch_new_bars", return_value=short_data),
+        patch.object(exe, "_ensure_warmup", side_effect=failing_ensure),
+        pytest.raises(ExecutionError, match="Cannot fetch enough historical data"),
+    ):
         exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
 
@@ -2980,9 +2986,11 @@ def test_polling_loop_warmup_refill_restores_signal(
             step_called_with_signal = True
         return result
 
-    with patch.object(exe, "_fetch_new_bars", return_value=short_data), patch.object(
-        exe, "_ensure_warmup", side_effect=tracking_ensure
-    ), patch.object(exe, "step", side_effect=tracking_step):
+    with (
+        patch.object(exe, "_fetch_new_bars", return_value=short_data),
+        patch.object(exe, "_ensure_warmup", side_effect=tracking_ensure),
+        patch.object(exe, "step", side_effect=tracking_step),
+    ):
         exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     assert step_called_with_signal, "Step should produce non-zero signal after warmup refill"
