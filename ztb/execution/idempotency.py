@@ -84,9 +84,7 @@ class IdempotencyLedger:
         return deleted.rowcount
 
     def clear_pending(self) -> int:
-        deleted = self.conn.execute(
-            "DELETE FROM idempotency WHERE status = 'pending'"
-        )
+        deleted = self.conn.execute("DELETE FROM idempotency WHERE status = 'pending'")
         self.conn.commit()
         return deleted.rowcount
 
