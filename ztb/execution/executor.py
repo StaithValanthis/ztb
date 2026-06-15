@@ -539,6 +539,43 @@ class Executor:
                 (delta < 0 and current_position > 0) or (delta > 0 and current_position < 0)
             )
 
+            if (
+                reduce_only
+                and not self.config.dry_run
+                and self.client is not None
+                and abs(reconcile_report.actual_position) < 1e-8
+            ):
+                logger.warning(
+                    "Reduce-only skipped — exchange position is zero for %s "
+                    "(PnL position=%s, actual=%s). Adopting zero position.",
+                    symbol,
+                    current_position,
+                    reconcile_report.actual_position,
+                )
+                self._pnl.adopt_state(position=0.0, avg_entry_price=0.0)
+                self._sync_pnl_state()
+                result["order_skipped"] = True
+                result["skip_reason"] = (
+                    f"Reduce-only skipped — exchange position is zero "
+                    f"(PnL had {current_position}, actual "
+                    f"{reconcile_report.actual_position})"
+                )
+                self.state.errors.append(result["skip_reason"])
+                self.state.bars_processed += 1
+                self.state.last_bar_ts = bar_ts
+                unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                equity = self._pnl.equity(close_price)
+                self._save_position_snapshot()
+                self._save_pnl(
+                    self._pnl.realized_pnl,
+                    unrealized_pnl,
+                    self._pnl.equity(close_price),
+                    bar_ts,
+                )
+                self._last_executed_signal = target_signal
+                self._signal_initialized = True
+                return result
+
             if not reduce_only and total_available_balance > 0 and close_price > 0:
                 max_notional = total_available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)

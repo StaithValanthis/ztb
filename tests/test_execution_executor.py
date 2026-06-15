@@ -1343,7 +1343,9 @@ def test_signal_change_allows_order_when_signal_differs(
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_1"}
-    mock_client.get_positions.return_value = []
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "1.0", "avgPrice": "50000.0"}
+    ]
     mock_client.get_wallet_balance.return_value = {"list": []}
     mock_bybit_cls.return_value = mock_client
 
@@ -2306,7 +2308,9 @@ def test_reduce_only_for_sell_to_reduce_long(
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
-    mock_client.get_positions.return_value = []
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "2.0", "avgPrice": "50000.0"}
+    ]
     mock_client.get_wallet_balance.return_value = {"list": []}
     mock_bybit_cls.return_value = mock_client
 
@@ -2351,7 +2355,9 @@ def test_reduce_only_for_buy_to_reduce_short(
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
-    mock_client.get_positions.return_value = []
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "-2.0", "avgPrice": "50000.0"}
+    ]
     mock_client.get_wallet_balance.return_value = {"list": []}
     mock_bybit_cls.return_value = mock_client
 
@@ -2414,6 +2420,193 @@ def test_no_reduce_only_on_position_open(
 
     call_kwargs = mock_client.place_order.call_args.kwargs
     assert call_kwargs.get("reduce_only") is False
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1789: Reduce-only zero-position guard
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_skipped_when_no_exchange_position_long(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """PnL position > 0, signal flat, exchange position = 0 → order skipped, PnL zeroed."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlatFromLongSignal:
+        name = "flat_from_long"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlatFromLongSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    assert abs(exe._pnl.position - 2.0) < 1e-8
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert "reduce-only" in result.get("skip_reason", "").lower()
+    mock_client.place_order.assert_not_called()
+    assert abs(exe._pnl.position) < 1e-8
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_skipped_when_no_exchange_position_short(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """PnL position < 0, signal flat, exchange position = 0 → order skipped, PnL zeroed."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlatFromShortSignal:
+        name = "flat_from_short"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlatFromShortSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(-2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    assert abs(exe._pnl.position - (-2.0)) < 1e-8
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert "reduce-only" in result.get("skip_reason", "").lower()
+    mock_client.place_order.assert_not_called()
+    assert abs(exe._pnl.position) < 1e-8
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_proceeds_when_exchange_has_position_long(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """PnL long 2.0, exchange long 2.0 → reduce-only proceeds normally."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_long"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "2.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlatSignal:
+        name = "flat_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlatSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is not True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is True
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_proceeds_when_exchange_has_position_short(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """PnL short -2.0, exchange short -2.0 → reduce-only proceeds normally."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_short"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "-2.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlatSignal:
+        name = "flat_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlatSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(-2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is not True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is True
 
 
 # ---------------------------------------------------------------------------
