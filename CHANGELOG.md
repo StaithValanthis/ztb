@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.12 (2026-06-15)
+
+- **Fix(exec):** Size against actual wallet balance, verify top-up with `TopUpResult`/wallet read-back, backoff on `'ab not enough'` (ClientError) — skip bar, no retry. Wallet fetch failure skips bar (no fallback to PnLCalculator). Uses per-coin `available_balance * max_leverage` for order sizing instead of `equity` alone. DEMO equity cap preserved outside the wallet-fetch try/except.
+- **Tests:** 7 new tests (`test_top_up_demo_account_verifies_balance`, `test_top_up_demo_account_faucet_cap`, `test_top_up_demo_account_fails_gracefully`, `test_executor_wallet_fetch_failure_skips_bar`, `test_executor_sizes_against_available_balance`, `test_executor_ab_not_enough_backoff`, `test_executor_instrument_bounds_enforced`) plus update `test_demo_mode_equity_cap_when_wallet_fetch_fails` — 144/144 pass, ruff/mypy clean
+- Merge authorization: [ZTB-1735](/ZTB/issues/ZTB-1735) (MD authorized)
+- **PR:** [#83](https://github.com/StaithValanthis/ztb/pull/83) — `feat/ab-not-enough-fix`
+- **Merge commits:** `7571325` (conflict resolution), `5c6a247` (two-key merge via PR #87)
+- **Tag:** v1.1.12
+
 ## v1.1.11 (2026-06-15)
 
 - **Fix(exec):** DEMO mode equity cap — cap wallet equity at `initial_cash` to prevent accumulated demo top-ups from inflating position sizing. Also uses account-level `totalAvailableBalance` instead of per-coin `availableBalance` for order qty cap. Changed `ExecRunConfig.slippage` default from `0.0` to `0.0005`.
