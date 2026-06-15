@@ -2557,15 +2557,15 @@ def test_balance_cap_skips_when_capped_qty_zero(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_balance_cap_does_not_apply_to_reduce_only(
+def test_flip_sets_reduce_only_false_with_balance_cap(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """Reduce-only orders are not capped — exchange does not check balance."""
+    """Flip order has reduce_only=False; opening portion is capped by available balance."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
-    mock_client.place_order.return_value = {"orderId": "oid_reduce"}
+    mock_client.place_order.return_value = {"orderId": "oid_flip"}
     mock_client.get_positions.return_value = []
     mock_client.get_wallet_balance.return_value = {
         "list": [
@@ -2587,8 +2587,8 @@ def test_balance_cap_does_not_apply_to_reduce_only(
 
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
 
-    class ReduceSignal:
-        name = "reduce_signal"
+    class FlipSignal:
+        name = "flip_signal"
         symbols = ["BTCUSDT"]
         timeframe = "60"
         params: dict = {}
@@ -2599,7 +2599,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
             arr[-1] = -0.5
             return pd.Series(arr, index=data.index)
 
-    exe = Executor(ReduceSignal(), config=config)
+    exe = Executor(FlipSignal(), config=config)
     exe._init_run()
     exe._init_store(":memory:")
     exe.client = mock_client
@@ -2611,8 +2611,8 @@ def test_balance_cap_does_not_apply_to_reduce_only(
 
     assert result["order_placed"] is True
     call_kwargs = mock_client.place_order.call_args.kwargs
-    assert call_kwargs.get("reduce_only") is True
-    assert call_kwargs["qty"] > 0.001
+    assert call_kwargs.get("reduce_only") is False
+    assert call_kwargs["qty"] > 2.0
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2825,3 +2825,102 @@ def test_executor_instrument_bounds_enforced(
     result = exe.step(sample_data)
     assert result.get("order_skipped") is True
     assert "Qty below minOrderQty" in result.get("skip_reason", "")
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1792: Reduce-only warmup bug — flip detection
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_false_when_flip_from_long_to_short(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When abs(delta) > abs(current_position) (long→short flip), reduce_only=False."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_flip"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlipToShort:
+        name = "flip_to_short"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = -1.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlipToShort(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result["current_position"] > 0
+    assert result["delta"] < 0
+    assert abs(result["delta"]) > result["current_position"]
+
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is False
+    assert call_kwargs["qty"] > abs(result["current_position"])
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_false_when_flip_from_short_to_long(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When abs(delta) > abs(current_position) (short→long flip), reduce_only=False."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_flip"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlipToLong:
+        name = "flip_to_long"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 1.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlipToLong(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._pnl.apply_fill(-2.0, 50000.0)
+    exe._sync_pnl_state()
+
+    result = exe.step(sample_data)
+    assert result["current_position"] < 0
+    assert result["delta"] > 0
+    assert abs(result["delta"]) > abs(result["current_position"])
+
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("reduce_only") is False
+    assert call_kwargs["qty"] > abs(result["current_position"])
