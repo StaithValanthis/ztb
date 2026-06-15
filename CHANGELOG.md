@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.11 (2026-06-15)
+
+- **Fix(exec):** DEMO mode equity cap — cap wallet equity at `initial_cash` to prevent accumulated demo top-ups from inflating position sizing. Also uses account-level `totalAvailableBalance` instead of per-coin `availableBalance` for order qty cap. Changed `ExecRunConfig.slippage` default from `0.0` to `0.0005`.
+- **Bugfix:** Move DEMO equity cap outside try/except block — when `get_wallet_balance()` raised, the cap was silently bypassed, leaving equity uncapped.
+- **Tests:** 2 new tests (`test_demo_mode_equity_cap_when_wallet_exceeds_initial_cash`, `test_demo_mode_equity_cap_when_wallet_fetch_fails`) — 892/892 pass both 3.11/3.13, 93% coverage, ruff/mypy clean
+- V&R PASS on SHA `d0d9092` ([ZTB-1689](/ZTB/issues/ZTB-1689), [ZTB-1691](/ZTB/issues/ZTB-1691))
+- Merge authorization: [ZTB-1701](/ZTB/issues/ZTB-1701) (MD approved)
+- **PR:** [#71](https://github.com/StaithValanthis/ztb/pull/71) — `fix/ztb-1545-demo-mode-equity-cap`
+- **Merge commit:** `c257a20` — two-key merge (CI green + V&R PASS on SHA `d0d9092`)
+- **Tag:** v1.1.11
+
 ## v1.1.10 (2026-06-15)
 
 - **[Board][CRITICAL][C3/C4]** Build real OOS validation infra: walk-forward harness with enforced train/test split (forward window after dev window), Deflated Sharpe/PSR (Bailey & Lopez de Prado, n_trials/skew/kurtosis, Lo 2002 EVT max dist for n>1), look-ahead tripwire (Mode 1 frame check — corrupts last-bar OHLCV on detected leakage), 8-criteria binary scoring (accept/reject), `ztb validate <strategy> <symbol>` canonical CLI gate with exit codes 0/1/2. Store schema v10: `run_id` PK, validation results table. Replaces all prior stubs.
