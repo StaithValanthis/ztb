@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.10 (2026-06-15)
+
+- **[Board][CRITICAL][C3/C4]** Build real OOS validation infra: walk-forward harness with enforced train/test split (forward window after dev window), Deflated Sharpe/PSR (Bailey & Lopez de Prado, n_trials/skew/kurtosis, Lo 2002 EVT max dist for n>1), look-ahead tripwire (Mode 1 frame check — corrupts last-bar OHLCV on detected leakage), 8-criteria binary scoring (accept/reject), `ztb validate <strategy> <symbol>` canonical CLI gate with exit codes 0/1/2. Store schema v10: `run_id` PK, validation results table. Replaces all prior stubs.
+- **Tests:** 9 new validation test modules (DSR, look-ahead, scoring, store, walk-forward, CLI) — 941 tests pass both 3.11/3.13, ≥90% validation coverage, ruff/mypy clean
+- V&R PASS on SHA `1bb003a` ([ZTB-1643](/ZTB/issues/ZTB-1643)); vr-pass CI on final SHA `0dfc43e` also PASS
+- Merge authorization: [ZTB-1660](/ZTB/issues/ZTB-1660) (MD approved)
+- **PR:** [#76](https://github.com/StaithValanthis/ztb/pull/76) — `feat/validation-package`
+- **Merge commit:** `d8caf2a` — two-key merge (CI green + V&R PASS)
+- **Tag:** v1.1.10
+
 ## v1.1.9 (2026-06-14)
 
 - **Fix(strat):** D3 fix — `bearish_resumption` 1h-native redesign: timeframe `240`→`60`, warmup `300`→`1200`, remove synthetic `df.resample("1h").ffill()` block, compute 4h indicators via genuine `df.resample("4h")` on 1h data, remove dead loader mocks from tests, update test fixtures to 1h frequency (warmup=1200)
