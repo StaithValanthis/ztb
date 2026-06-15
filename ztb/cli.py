@@ -849,41 +849,45 @@ def _list(verbose: bool) -> None:
 
 
 @cli.command(name="smoke-test")
-@click.option("--symbol", default="BTCUSDT", help="Symbol to trade")
-@click.option("--qty", default=None, type=float, help="Order qty (default: instrument min)")
+@click.option("--symbol", default="BTCUSDT", help="Trading pair")
+@click.option("--qty", default=0.001, type=float, help="Quantity to trade")
 @click.option("--category", default="linear", help="Market category")
-@click.option("--db", default=None, help="Path to result database (default: temp)")
-@click.option("--side", default="Buy", type=click.Choice(["Buy", "Sell"]), help="Order side")
+@click.option("--db", default=None, help="Path to results.db (default: ZTB_STORE_PATH)")
+@click.option("--timeout", default=30, type=int, help="Seconds to wait for fills")
+@click.option("--poll-interval", default=2.0, type=float, help="Seconds between poll retries")
 def smoke_test(
     symbol: str,
-    qty: float | None,
+    qty: float,
     category: str,
     db: str | None,
-    side: str,
+    timeout: int,
+    poll_interval: float,
 ) -> None:
-    """Place ONE real demo order and assert exec_fills row exists.
+    """Place ONE real demo MARKET BUY order and assert exec_fills row exists.
 
     End-to-end smoke test that validates the full execution pipeline:
     BybitClient auth, order placement, fill retrieval, and store persistence.
-    DEMO mode only.
+    Asserts: real fee > 0, correct price scale, code_version stamped,
+    FK consistency between order and fills. DEMO mode only.
     """
     import os
-    import sqlite3
-    import tempfile
-    import time
-    from contextlib import suppress
+    import time as _time
     from datetime import UTC, datetime
+    from pathlib import Path
+    from typing import Any
 
     from ztb.execution.bybit_client import BybitClient, ClientConfig
     from ztb.execution.models import Mode, OrderSide, OrderType
     from ztb.store.exec_io import (
+        create_exec_run,
         ensure_exec_tables,
         get_exec_fills,
         save_exec_fill,
         save_exec_order,
     )
+    from ztb.store.results import connect as db_connect
 
-    click.echo(f"ztb smoke-test: {symbol} {side} via Bybit DEMO")
+    click.echo(f"ztb smoke-test: {symbol} MARKET BUY via Bybit DEMO")
 
     api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
     api_secret = os.environ.get("ZTB_BYBIT_API_SECRET", "")
@@ -894,43 +898,31 @@ def smoke_test(
     cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=Mode.DEMO)
     client = BybitClient(cfg)
 
-    db_path: str = db or os.environ.get("ZTB_STORE_PATH", "")
-    close_db = False
-    if not db_path:
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-            db_path = tmp.name
-        close_db = True
+    default_path = os.environ.get("ZTB_STORE_PATH", str(Path.home() / ".ztb" / "results.db"))
+    db_path: str = db or default_path
+    store_dir = os.path.dirname(db_path)
+    if store_dir:
+        os.makedirs(store_dir, exist_ok=True)
 
-    conn: sqlite3.Connection | None = None
+    conn = db_connect(db_path)
     try:
-        from ztb.store.results import connect
-
-        conn = connect(db_path)
         ensure_exec_tables(conn)
-
         click.echo(f"  DB:     {db_path}")
 
         info = client.get_instrument_info(symbol, category)
         ls = info.get("lotSizeFilter", {})
         qty_step = float(ls.get("qtyStep", "0.001"))
         min_qty = float(ls.get("minOrderQty", "0.001"))
-
-        if qty is None:
-            qty = min_qty
         qty = max(qty, min_qty)
         qty = BybitClient.round_to_step(qty, qty_step)
-
         click.echo(f"  Qty:    {qty} (step={qty_step}, min={min_qty})")
 
-        wallet = client.get_wallet_balance()
-        click.echo(f"  Wallet: {wallet}")
+        run_id = f"smoke-{int(_time.time() * 1000)}"
+        order_link_id = f"smoke-{run_id}-{int(_time.time() * 1000)}"
 
-        side_enum = OrderSide(side)
-
-        order_link_id = f"smoke-test-{int(time.time() * 1000)}"
         order_result = client.place_order(
             symbol=symbol,
-            side=side_enum,
+            side=OrderSide.BUY,
             qty=qty,
             order_type=OrderType.MARKET,
             order_link_id=order_link_id,
@@ -945,20 +937,25 @@ def smoke_test(
         click.echo(f"  Order:  {order_id}")
         click.echo(f"  LinkID: {order_link_id}")
 
-        time.sleep(2.0)
+        deadline = _time.time() + timeout
+        fills_raw: list[dict[str, Any]] = []
+        while _time.time() < deadline:
+            fills_raw = client.get_executions(symbol=symbol, category=category, order_id=order_id)
+            if fills_raw:
+                break
+            remaining = max(0, int(deadline - _time.time()))
+            click.echo(f"  Poll: {len(fills_raw)} fills, {remaining}s remaining...")
+            _time.sleep(poll_interval)
 
-        fills_raw = client.get_executions(symbol=symbol, category=category, order_id=order_id)
         click.echo(f"  Fills:  {len(fills_raw)} raw execution(s)")
 
-        exec_run_id = f"st-{int(time.time() * 1000)}"
+        exec_run_id = f"st-{int(_time.time() * 1000)}"
         now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        from ztb.store.exec_io import create_exec_run
 
         create_exec_run(
             conn,
             exec_run_id=exec_run_id,
-            run_id=exec_run_id,
+            run_id=run_id,
             strategy_name="smoke_test",
             symbol=symbol,
             timeframe="1m",
@@ -971,7 +968,7 @@ def smoke_test(
             "exec_run_id": exec_run_id,
             "order_id": order_id,
             "symbol": symbol,
-            "side": side,
+            "side": "Buy",
             "order_type": "Market",
             "price": float(order_result.get("price", 0)),
             "qty": qty,
@@ -981,33 +978,53 @@ def smoke_test(
             "cum_exec_value": float(order_result.get("cumExecValue", 0)),
             "cum_exec_fee": float(order_result.get("cumExecFee", 0)),
             "sufficient_sample": 1,
-            "code_version": None,
+            "code_version": __version__,
         }
         save_exec_order(conn, order_dict)
 
         for fill_raw in fills_raw:
+            exec_price = float(fill_raw.get("execPrice", 0))
+            exec_qty = float(fill_raw.get("execQty", 0))
+            commission = float(fill_raw.get("execFee", 0))
             fill_dict = {
-                "fill_id": fill_raw.get("execId", f"fill-{order_id}-{int(time.time() * 1000)}"),
+                "fill_id": fill_raw.get("execId", f"fill-{order_id}-{int(_time.time() * 1000)}"),
                 "order_link_id": order_link_id,
                 "exec_run_id": exec_run_id,
                 "order_id": order_id,
                 "symbol": symbol,
-                "side": side,
-                "price": float(fill_raw.get("execPrice", 0)),
-                "qty": float(fill_raw.get("execQty", 0)),
-                "commission": float(fill_raw.get("execFee", 0)),
+                "side": "Buy",
+                "price": exec_price,
+                "qty": exec_qty,
+                "commission": commission,
                 "realized_pnl": float(fill_raw.get("realizedPnl", 0)),
                 "filled_at": fill_raw.get("execTime", now_str),
                 "sufficient_sample": 1,
-                "code_version": None,
+                "code_version": __version__,
             }
             save_exec_fill(conn, fill_dict)
 
         stored_fills = get_exec_fills(conn, exec_run_id)
         click.echo(f"  Stored: {len(stored_fills)} fill(s) in exec_fills")
 
+        errors: list[str] = []
         if len(stored_fills) == 0:
-            click.echo("FAIL: no exec_fills row found after order placement", err=True)
+            errors.append("no exec_fills row found after order placement")
+
+        for f in stored_fills:
+            if f.get("order_link_id") != order_link_id:
+                fid = f["fill_id"]
+                errors.append(f"FK mismatch fill={fid}: link={f.get('order_link_id')}")
+            if f.get("commission", 0) <= 0:
+                errors.append(f"zero commission fill={f['fill_id']}: {f.get('commission')}")
+            if f.get("price", 0) <= 0:
+                errors.append(f"zero price fill={f['fill_id']}: {f.get('price')}")
+            if f.get("code_version") != __version__:
+                cv = f.get("code_version")
+                errors.append(f"code_ver mismatch fill={f['fill_id']}: {cv} != {__version__}")
+
+        if errors:
+            for e in errors:
+                click.echo(f"  FAIL: {e}", err=True)
             sys.exit(1)
 
         click.echo("")
@@ -1015,20 +1032,18 @@ def smoke_test(
         click.echo(f"  exec_run_id: {exec_run_id}")
         click.echo(f"  fills:       {len(stored_fills)}")
         for f in stored_fills:
-            click.echo(f"    fill {f['fill_id'][:20]:20s}  {f['side']:4s}  "
-                       f"qty={f['qty']:.6f}  price={f['price']:.4f}  "
-                       f"commission={f['commission']:.8f}")
+            click.echo(
+                f"    fill {str(f['fill_id'])[:20]}  "
+                f"qty={f['qty']:.6f} price={f['price']:.1f} "
+                f"fee={f['commission']:.8f} ver={f['code_version']}"
+            )
 
     except Exception as exc:
         click.echo(f"Smoke test error: {exc}", err=True)
         sys.exit(1)
     finally:
-        if conn is not None:
-            conn.close()
+        conn.close()
         client.close()
-        if close_db and db_path and os.path.exists(db_path):
-            with suppress(OSError):
-                os.unlink(db_path)
 
 
 def main() -> None:
