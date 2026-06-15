@@ -115,6 +115,9 @@ def test_walkforward_config_defaults() -> None:
     assert cfg.min_trades == 30
     assert cfg.step_size is None
     assert cfg.warmup is None
+    assert cfg.initial_cash == 100_000.0
+    assert cfg.commission == 0.0005
+    assert cfg.slippage == 0.0005
 
 
 def test_per_window_metrics() -> None:
@@ -139,3 +142,22 @@ def test_credible_count() -> None:
     result = run_walk_forward(strat, df, cfg)
     assert result.n_windows_credible >= 0
     assert result.n_windows_credible <= result.n_windows_total
+
+
+def test_economic_params_thread_to_backtest() -> None:
+    df = _trending_data(2000)
+    strat = SmaCross()
+    cfg = WalkForwardConfig(
+        n_windows=2,
+        min_trades=1,
+        min_train_bars=100,
+        min_oos_bars=50,
+        warmup=20,
+        initial_cash=500_000.0,
+        commission=0.002,
+        slippage=0.003,
+    )
+    result = run_walk_forward(strat, df, cfg)
+    assert result.config.initial_cash == 500_000.0
+    assert result.config.commission == 0.002
+    assert result.config.slippage == 0.003

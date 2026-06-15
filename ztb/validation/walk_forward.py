@@ -20,6 +20,9 @@ class WalkForwardConfig:
     min_oos_bars: int = 100
     warmup: int | None = None
     min_trades: int = 30
+    initial_cash: float = 100_000.0
+    commission: float = 0.0005
+    slippage: float = 0.0005
 
 
 @dataclass
@@ -74,6 +77,9 @@ def run_walk_forward(
             oos_start = start + 1
 
         bt_config = BacktestConfig(
+            initial_cash=config.initial_cash,
+            commission=config.commission,
+            slippage=config.slippage,
             is_fraction=(train_end - start) / max(window_len, 1),
             min_trades=config.min_trades,
         )
