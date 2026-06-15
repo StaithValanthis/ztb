@@ -386,6 +386,7 @@ def test_forwardtest_utc_timestamps() -> None:
 def _make_loader(pool: DataFrame):
     def loader(symbol: str, timeframe: str, *, start=None, end=None, **kwargs):
         return pool.loc[start:end]
+
     return loader
 
 
@@ -408,6 +409,3 @@ def test_forwardtest_with_start_has_trades() -> None:
     loader = _make_loader(pool)
     result = run_forwardtest(strat, data_slice, config, loader=loader)
     assert result.metrics.num_trades >= 1
-
-
-

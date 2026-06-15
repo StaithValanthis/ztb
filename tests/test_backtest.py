@@ -196,6 +196,7 @@ def test_sma_cross_backtest() -> None:
 def _make_loader(pool: DataFrame):
     def loader(symbol: str, timeframe: str, *, start=None, end=None, **kwargs):
         return pool.loc[start:end]
+
     return loader
 
 

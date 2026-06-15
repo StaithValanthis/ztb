@@ -3865,7 +3865,10 @@ def test_executor_with_start_dry_run_has_orders(
     mock_load.return_value = data
     strat = WarmupSignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=True, lookback_bars=30, warmup_bars=0,
+        mode=Mode.DEMO,
+        dry_run=True,
+        lookback_bars=30,
+        warmup_bars=0,
     )
     exe = Executor(strat, config=config)
     result = exe.run(
@@ -3899,7 +3902,11 @@ def test_executor_with_start_risk_decisions_produced(
     mock_load.return_value = data
     strat = WarmupSignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=True, risk_enabled=True, lookback_bars=30, warmup_bars=0,
+        mode=Mode.DEMO,
+        dry_run=True,
+        risk_enabled=True,
+        lookback_bars=30,
+        warmup_bars=0,
     )
     exe = Executor(strat, config=config)
     result = exe.run(
