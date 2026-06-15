@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.14 (2026-06-15)
+
+- **Fix(validation):** DEFECT 1-3 — thread actual `cash`, `commission`, `slippage` params through walk-forward harness (were hardcoded to `0.0`/`0`/`0.0`). Fix ruff-format trailing blank lines in `walk_forward.py`.
+- **Tests:** New test for threaded params in walk-forward — 21 lines added to `test_validation_walkforward.py`. CI + vr-pass SUCCESS on SHA `0b75e34`.
+- **PR:** [#85](https://github.com/StaithValanthis/ztb/pull/85) — `feat/validation-package`
+- **Merge commit:** `24d5da3` — two-key merge (CI green + vr-pass SUCCESS on SHA `0b75e34`)
+- **Tag:** v1.1.14
+
 ## v1.1.12 (2026-06-15)
 
 - **Fix(exec):** Size against actual wallet balance, verify top-up with `TopUpResult`/wallet read-back, backoff on `'ab not enough'` (ClientError) — skip bar, no retry. Wallet fetch failure skips bar (no fallback to PnLCalculator). Uses per-coin `available_balance * max_leverage` for order sizing instead of `equity` alone. DEMO equity cap preserved outside the wallet-fetch try/except.
@@ -68,6 +76,18 @@
 - **PR:** [#64](https://github.com/StaithValanthis/ztb/pull/64) — `feat/ztb-1266-arm-security-fix`
 - **Merge commit:** `db8c689` — two-key merge (CI green + V&R PASS on SHA `989d0b4`)
 - **Tag:** v1.1.6
+
+## v1.1.5 (2026-06-14)
+
+- **Feat(exec):** Demo account auto top-up — `BybitClient.top_up_demo_account()` calls POST `/v5/account/demo-apply-money` on every DEMO run start, resetting USDT balance to `initial_cash` (default 100,000) to prevent "ab not enough for new order" exhaustion
+- **Feat(exec):** `reduce_only` flag on positional reduces — executor sets `reduce_only=True` when `delta < 0 && position > 0` (sell to reduce long) or `delta > 0 && position < 0` (buy to reduce short), avoiding margin on opposite-side opens
+- **Fix(exec):** Top-up failure is non-fatal — logs `DemoAccountTopUpError` to `exec_errors` and continues run; dry-run and LIVE modes skip top-up entirely
+- **Tests:** 10 new pytest cases (3 `top_up_demo_account` API + guards + failure; 4 executor run-mode guards + failure; 3 `reduce_only` logic) — 127/127 execution tests pass; 836/836 full suite pass
+- Coverage: executor 86%, bybit_client 47% (new method), total 92%
+- V&R PASS on SHA `b3bdc9b` ([ZTB-1421](/ZTB/issues/ZTB-1421), [ZTB-1417](/ZTB/issues/ZTB-1417))
+- **PR:** [#63](https://github.com/StaithValanthis/ztb/pull/63) — `feat/ztb-1417-demo-exec-loop-fix`
+- **Merge commit:** `d9f07e7` — two-key merge (CI green + V&R PASS on SHA `b3bdc9b`)
+- **Tag:** v1.1.5
 
 ## v1.1.4 (2026-06-14)
 
