@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.20 (2026-06-15)
+
+- **Feat(cli):** `ztb smoke-test` — end-to-end demo order verification command. Places a real demo order via Bybit API, polls until filled, validates `exec_fills` row (real fee, correct price scale ~ tens of thousands, `code_version` stamped, no duplicate order_link_id churn). 467 lines of tests in `tests/test_cli_smoke_test.py`.
+- **Tests:** Full smoke test suite — 549 lines total including end-to-end order lifecycle validation.
+- V&R PASS on SHA `f3e7939f` ([ZTB-2016](/ZTB/issues/ZTB-2016))
+- **PR:** [#103](https://github.com/StaithValanthis/ztb/pull/103) — `feat/smoke-test`
+- **Merge commit:** `540cb41` — two-key merge (CI green + V&R PASS on SHA `f3e7939f`)
+- **Tag:** v1.1.20
+
 ## v1.1.19 (2026-06-15)
 
 - **Feat(execution):** `IdempotencyLedger.clear_stale(ttl_hours=24)` — deletes resolved entries older than a configurable TTL to prevent unbounded `idempotency` table growth. Adds `count()` method and `idx_idempotency_stale` index on `(status, created_at)` for efficient cleanup queries.
