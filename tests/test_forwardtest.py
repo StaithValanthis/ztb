@@ -381,3 +381,33 @@ def test_forwardtest_utc_timestamps() -> None:
     for ts in result.portfolio.timestamps:
         assert ts.tz is not None
         assert str(ts.tz) == "UTC"
+
+
+def _make_loader(pool: DataFrame):
+    def loader(symbol: str, timeframe: str, *, start=None, end=None, **kwargs):
+        return pool.loc[start:end]
+    return loader
+
+
+def _sma_cross_strategy() -> Strategy:
+    from ztb.strategies.registry import get as get_strat
+
+    cls = get_strat("sma_cross")
+    strat = cls()
+    strat.symbols = ["TEST"]
+    return strat
+
+
+def test_forwardtest_with_start_has_trades() -> None:
+    pool = _sample_df(200)
+    start = pool.index[156]
+    data_slice = pool.loc[start:]
+    assert len(data_slice) == 44
+    strat = _sma_cross_strategy()
+    config = ForwardtestConfig(warmup_bars=0, min_trades=0)
+    loader = _make_loader(pool)
+    result = run_forwardtest(strat, data_slice, config, loader=loader)
+    assert result.metrics.num_trades >= 1
+
+
+

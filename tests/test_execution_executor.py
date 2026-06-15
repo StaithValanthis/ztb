@@ -3811,3 +3811,103 @@ def test_reconcile_query_failure_skip(
 
     mock_client.place_order.assert_called_once()
     mock_client.get_order_history.assert_called_once_with(symbol="BTCUSDT", limit=50)
+
+
+class WarmupSignalStrategy:
+    name = "warmup_signal"
+    symbols = ["BTCUSDT"]
+    timeframe = "60"
+    params: dict = {}
+    warmup = 20
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+        arr = np.zeros(len(data))
+        arr[: self.warmup] = 0.0
+        arr[self.warmup :] = 1.0
+        return pd.Series(arr, index=data.index)
+
+
+def test_executor_compute_target_with_start_data() -> None:
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    strat = WarmupSignalStrategy()
+    exe = Executor(strat, config=config)
+    idx = pd.date_range("2026-01-01", periods=30, freq="h", tz="UTC")
+    data = pd.DataFrame(
+        {
+            "close": [50000.0 + i * 10 for i in range(30)],
+            "open": [50000.0] * 30,
+            "high": [50100.0] * 30,
+            "low": [49900.0] * 30,
+            "volume": [100.0] * 30,
+        },
+        index=idx,
+    )
+    target = exe._compute_target_position(data)
+    assert target == 1.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_with_start_dry_run_has_orders(
+    mock_load: MagicMock,
+) -> None:
+    idx = pd.date_range("2026-01-06", periods=60, freq="h", tz="UTC")
+    data = pd.DataFrame(
+        {
+            "open": [50000.0 + i * 5 for i in range(60)],
+            "high": [50100.0 + i * 5 for i in range(60)],
+            "low": [49900.0 + i * 5 for i in range(60)],
+            "close": [50000.0 + i * 5 for i in range(60)],
+            "volume": [100.0] * 60,
+        },
+        index=idx,
+    )
+    data.index.name = "timestamp"
+    mock_load.return_value = data
+    strat = WarmupSignalStrategy()
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=True, lookback_bars=30, warmup_bars=0,
+    )
+    exe = Executor(strat, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-06T00:00:00Z",
+        end="2026-01-08T12:00:00Z",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert result.bars_processed > 0
+    assert result.current_position > 0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_with_start_risk_decisions_produced(
+    mock_load: MagicMock,
+) -> None:
+    idx = pd.date_range("2026-01-06", periods=60, freq="h", tz="UTC")
+    data = pd.DataFrame(
+        {
+            "open": [50000.0 + i * 5 for i in range(60)],
+            "high": [50100.0 + i * 5 for i in range(60)],
+            "low": [49900.0 + i * 5 for i in range(60)],
+            "close": [50000.0 + i * 5 for i in range(60)],
+            "volume": [100.0] * 60,
+        },
+        index=idx,
+    )
+    data.index.name = "timestamp"
+    mock_load.return_value = data
+    strat = WarmupSignalStrategy()
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=True, risk_enabled=True, lookback_bars=30, warmup_bars=0,
+    )
+    exe = Executor(strat, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-06T00:00:00Z",
+        end="2026-01-08T12:00:00Z",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert result.bars_processed > 0

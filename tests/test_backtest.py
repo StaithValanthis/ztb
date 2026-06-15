@@ -191,3 +191,54 @@ def test_sma_cross_backtest() -> None:
     config = BacktestConfig(min_trades=0)
     result = run_backtest(strat, df, config)
     assert isinstance(result.full.total_return, (float, type(None)))
+
+
+def _make_loader(pool: DataFrame):
+    def loader(symbol: str, timeframe: str, *, start=None, end=None, **kwargs):
+        return pool.loc[start:end]
+    return loader
+
+
+def test_backtest_with_start_has_trades() -> None:
+    pool = _sample_df(200)
+    start = pool.index[156]
+    data_slice = pool.loc[start:]
+    assert len(data_slice) == 44
+    strat = _sma_cross_strategy()
+    config = BacktestConfig(min_trades=0)
+    loader = _make_loader(pool)
+    result = run_backtest(strat, data_slice, config, loader=loader)
+    assert result.full.num_trades >= 1
+    assert len(result.risk_decisions) == 0
+
+
+def test_backtest_with_start_too_short_raises() -> None:
+    pool = _sample_df(200)
+    start = pool.index[187]
+    data_slice = pool.loc[start:]
+    assert len(data_slice) == 13
+    strat = _sma_cross_strategy()
+    config = BacktestConfig(min_trades=0)
+    with pytest.raises(ValueError, match="Data length.*less than strategy warmup"):
+        run_backtest(strat, data_slice, config)
+
+
+def test_backtest_with_start_and_risk_enabled() -> None:
+    pool = _sample_df(200)
+    start = pool.index[156]
+    data_slice = pool.loc[start:]
+    assert len(data_slice) == 44
+    strat = _sma_cross_strategy()
+    config = BacktestConfig(risk_enabled=True, min_trades=0)
+    loader = _make_loader(pool)
+    result = run_backtest(strat, data_slice, config, loader=loader)
+    assert len(result.risk_decisions) >= len(data_slice)
+
+
+def _sma_cross_strategy() -> Strategy:
+    from ztb.strategies.registry import get as get_strat
+
+    cls = get_strat("sma_cross")
+    strat = cls()
+    strat.symbols = ["TEST"]
+    return strat

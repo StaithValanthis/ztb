@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pandas import DataFrame, Series
 
+from ztb.data.loader import load as _default_loader
 from ztb.engine.metrics import MetricsResult, compute_metrics
 
 if TYPE_CHECKING:
@@ -55,6 +57,8 @@ def run_forwardtest(
     baseline_metrics: MetricsResult | None = None,
     decay_cfg: DecayConfig | None = None,
     baseline_run_id: str | None = None,
+    *,
+    loader: Callable[..., DataFrame] | None = None,
 ) -> ForwardtestResult:
     if config is None:
         config = ForwardtestConfig()
@@ -63,6 +67,41 @@ def run_forwardtest(
     missing = required_cols - set(data.columns)
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
+
+    min_required = strategy.warmup + 1
+    if len(data) < min_required:
+        if loader is not None:
+            if len(data) >= 2:
+                interval = data.index[1] - data.index[0]
+            else:
+                interval = pd.Timedelta(hours=1)
+            fetch_bars = strategy.warmup + 10
+            adjusted_start = data.index[0] - interval * fetch_bars
+            symbol = strategy.symbols[0] if strategy.symbols else ""
+            try:
+                extended = loader(
+                    symbol=symbol,
+                    timeframe=strategy.timeframe,
+                    start=adjusted_start,
+                    end=data.index[0],
+                )
+            except Exception:
+                raise ValueError(
+                    f"Data length ({len(data)}) insufficient for strategy warmup "
+                    f"({strategy.warmup}) and loader failed to extend."
+                )
+            extended = extended.loc[extended.index < data.index[0]]
+            if len(extended) < strategy.warmup:
+                raise ValueError(
+                    f"Extended data has {len(extended)} warmup bars, "
+                    f"need at least {strategy.warmup}."
+                )
+            data = pd.concat([extended, data])
+        else:
+            raise ValueError(
+                f"Data length ({len(data)}) is less than strategy warmup "
+                f"({strategy.warmup}) + 1. Provide a data loader to auto-extend."
+            )
 
     close = data["close"]
 
