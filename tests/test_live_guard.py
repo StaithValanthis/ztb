@@ -19,12 +19,14 @@ def _setup_arm(tmp_path: Path) -> Path:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = _TEST_TOKEN
     hash_path = tmp_path / "board-arm-hash"
     hash_path.write_text(compute_arm_hash(_TEST_TOKEN))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hash_path)
     return hash_path
 
 
 def _cleanup_arm() -> None:
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 def test_default_disarmed() -> None:
@@ -58,6 +60,36 @@ def test_assert_live_allowed_when_disarmed() -> None:
     LiveGuard.disarm()
     with pytest.raises(LiveDisarmedError):
         LiveGuard.assert_live_allowed()
+
+
+def test_assert_live_allowed_fail_closed_token_removed(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", hash_path=sp)
+    assert LiveGuard.is_armed()
+    os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    with pytest.raises(LiveDisarmedError, match="board token re-verification failed"):
+        LiveGuard.assert_live_allowed()
+    _cleanup_arm()
+
+
+def test_assert_live_allowed_fail_closed_token_changed(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", hash_path=sp)
+    assert LiveGuard.is_armed()
+    os.environ[LiveGuard.BOARD_TOKEN_VAR] = "wrong-token"
+    with pytest.raises(LiveDisarmedError, match="board token re-verification failed"):
+        LiveGuard.assert_live_allowed()
+    _cleanup_arm()
+
+
+def test_assert_live_allowed_fail_closed_hash_missing(tmp_path: Path) -> None:
+    sp = _setup_arm(tmp_path)
+    LiveGuard.arm("1", hash_path=sp)
+    assert LiveGuard.is_armed()
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
+    with pytest.raises(LiveDisarmedError, match="board token re-verification failed"):
+        LiveGuard.assert_live_allowed()
+    _cleanup_arm()
 
 
 def test_env_var_values() -> None:

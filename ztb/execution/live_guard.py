@@ -24,9 +24,13 @@ class LiveGuard:
         return val in ("1", "true", "yes")
 
     @classmethod
-    def assert_live_allowed(cls) -> None:
+    def assert_live_allowed(cls, hash_path: str | Path | None = None) -> None:
         if not cls.is_armed():
             raise LiveDisarmedError()
+        board_token = os.environ.get(cls.BOARD_TOKEN_VAR)
+        stored_hash = load_arm_hash(hash_path)
+        if not board_token or not stored_hash or not verify_board_token(board_token, stored_hash):
+            raise LiveDisarmedError("Live trading disarmed — board token re-verification failed")
 
     @classmethod
     def arm(

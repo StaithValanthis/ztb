@@ -205,12 +205,14 @@ def test_executor_live_mode_allowed_when_armed(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     client = BybitClient(ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE))
     assert client._base_url == "https://api.bybit.com"
     client.close()
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 @patch("ztb.execution.executor.load_data")
