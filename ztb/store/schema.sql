@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS risk_decisions (
 
 CREATE INDEX IF NOT EXISTS idx_risk_decisions_run ON risk_decisions(run_id);
 
+
+
 INSERT OR IGNORE INTO schema_meta (version) VALUES (1);
 INSERT OR IGNORE INTO schema_meta (version) VALUES (2);
 INSERT OR IGNORE INTO schema_meta (version) VALUES (3);
+INSERT OR IGNORE INTO schema_meta (version) VALUES (5);
