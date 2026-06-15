@@ -428,7 +428,7 @@ def validate(
 
     oos_sharpe = agg.sharpe if agg.sharpe is not None else 0.0
     n_obs = agg.exposure_time if agg.exposure_time else 0
-    n_trials = _compute_n_trials(strategy.params) if hasattr(strategy, "params") and strategy.params else 1
+    n_trials = _compute_n_trials(getattr(strategy, "params", {}))
 
     dsr_result = compute_deflated_sharpe(
         sharpe=oos_sharpe,
