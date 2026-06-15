@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.26 (2026-06-15)
+
+- **Fix(executor):** Resolve duplicate `OrderLinkedID` on stale-pending retry — stale pending rows are resolved as `failed` (not DELETEd) and retried with a nonced `order_link_id`. `_reconcile_pending_order` now queries both `get_order_history` and `get_open_orders` (dual-endpoint). Defensive `ClientError` handler catches `"OrderLinkedID is duplicate"` around `place_order` — found orders are restored; not-found bars are skipped gracefully with full state advancement. `clear_pending()` added to startup cleanup.
+- **Tests:** 6 new test cases (`test_stale_pending_resolve_failed_nonce`, `test_reconcile_pending_order_open_orders_match`, `test_reconcile_pending_order_both_endpoints`, `test_place_order_duplicate_reconcile_found`, `test_place_order_duplicate_skip_bar_advances_state`, `test_reconcile_query_failure_skip`). 120/120 executor tests passing (994/997 total — 3 pre-existing: version skew + network).
+- V&R PASS on SHA `ceb9962` ([ZTB-2213](/ZTB/issues/ZTB-2213))
+- **PR:** [#122](https://github.com/StaithValanthis/ztb/pull/122) — `feat/orderlinkid-duplicate-fix`
+- **Merge commit:** `475cd86` — two-key merge (CI green + V&R PASS on SHA `ceb9962`)
+- **Tag:** v1.1.26
+
 ## v1.1.25 (2026-06-15)
 
 - **Fix(executor):** `_reconcile_pending_order` helper and stale-pending retry path — when `try_claim` fails and the existing row has no `order_id` (API response lost), reconcile via Bybit order history before resubmitting. If the order went through, resolve idempotency and restore; if not, delete stale pending row and retry.
