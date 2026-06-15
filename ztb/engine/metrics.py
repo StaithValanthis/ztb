@@ -33,6 +33,18 @@ class MetricsResult:
     reason: str = ""
 
 
+def deflated_sharpe(
+    sharpe: float,
+    n_trials: int,
+    n_obs: int,
+    skew: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    from ztb.validation.deflated_sharpe import compute_deflated_sharpe as _compute
+
+    return _compute(sharpe, n_trials, n_obs, skew, kurtosis).dsr
+
+
 def compute_metrics(
     equity: Series,
     trades: list[dict[str, Any]],
