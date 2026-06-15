@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.21 (2026-06-15)
+
+- **Fix(store):** Remove FK constraint from `exec_fills.order_link_id` → `exec_orders(order_link_id)` — stable-tuple `orderLinkId` values from the exchange (repeated across fills for the same logical order) no longer cause FK violations. Schema v10 migration recreates `exec_fills` without the FK. Removed implicit parent-order auto-creation in `save_exec_fill` (the FK workaround).
+- **Tests:** `test_save_exec_fill_orphan` asserts fills are saved without auto-creating an order row. `test_exec_fills_no_order_link_id_fk` verifies FK is removed. `test_schema_meta_version_10` confirms migration ran. 58/58 execution store tests passing.
+- V&R PASS on SHA `f6ba67f` ([ZTB-1931](/ZTB/issues/ZTB-1931))
+- **PR:** [#107](https://github.com/StaithValanthis/ztb/pull/107) — `feat/ztb-1931-remove-fk-fills`
+- **Merge commit:** `f6ad9bd` — two-key merge (CI green + V&R PASS on SHA `1124632`)
+- **Tag:** v1.1.21
+
 ## v1.1.20 (2026-06-15)
 
 - **Feat(cli):** `ztb smoke-test` — end-to-end demo order verification command. Places a real demo order via Bybit API, polls until filled, validates `exec_fills` row (real fee, correct price scale ~ tens of thousands, `code_version` stamped, no duplicate order_link_id churn). 467 lines of tests in `tests/test_cli_smoke_test.py`.
