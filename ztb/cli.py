@@ -848,6 +848,204 @@ def _list(verbose: bool) -> None:
             click.echo(f"  {name}")
 
 
+@cli.command(name="smoke-test")
+@click.option("--symbol", default="BTCUSDT", help="Trading pair")
+@click.option("--qty", default=0.001, type=float, help="Quantity to trade")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--db", default=None, help="Path to results.db (default: ZTB_STORE_PATH)")
+@click.option("--timeout", default=30, type=int, help="Seconds to wait for fills")
+@click.option("--poll-interval", default=2.0, type=float, help="Seconds between poll retries")
+def smoke_test(
+    symbol: str,
+    qty: float,
+    category: str,
+    db: str | None,
+    timeout: int,
+    poll_interval: float,
+) -> None:
+    """Place ONE real demo MARKET BUY order and assert exec_fills row exists.
+
+    End-to-end smoke test that validates the full execution pipeline:
+    BybitClient auth, order placement, fill retrieval, and store persistence.
+    Asserts: real fee > 0, correct price scale, code_version stamped,
+    FK consistency between order and fills. DEMO mode only.
+    """
+    import os
+    import time as _time
+    from datetime import UTC, datetime
+    from pathlib import Path
+    from typing import Any
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode, OrderSide, OrderType
+    from ztb.store.exec_io import (
+        create_exec_run,
+        ensure_exec_tables,
+        get_exec_fills,
+        save_exec_fill,
+        save_exec_order,
+    )
+    from ztb.store.results import connect as db_connect
+
+    click.echo(f"ztb smoke-test: {symbol} MARKET BUY via Bybit DEMO")
+
+    api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
+    api_secret = os.environ.get("ZTB_BYBIT_API_SECRET", "")
+    if not api_key or not api_secret:
+        click.echo("Error: ZTB_BYBIT_API_KEY and ZTB_BYBIT_API_SECRET must be set", err=True)
+        sys.exit(1)
+
+    cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=Mode.DEMO)
+    client = BybitClient(cfg)
+
+    default_path = os.environ.get("ZTB_STORE_PATH", str(Path.home() / ".ztb" / "results.db"))
+    db_path: str = db or default_path
+    store_dir = os.path.dirname(db_path)
+    if store_dir:
+        os.makedirs(store_dir, exist_ok=True)
+
+    conn = db_connect(db_path)
+    try:
+        ensure_exec_tables(conn)
+        click.echo(f"  DB:     {db_path}")
+
+        info = client.get_instrument_info(symbol, category)
+        ls = info.get("lotSizeFilter", {})
+        qty_step = float(ls.get("qtyStep", "0.001"))
+        min_qty = float(ls.get("minOrderQty", "0.001"))
+        qty = max(qty, min_qty)
+        qty = BybitClient.round_to_step(qty, qty_step)
+        click.echo(f"  Qty:    {qty} (step={qty_step}, min={min_qty})")
+
+        run_id = f"smoke-{int(_time.time() * 1000)}"
+        order_link_id = f"smoke-{run_id}-{int(_time.time() * 1000)}"
+
+        order_result = client.place_order(
+            symbol=symbol,
+            side=OrderSide.BUY,
+            qty=qty,
+            order_type=OrderType.MARKET,
+            order_link_id=order_link_id,
+            category=category,
+        )
+
+        if order_result.get("skipped"):
+            click.echo(f"  Order skipped: {order_result.get('reason', 'unknown')}", err=True)
+            sys.exit(1)
+
+        order_id = order_result.get("orderId", "")
+        click.echo(f"  Order:  {order_id}")
+        click.echo(f"  LinkID: {order_link_id}")
+
+        deadline = _time.time() + timeout
+        fills_raw: list[dict[str, Any]] = []
+        while _time.time() < deadline:
+            fills_raw = client.get_executions(symbol=symbol, category=category, order_id=order_id)
+            if fills_raw:
+                break
+            remaining = max(0, int(deadline - _time.time()))
+            click.echo(f"  Poll: {len(fills_raw)} fills, {remaining}s remaining...")
+            _time.sleep(poll_interval)
+
+        click.echo(f"  Fills:  {len(fills_raw)} raw execution(s)")
+
+        exec_run_id = f"st-{int(_time.time() * 1000)}"
+        now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        create_exec_run(
+            conn,
+            exec_run_id=exec_run_id,
+            run_id=run_id,
+            strategy_name="smoke_test",
+            symbol=symbol,
+            timeframe="1m",
+            mode="demo",
+            started_at=now_str,
+        )
+
+        order_dict = {
+            "order_link_id": order_link_id,
+            "exec_run_id": exec_run_id,
+            "order_id": order_id,
+            "symbol": symbol,
+            "side": "Buy",
+            "order_type": "Market",
+            "price": float(order_result.get("price", 0)),
+            "qty": qty,
+            "status": "Filled",
+            "created_at": now_str,
+            "cum_exec_qty": qty,
+            "cum_exec_value": float(order_result.get("cumExecValue", 0)),
+            "cum_exec_fee": float(order_result.get("cumExecFee", 0)),
+            "sufficient_sample": 1,
+            "code_version": __version__,
+        }
+        save_exec_order(conn, order_dict)
+
+        for fill_raw in fills_raw:
+            exec_price = float(fill_raw.get("execPrice", 0))
+            exec_qty = float(fill_raw.get("execQty", 0))
+            commission = float(fill_raw.get("execFee", 0))
+            fill_dict = {
+                "fill_id": fill_raw.get("execId", f"fill-{order_id}-{int(_time.time() * 1000)}"),
+                "order_link_id": order_link_id,
+                "exec_run_id": exec_run_id,
+                "order_id": order_id,
+                "symbol": symbol,
+                "side": "Buy",
+                "price": exec_price,
+                "qty": exec_qty,
+                "commission": commission,
+                "realized_pnl": float(fill_raw.get("realizedPnl", 0)),
+                "filled_at": fill_raw.get("execTime", now_str),
+                "sufficient_sample": 1,
+                "code_version": __version__,
+            }
+            save_exec_fill(conn, fill_dict)
+
+        stored_fills = get_exec_fills(conn, exec_run_id)
+        click.echo(f"  Stored: {len(stored_fills)} fill(s) in exec_fills")
+
+        errors: list[str] = []
+        if len(stored_fills) == 0:
+            errors.append("no exec_fills row found after order placement")
+
+        for f in stored_fills:
+            if f.get("order_link_id") != order_link_id:
+                fid = f["fill_id"]
+                errors.append(f"FK mismatch fill={fid}: link={f.get('order_link_id')}")
+            if f.get("commission", 0) <= 0:
+                errors.append(f"zero commission fill={f['fill_id']}: {f.get('commission')}")
+            if f.get("price", 0) <= 0:
+                errors.append(f"zero price fill={f['fill_id']}: {f.get('price')}")
+            if f.get("code_version") != __version__:
+                cv = f.get("code_version")
+                errors.append(f"code_ver mismatch fill={f['fill_id']}: {cv} != {__version__}")
+
+        if errors:
+            for e in errors:
+                click.echo(f"  FAIL: {e}", err=True)
+            sys.exit(1)
+
+        click.echo("")
+        click.echo("SMOKE TEST PASSED")
+        click.echo(f"  exec_run_id: {exec_run_id}")
+        click.echo(f"  fills:       {len(stored_fills)}")
+        for f in stored_fills:
+            click.echo(
+                f"    fill {str(f['fill_id'])[:20]}  "
+                f"qty={f['qty']:.6f} price={f['price']:.1f} "
+                f"fee={f['commission']:.8f} ver={f['code_version']}"
+            )
+
+    except Exception as exc:
+        click.echo(f"Smoke test error: {exc}", err=True)
+        sys.exit(1)
+    finally:
+        conn.close()
+        client.close()
+
+
 def main() -> None:
     sys.exit(cli(auto_envvar_prefix="ZTB"))
 
