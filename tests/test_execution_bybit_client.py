@@ -62,6 +62,29 @@ def test_signing_golden_vector() -> None:
     assert sig == expected_sig
 
 
+def test_signing_get_sorted_params_match_httpx() -> None:
+    """GET request signing must use alphabetically sorted params matching httpx."""
+    params: dict[str, str] = {"limit": "50", "symbol": "BTCUSDT", "category": "linear"}
+    # Insertion order: limit, symbol, category — NOT alphabetical
+    sorted_keys = list(sorted(params.keys()))
+    assert sorted_keys == ["category", "limit", "symbol"]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_client") as mock_http:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"retCode": 0, "result": {}}
+        mock_http.request.return_value = mock_resp
+
+        client._request("GET", "/v5/endpoint", params=params)
+
+    call_params = mock_http.request.call_args[1]["params"]
+    assert list(call_params.keys()) == sorted_keys, (
+        f"httpx params keys {list(call_params.keys())} != sorted {sorted_keys}"
+    )
+
+
 def test_sign_different_bodies_different_sigs() -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)

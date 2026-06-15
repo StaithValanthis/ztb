@@ -92,13 +92,15 @@ class BybitClient:
         sig = self._sign(ts, method, path, sign_payload)
         headers = self._headers(ts, sig)
 
+        sorted_params = dict(sorted(params.items())) if params else None
+
         last_exc: Exception | None = None
         for attempt in range(self._config.max_retries):
             try:
                 resp = self._client.request(
                     method=method,
                     url=url,
-                    params=params,
+                    params=sorted_params,
                     headers=headers,
                     content=body_str if body else None,
                 )
