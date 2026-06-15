@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.24 (2026-06-15)
+
+- **Fix(executor):** `clear_stale(ttl_hours=24)` instead of `clear_stale(ttl_hours=0)` — GC only idempotency entries older than 24h on startup instead of wiping all entries. `clear_pending()` removed — in-flight `pending` rows survive restarts, enabling crash-recovery without duplicate `order_link_id` errors.
+- **Tests:** Existing executor startup tests pass (no new tests — behavioral change only, no new code paths).
+- V&R PASS on SHA `5df25cd` ([ZTB-2148](/ZTB/issues/ZTB-2148))
+- **PR:** [#115](https://github.com/StaithValanthis/ztb/pull/115) — `feat/ztb-2126-clear-stale-ttl-24`
+- **Merge commit:** `99e4fc9` — two-key merge (CI green + V&R PASS on SHA `5df25cd`)
+- **Tag:** v1.1.24
+
 ## v1.1.23 (2026-06-15)
 
 - **Fix(executor):** Save `exec_fill` record on synthetic fill fallback path — when the exchange returns no fills (common for IOC market orders in demo), the synthetic fallback now persists an `exec_fill` row. Previously only `exec_order` was saved, leaving a gap where `exec_orders > 0` but `exec_fills = 0`.
