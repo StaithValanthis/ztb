@@ -223,6 +223,13 @@ class Executor:
     def _compute_target_position(self, data: DataFrame) -> float:
         warmup = getattr(self.strategy, "warmup", 0)
         if len(data) <= warmup:
+            logger.warning(
+                "Strategy '%s' not called: data length (%d) <= warmup (%d). "
+                "Returning 0.0 — ensure _ensure_warmup is providing enough bars.",
+                self.strategy.name,
+                len(data),
+                warmup,
+            )
             return 0.0
         signals = self.strategy.generate_signals(data)
         return float(signals.iloc[-1])

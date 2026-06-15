@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import pandas as pd
 from pandas import DataFrame, Series
 
 from ztb.engine.metrics import MetricsResult, compute_metrics
@@ -48,6 +50,8 @@ def run_backtest(
     strategy: Strategy,
     data: DataFrame,
     config: BacktestConfig | None = None,
+    *,
+    loader: Callable[..., DataFrame] | None = None,
 ) -> BacktestResult:
     if config is None:
         config = BacktestConfig()
@@ -56,6 +60,38 @@ def run_backtest(
     missing = required_cols - set(data.columns)
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
+
+    min_required = strategy.warmup + 1
+    if len(data) < min_required:
+        if loader is not None:
+            interval = data.index[1] - data.index[0] if len(data) >= 2 else pd.Timedelta(hours=1)
+            fetch_bars = strategy.warmup + 10
+            adjusted_start = data.index[0] - interval * fetch_bars
+            symbol = strategy.symbols[0] if strategy.symbols else ""
+            try:
+                extended = loader(
+                    symbol=symbol,
+                    timeframe=strategy.timeframe,
+                    start=adjusted_start,
+                    end=data.index[0],
+                )
+            except Exception as err:
+                raise ValueError(
+                    f"Data length ({len(data)}) insufficient for strategy warmup "
+                    f"({strategy.warmup}) and loader failed to extend."
+                ) from err
+            extended = extended.loc[extended.index < data.index[0]]
+            if len(extended) < strategy.warmup:
+                raise ValueError(
+                    f"Extended data has {len(extended)} warmup bars, "
+                    f"need at least {strategy.warmup}."
+                )
+            data = pd.concat([extended, data])
+        else:
+            raise ValueError(
+                f"Data length ({len(data)}) is less than strategy warmup "
+                f"({strategy.warmup}) + 1. Provide a data loader to auto-extend."
+            )
 
     close = data["close"]
 
