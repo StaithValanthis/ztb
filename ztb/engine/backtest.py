@@ -7,7 +7,6 @@ from typing import Any
 import pandas as pd
 from pandas import DataFrame, Series
 
-from ztb.data.loader import load as _default_loader
 from ztb.engine.metrics import MetricsResult, compute_metrics
 from ztb.engine.portfolio import PortfolioState, single_symbol_portfolio
 from ztb.risk.manager import RiskManager
@@ -65,10 +64,7 @@ def run_backtest(
     min_required = strategy.warmup + 1
     if len(data) < min_required:
         if loader is not None:
-            if len(data) >= 2:
-                interval = data.index[1] - data.index[0]
-            else:
-                interval = pd.Timedelta(hours=1)
+            interval = data.index[1] - data.index[0] if len(data) >= 2 else pd.Timedelta(hours=1)
             fetch_bars = strategy.warmup + 10
             adjusted_start = data.index[0] - interval * fetch_bars
             symbol = strategy.symbols[0] if strategy.symbols else ""
@@ -79,11 +75,11 @@ def run_backtest(
                     start=adjusted_start,
                     end=data.index[0],
                 )
-            except Exception:
+            except Exception as err:
                 raise ValueError(
                     f"Data length ({len(data)}) insufficient for strategy warmup "
                     f"({strategy.warmup}) and loader failed to extend."
-                )
+                ) from err
             extended = extended.loc[extended.index < data.index[0]]
             if len(extended) < strategy.warmup:
                 raise ValueError(
