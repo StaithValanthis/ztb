@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.23 (2026-06-15)
+
+- **Fix(executor):** Save `exec_fill` record on synthetic fill fallback path — when the exchange returns no fills (common for IOC market orders in demo), the synthetic fallback now persists an `exec_fill` row. Previously only `exec_order` was saved, leaving a gap where `exec_orders > 0` but `exec_fills = 0`.
+- **Tests:** 4 new tests for synthetic fill persistence + order_link_id matching.
+- V&R PASS on SHA `8b01415` ([ZTB-2087](/ZTB/issues/ZTB-2087))
+- **PR:** [#113](https://github.com/StaithValanthis/ztb/pull/113) — `feat/ztb-2072-fix-exec-fills`
+- **Merge commit:** `3ade544` — two-key merge (CI green + V&R PASS on SHA `8b01415`)
+- **Tag:** v1.1.23
+
 ## v1.1.22 (2026-06-15)
 
 - **Fix(executor):** `IdempotencyLedger.clear_pending()` — delete orphaned `pending` idempotency rows on startup. `clear_stale(ttl_hours=0)` only cleared `placed`/`filled` rows; `pending` rows from crashed runs (between `try_claim` and `resolve`) blocked the next retry with "OrderLinkedID is duplicate" (2,297×/60min).
