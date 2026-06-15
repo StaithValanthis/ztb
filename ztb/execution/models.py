@@ -81,6 +81,15 @@ class AccountState:
 
 
 @dataclass
+class TopUpResult:
+    success: bool
+    credited_amount: float
+    coin: str
+    requested_amount: float
+    message: str
+
+
+@dataclass
 class ExecRunConfig:
     mode: Mode = Mode.DEMO
     dry_run: bool = False

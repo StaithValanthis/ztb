@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +17,10 @@ from ztb.execution.models import (
     Mode,
     OrderSide,
     OrderType,
+    TopUpResult,
 )
+
+logger = logging.getLogger(__name__)
 
 _DEMO_BASE = "https://api-demo.bybit.com"
 _LIVE_BASE = "https://api.bybit.com"
@@ -303,17 +307,43 @@ class BybitClient:
         except Exception:
             pass
 
-    def top_up_demo_account(self, coin: str, amount: str) -> dict[str, Any]:
+    def top_up_demo_account(self, coin: str, amount: str) -> TopUpResult:
         if self._config.mode != Mode.DEMO:
-            return {}
+            return TopUpResult(
+                success=True,
+                credited_amount=0.0,
+                coin=coin,
+                requested_amount=float(amount),
+                message="LIVE mode — no-op",
+            )
         try:
             body = {
                 "adjustType": 0,
                 "utaDemoApplyMoney": [{"coin": coin, "amountStr": amount}],
             }
-            return self._request("POST", "/v5/account/demo-apply-money", body=body)
-        except Exception:
-            return {}
+            self._request("POST", "/v5/account/demo-apply-money", body=body)
+            wallet = self.get_wallet_balance(coin=coin)
+            credited = 0.0
+            for account_info in wallet.get("list", []):
+                for coin_entry in account_info.get("coin", []):
+                    if coin_entry.get("coin", "") == coin:
+                        credited = float(coin_entry.get("availableBalance", 0.0))
+            logger.info("Demo account credited: %s %s (requested %s)", credited, coin, amount)
+            return TopUpResult(
+                success=True,
+                credited_amount=credited,
+                coin=coin,
+                requested_amount=float(amount),
+                message=f"Credited {credited} {coin}",
+            )
+        except Exception as exc:
+            return TopUpResult(
+                success=False,
+                credited_amount=0.0,
+                coin=coin,
+                requested_amount=float(amount),
+                message=str(exc),
+            )
 
     def close(self) -> None:
         self._client.close()

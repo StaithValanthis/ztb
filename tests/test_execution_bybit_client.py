@@ -14,7 +14,7 @@ import pytest
 from ztb.execution.bybit_client import BybitClient, ClientConfig
 from ztb.execution.errors import ClientAuthError, ClientError
 from ztb.execution.live_guard import LiveDisarmedError
-from ztb.execution.models import Mode, OrderSide, OrderType
+from ztb.execution.models import Mode, OrderSide, OrderType, TopUpResult
 
 
 def test_live_mode_blocked_when_disarmed() -> None:
@@ -816,17 +816,37 @@ def test_top_up_demo_account_calls_api() -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
     with patch.object(client, "_request") as mock_request:
-        mock_request.return_value = {"result": "ok"}
+        faucet_resp = {"result": "ok"}
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "50000.0",
+                            "walletBalance": "50000.0",
+                            "availableBalance": "50000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
         result = client.top_up_demo_account("USDT", "100000")
-        mock_request.assert_called_once_with(
-            "POST",
-            "/v5/account/demo-apply-money",
-            body={
+        assert mock_request.call_count == 2
+        assert mock_request.call_args_list[0][0] == ("POST", "/v5/account/demo-apply-money")
+        assert mock_request.call_args_list[0][1] == {
+            "body": {
                 "adjustType": 0,
                 "utaDemoApplyMoney": [{"coin": "USDT", "amountStr": "100000"}],
-            },
-        )
-        assert result == {"result": "ok"}
+            }
+        }
+        assert mock_request.call_args_list[1][0] == ("GET", "/v5/account/wallet-balance")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 50000.0
+        assert result.coin == "USDT"
+        assert result.requested_amount == 100000.0
     client.close()
 
 
@@ -844,7 +864,10 @@ def test_top_up_demo_account_live_mode_skips() -> None:
         with patch.object(client, "_request") as mock_request:
             result = client.top_up_demo_account("USDT", "100000")
             mock_request.assert_not_called()
-            assert result == {}
+            assert isinstance(result, TopUpResult)
+            assert result.success is True
+            assert result.credited_amount == 0.0
+            assert result.coin == "USDT"
         client.close()
     finally:
         LiveGuard.disarm()
@@ -858,5 +881,78 @@ def test_top_up_demo_account_exception_returns_empty() -> None:
     with patch.object(client, "_request") as mock_request:
         mock_request.side_effect = Exception("API error")
         result = client.top_up_demo_account("USDT", "100000")
-        assert result == {}
+        assert isinstance(result, TopUpResult)
+        assert result.success is False
+        assert result.credited_amount == 0.0
+        assert "API error" in result.message
+    client.close()
+
+
+def test_top_up_demo_account_verifies_balance() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        faucet_resp = {"result": "ok"}
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "75000.0",
+                            "walletBalance": "75000.0",
+                            "availableBalance": "75000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 75000.0
+        assert result.coin == "USDT"
+        assert result.requested_amount == 100000.0
+    client.close()
+
+
+def test_top_up_demo_account_faucet_cap() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        faucet_resp = {"result": "ok"}
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "100.0",
+                            "walletBalance": "100.0",
+                            "availableBalance": "100.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 100.0
+        assert result.requested_amount == 100000.0
+    client.close()
+
+
+def test_top_up_demo_account_fails_gracefully() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        mock_request.side_effect = ClientError(400, "faucet unavailable")
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is False
+        assert result.credited_amount == 0.0
+        assert result.requested_amount == 100000.0
     client.close()

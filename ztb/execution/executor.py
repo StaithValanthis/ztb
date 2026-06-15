@@ -318,6 +318,12 @@ class Executor:
         except ClientError as exc:
             error_msg = f"step ClientError: {exc}"
             assert self.state is not None
+            if "ab not enough" in str(exc):
+                logger.warning(
+                    "Insufficient balance for %s: %s — skipped bar",
+                    self.state.symbol,
+                    exc,
+                )
             self.state.errors.append(error_msg)
             from ztb.store.exec_io import save_exec_error
 
@@ -369,6 +375,7 @@ class Executor:
 
         equity = self._pnl.equity(close_price)
         total_available_balance = 0.0
+        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -376,11 +383,36 @@ class Executor:
                 from ztb.execution.reconcile import compute_account_state
 
                 actual = compute_account_state([], wallet)
-                if actual.total_equity > 0:
-                    equity = actual.total_equity
+                equity = actual.total_equity if actual.total_equity > 0 else equity
+                available_balance = actual.available_balance
                 total_available_balance = actual.total_available_balance
             except Exception:
-                pass
+                error_msg = f"Wallet fetch failed for {symbol}"
+                logger.warning(error_msg)
+                self._save_error("WalletFetchError", error_msg)
+                self.state.errors.append(error_msg)
+                wallet_error_result: dict[str, Any] = {
+                    "bar_ts": bar_ts,
+                    "close_price": close_price,
+                    "signal": target_signal,
+                    "current_position": current_position,
+                    "target_position": 0.0,
+                    "delta": 0.0,
+                    "order_placed": False,
+                    "order": None,
+                    "risk_decision": None,
+                    "fills": [],
+                    "wallet_fetch_failed": True,
+                }
+                self.state.bars_processed += 1
+                self.state.last_bar_ts = bar_ts
+                self._sync_pnl_state()
+                unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                self._save_position_snapshot()
+                self._save_pnl(
+                    self._pnl.realized_pnl, unrealized_pnl, self._pnl.equity(close_price), bar_ts
+                )
+                return wallet_error_result
 
             if self.config.mode == Mode.DEMO:
                 equity = min(equity, self.config.initial_cash)
@@ -398,9 +430,19 @@ class Executor:
             target_signal = 0.0
 
         asset_precision = self.config.asset_precision
-        target_qty = (
-            round(target_signal * equity / close_price, asset_precision) if close_price > 0 else 0.0
-        )
+        if not self.config.dry_run and self.client is not None and available_balance > 0:
+            target_notional = target_signal * min(
+                equity, available_balance * self.config.max_leverage
+            )
+            target_qty = (
+                round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
+            )
+        else:
+            target_qty = (
+                round(target_signal * equity / close_price, asset_precision)
+                if close_price > 0
+                else 0.0
+            )
         delta = target_qty - current_position
 
         result: dict[str, Any] = {
@@ -773,7 +815,18 @@ class Executor:
 
         if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
             try:
-                self.client.top_up_demo_account("USDT", str(self.config.initial_cash))
+                top_up_result = self.client.top_up_demo_account(
+                    "USDT", str(self.config.initial_cash)
+                )
+                if not top_up_result.success:
+                    self._save_error("DemoAccountTopUpError", top_up_result.message)
+                elif top_up_result.credited_amount < self.config.initial_cash * 0.01:
+                    logger.warning(
+                        "Demo account top-up may be insufficient: credited=%s %s (requested=%s)",
+                        top_up_result.credited_amount,
+                        top_up_result.coin,
+                        top_up_result.requested_amount,
+                    )
             except Exception as exc:
                 self._save_error("DemoAccountTopUpError", str(exc))
 
