@@ -573,6 +573,20 @@ def run(
 
     exec_mode = ExecMode(mode)
 
+    if exec_mode == ExecMode.LIVE:
+        from ztb.execution.errors import LiveDisarmedError
+        from ztb.execution.live_guard import LiveGuard
+
+        try:
+            LiveGuard.assert_live_allowed()
+        except LiveDisarmedError:
+            click.echo(
+                "Error: --mode live requires live trading to be armed. "
+                "Use --mode demo or set ZTB_LIVE_ARMED=1.",
+                err=True,
+            )
+            sys.exit(1)
+
     strategy = strat_cls()
     strategy.symbols = [symbol]
     strategy.timeframe = timeframe

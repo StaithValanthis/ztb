@@ -74,6 +74,29 @@ def test_run_accepts_live_mode(tmp_path: Path) -> None:
         _cleanup_arm()
 
 
+def test_run_rejects_live_mode_when_disarmed() -> None:
+    """--mode=live rejected when LiveGuard is not armed."""
+    _cleanup_arm()
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "sma_cross",
+            "BTCUSDT",
+            "--mode=live",
+            "--dry-run",
+            "--once",
+            "--no-risk",
+            "--start=2026-01-01",
+            "--end=2026-01-03",
+            "--db=:memory:",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "ZTB_LIVE_ARMED" in result.output or "live trading" in result.output.lower()
+
+
 def test_run_rejects_unknown_strategy() -> None:
     runner = CliRunner()
     result = runner.invoke(
