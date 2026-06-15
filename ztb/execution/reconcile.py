@@ -112,12 +112,12 @@ def compute_account_state(
     unrealized_pnl = 0.0
     if wallet_raw:
         for account_info in wallet_raw.get("list", []):
+            available_balance += float(account_info.get("totalAvailableBalance", 0.0))
             total_available_balance += float(account_info.get("totalAvailableBalance", 0.0))
             for coin_entry in account_info.get("coin", []):
                 if coin_entry.get("coin", "") in ("USDT", "USDC"):
                     total_equity += float(coin_entry.get("equity", 0.0))
                     wallet_balance += float(coin_entry.get("walletBalance", 0.0))
-                    available_balance += float(coin_entry.get("availableBalance", 0.0))
                     unrealized_pnl += float(coin_entry.get("unrealisedPnl", 0.0))
 
     return AccountState(

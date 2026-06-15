@@ -160,12 +160,12 @@ def test_compute_account_state_extracts_available_balance() -> None:
     wallet_raw = {
         "list": [
             {
+                "totalAvailableBalance": "80000.0",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "100000.0",
                         "walletBalance": "95000.0",
-                        "availableBalance": "80000.0",
                         "unrealisedPnl": "5000.0",
                     }
                 ]
