@@ -75,8 +75,18 @@ class AccountState:
     wallet_balance: float
     unrealized_pnl: float
     available_balance: float = 0.0
+    total_available_balance: float = 0.0
     positions: dict[str, Position] = field(default_factory=dict)
     timestamp: str = ""
+
+
+@dataclass
+class TopUpResult:
+    success: bool
+    credited_amount: float
+    coin: str
+    requested_amount: float
+    message: str
 
 
 @dataclass
