@@ -548,3 +548,54 @@ def test_schema_meta_version_9(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_meta WHERE version = 9").fetchone()
     assert row is not None
     assert row["version"] == 9
+
+
+def test_save_exec_fill_orphan(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec_orphan", "run_orphan", "s", "BTCUSDT", "60")
+    save_exec_fill(
+        conn,
+        {
+            "fill_id": "orphan_fill",
+            "order_link_id": "orphan_olid",
+            "exec_run_id": "exec_orphan",
+            "order_id": "orphan_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "price": 50000.0,
+            "qty": 0.1,
+            "commission": 2.5,
+            "realized_pnl": 0.0,
+            "filled_at": "2026-01-01T00:00:05Z",
+        },
+    )
+    fills = get_exec_fills(conn, "exec_orphan")
+    assert len(fills) == 1
+    assert fills[0]["fill_id"] == "orphan_fill"
+
+    orders = get_exec_orders(conn, "exec_orphan")
+    assert len(orders) == 0
+
+
+def test_schema_meta_version_10(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT version FROM schema_meta WHERE version = 10").fetchone()
+    assert row is not None
+    assert row["version"] == 10
+
+
+def test_exec_fills_no_order_link_id_fk(conn: sqlite3.Connection) -> None:
+    fks = conn.execute(
+        "SELECT * FROM pragma_foreign_key_list('exec_fills')"
+    ).fetchall()
+    fk_on_order_link_id = [
+        row for row in fks
+        if row["from"] == "order_link_id" and row["table"] == "exec_orders"
+    ]
+    assert len(fk_on_order_link_id) == 0, (
+        f"exec_fills.order_link_id still has FK to exec_orders: {fk_on_order_link_id}"
+    )
+    fk_on_exec_run_id = [
+        row for row in fks if row["from"] == "exec_run_id" and row["table"] == "exec_runs"
+    ]
+    assert len(fk_on_exec_run_id) == 1, (
+        "exec_fills.exec_run_id FK to exec_runs should remain"
+    )

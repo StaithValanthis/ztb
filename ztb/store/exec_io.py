@@ -40,7 +40,7 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS exec_fills (
             fill_id TEXT PRIMARY KEY,
-            order_link_id TEXT NOT NULL REFERENCES exec_orders(order_link_id),
+            order_link_id TEXT NOT NULL,
             exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
             order_id TEXT NOT NULL DEFAULT '',
             symbol TEXT NOT NULL,
@@ -130,6 +130,36 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (6)")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
+    # Schema v10: remove FK from exec_fills.order_link_id
+    existing_v10 = conn.execute(
+        "SELECT 1 FROM schema_meta WHERE version = 10"
+    ).fetchone()
+    if existing_v10 is None:
+        with suppress(sqlite3.OperationalError):
+            conn.execute("DROP TABLE IF EXISTS exec_fills_v10")
+        conn.execute(
+            """CREATE TABLE exec_fills_v10 (
+                fill_id TEXT PRIMARY KEY,
+                order_link_id TEXT NOT NULL,
+                exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
+                order_id TEXT NOT NULL DEFAULT '',
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                price REAL NOT NULL,
+                qty REAL NOT NULL,
+                commission REAL NOT NULL DEFAULT 0.0,
+                realized_pnl REAL NOT NULL DEFAULT 0.0,
+                filled_at TEXT NOT NULL,
+                credible INTEGER NOT NULL DEFAULT 1,
+                sufficient_sample INTEGER NOT NULL DEFAULT 1,
+                code_version TEXT DEFAULT NULL
+            )"""
+        )
+        conn.execute("INSERT INTO exec_fills_v10 SELECT * FROM exec_fills")
+        conn.execute("DROP TABLE exec_fills")
+        conn.execute("ALTER TABLE exec_fills_v10 RENAME TO exec_fills")
+        with suppress(sqlite3.OperationalError):
+            conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (10)")
     ensure_audit_table(conn)
     conn.commit()
 
