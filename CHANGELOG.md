@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.1.13 (2026-06-15)
+
+- **Fix(store):** Add `PRAGMA busy_timeout=5000` to SQLite `connect()` to prevent 'database is locked' crashes under concurrent access (demo loop, VE tests)
+- **Feat(validation):** Thread `initial_cash`, `commission`, `slippage` from CLI through `WalkForwardConfig` to `BacktestConfig` for economic-parameter consistency in walk-forward validation
+- **Feat(validation):** Add `test_economic_params_thread_to_backtest` — verifies custom economic params propagate correctly through the walk-forward pipeline
+- **Chore(store):** Remove stale migration INSERT (schema_meta version 4) — already applied
+- **Chore(cli):** Forward `--cash`, `--commission`, `--slippage` to walk-forward config
+- V&R PASS on SHA `1efa342` ([ZTB-1742](/ZTB/issues/ZTB-1742))
+- Merge authorization: V&R direct lane PASS
+- **PR:** [#86](https://github.com/StaithValanthis/ztb/pull/86) — `feat/busy-timeout`
+- **Merge commit:** `ec4ee67` — two-key merge (CI green + V&R PASS on SHA `1efa342`)
+- **Tag:** v1.1.13
+
 ## v1.1.12 (2026-06-15)
 
 - **Fix(exec):** Size against actual wallet balance, verify top-up with `TopUpResult`/wallet read-back, backoff on `'ab not enough'` (ClientError) — skip bar, no retry. Wallet fetch failure skips bar (no fallback to PnLCalculator). Uses per-coin `available_balance * max_leverage` for order sizing instead of `equity` alone. DEMO equity cap preserved outside the wallet-fetch try/except.
