@@ -3146,8 +3146,9 @@ def test_startup_clear_stale_idempotency(
     pre_conn.close()
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False,
-                           warmup_bars=0)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False, warmup_bars=0
+    )
     exe = Executor(signal_strat, config=config, client=mock_client)
 
     result = exe.run(
@@ -3200,8 +3201,9 @@ def test_orders_placed_after_clear(
     pre_conn.close()
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False,
-                           warmup_bars=0)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False, warmup_bars=0
+    )
     exe = Executor(signal_strat, config=config, client=mock_client)
 
     result = exe.run(
