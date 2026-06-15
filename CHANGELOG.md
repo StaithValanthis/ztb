@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.29 (2026-06-15)
+
+- **Fix(executor):** Catch `sqlite3.OperationalError` in polling loop error path — the executor's `_run_polling_loop` now wraps the fill-poll query in a try/except for `OperationalError`. Before: a transient `database is locked` during polling crashed the entire loop. After: the error is logged and the loop retries on the next tick.
+- **Tests:** 1 new test case covering `OperationalError` suppression in polling loop. 1018/1021 passing (3 pre-existing: `test_cli_smoke_test_network`, `test_cli_run_with_preflight`, `test_version_consistency` — env/version-skew only).
+- V&R PASS on SHA `70b2a1a`
+- **PR:** [#126](https://github.com/StaithValanthis/ztb/pull/126) — `feat/ztb-2255-fix-polling-loop-operational-error`
+- **Merge commit:** `c152a91` — two-key merge (CI green + V&R PASS on SHA `70b2a1a`)
+- **Tag:** v1.1.29
+
 ## v1.1.28 (2026-06-15)
 
 - **Fix(engine):** `run_backtest` and `run_forwardtest` now extend data backwards before `strategy.generate_signals()` when the data window from `--start` is shorter than `strategy.warmup + 1`. Before: all signals silently zeroed → 0 trades, 0 risk_decisions. After: warmup bars fetched via optional `loader` parameter; if no loader is available, raises `ValueError` (no silent zero trades). Executor `_compute_target_position` now logs a warning when skipping strategy evaluation due to insufficient warmup data.
