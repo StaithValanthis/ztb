@@ -77,8 +77,7 @@ class IdempotencyLedger:
         cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
         deleted = self.conn.execute(
-            "DELETE FROM idempotency"
-            " WHERE status IN ('placed', 'filled') AND created_at < ?",
+            "DELETE FROM idempotency WHERE status IN ('placed', 'filled') AND created_at < ?",
             (cutoff_str,),
         )
         self.conn.commit()
