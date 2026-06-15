@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.28 (2026-06-15)
+
+- **Fix(engine):** `run_backtest` and `run_forwardtest` now extend data backwards before `strategy.generate_signals()` when the data window from `--start` is shorter than `strategy.warmup + 1`. Before: all signals silently zeroed → 0 trades, 0 risk_decisions. After: warmup bars fetched via optional `loader` parameter; if no loader is available, raises `ValueError` (no silent zero trades). Executor `_compute_target_position` now logs a warning when skipping strategy evaluation due to insufficient warmup data.
+- **Tests:** 8 new test cases covering `--start` data slicing across backtest, forwardtest, and executor. 170 tests in scoped suites (815/815 passing full suite excluding pre-existing network failures).
+- V&R PASS on SHA `508f588` ([ZTB-2253](/ZTB/issues/ZTB-2253))
+- **PR:** [#127](https://github.com/StaithValanthis/ztb/pull/127) — `fix/ztb-2250-start-silent-skip`
+- **Merge commit:** `8399e49` — two-key merge (CI green + V&R PASS on SHA `508f588`)
+- **Tag:** v1.1.28
+
 ## v1.1.27 (2026-06-15)
 
 - **Feat(store):** Add `retry_on_lock` decorator with exponential backoff (+jitter) to all store write functions — catches `sqlite3.OperationalError 'database is locked'` (`busy_timeout` raised from 5000 to 30000 ms). Applied to `exec_io.py` (14 write funcs), `results.py` (3 write funcs), `idempotency.py` (5 write funcs), and `validation/store.py` (`save_validation_run`).
