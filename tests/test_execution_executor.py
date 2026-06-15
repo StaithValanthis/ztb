@@ -1008,7 +1008,6 @@ def test_ensure_warmup_merge_preserves_original_data(
         index=idx,
     )
     original_data.index.name = "timestamp"
-    orig_len = len(original_data)
     idx_ext = pd.date_range("2025-12-20", periods=160, freq="h", tz="UTC")
     extended_data = pd.DataFrame(
         {

@@ -815,7 +815,7 @@ class Executor:
         combined = pd.concat([extended, data])
         combined = combined[~combined.index.duplicated(keep="last")]
         combined = combined.sort_index()
-        return combined  # type: ignore[no-any-return]
+        return combined
 
     def _fetch_new_bars(
         self,
