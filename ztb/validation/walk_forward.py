@@ -20,6 +20,9 @@ class WalkForwardConfig:
     min_oos_bars: int = 100
     warmup: int | None = None
     min_trades: int = 30
+    initial_cash: float = 100_000.0
+    commission: float = 0.0005
+    slippage: float = 0.0005
 
 
 @dataclass
@@ -76,6 +79,9 @@ def run_walk_forward(
         bt_config = BacktestConfig(
             is_fraction=(train_end - start) / max(window_len, 1),
             min_trades=config.min_trades,
+            initial_cash=config.initial_cash,
+            commission=config.commission,
+            slippage=config.slippage,
         )
         bt_results = run_backtest(strategy, window_data, bt_config)
 
@@ -196,7 +202,4 @@ def run_walk_forward(
     )
 
 
-def _safe_median(values: list[float]) -> float | None:
-    if not values:
-        return None
-    return float(np.median(values))
+

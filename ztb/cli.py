@@ -399,6 +399,9 @@ def validate(
     wf_config = WalkForwardConfig(
         n_windows=walk_forward_windows,
         train_ratio=train_ratio,
+        initial_cash=cash,
+        commission=commission,
+        slippage=slippage,
     )
     click.echo(f"Running walk-forward ({walk_forward_windows} windows)...")
     wf_result = run_walk_forward(strategy, df, wf_config)
