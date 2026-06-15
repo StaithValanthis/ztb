@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.17 (2026-06-15)
+
+- **Fix(executor):** Reduce-only zero-position guard — when exchange position is zero (after warmup or manual cleanup), detect before placing reduce-only order, adopt zero position, and skip the order with proper accounting. Prevents Bybit rejection of zero-position reduce-only orders.
+- **Tests:** 4 new tests covering zero-position long/short/flat/no-position scenarios — 105/105 executor tests passing on SHA `759439f` (rebased + amended)
+- V&R PASS on SHA `992c14e` (conditional: message fix applied per condition); CI green + vr-pass SUCCESS on SHA `759439f`
+- **PR:** [#93](https://github.com/StaithValanthis/ztb/pull/93) — `feat/reduce-only-zero-guard`
+- **Merge commit:** `0bcb051` — two-key merge (CI green on `759439f` + V&R PASS on `992c14e` with condition satisfied)
+- **Tag:** v1.1.17
+
 ## v1.1.16 (2026-06-15)
 
 - **Fix(executor):** Detect position flips (abs(delta) > abs(current_position) with opposite signs) and set `reduce_only=False` so flip orders fill completely on Bybit. Balance cap accounts for existing position during flips — only the opening portion is subject to margin cap. Previously, flip orders were incorrectly `reduce_only=True`, which silently truncated fills to existing position size, causing persistent position drift.
