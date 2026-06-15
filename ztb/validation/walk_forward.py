@@ -200,6 +200,3 @@ def run_walk_forward(
         n_windows_total=config.n_windows,
         config=config,
     )
-
-
-
