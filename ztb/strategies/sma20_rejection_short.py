@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pandas as pd
 from pandas import DataFrame, Series
 
 from ztb.features.indicators import atr, sma

@@ -159,7 +159,13 @@ class TestSMA20RejectionShort:
         highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 20
         lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 20
         df = DataFrame(
-            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.ones(n) * 1000},
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.ones(n) * 1000,
+            },
             index=pd.date_range("2020-01-01", periods=n, freq="4h"),
         )
         cls = get("sma20_rejection_short")
@@ -234,7 +240,13 @@ class TestSMA20RejectionShort:
         highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 10
         lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 10
         df = DataFrame(
-            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.abs(rng.normal(size=n)) * 1000 + 500},
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.abs(rng.normal(size=n)) * 1000 + 500,
+            },
             index=pd.date_range("2020-01-01", periods=n, freq="4h"),
         )
         cls = get("sma20_rejection_short")
