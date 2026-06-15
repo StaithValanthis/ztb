@@ -131,10 +131,14 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
     # Schema v10: remove FK from exec_fills.order_link_id
+    existing_v10 = None
     with suppress(sqlite3.OperationalError):
         existing_v10 = conn.execute("SELECT 1 FROM schema_meta WHERE version = 10").fetchone()
-        if existing_v10 is None:
-            conn.execute("""CREATE TABLE exec_fills_v10 (
+    if existing_v10 is None:
+        with suppress(sqlite3.OperationalError):
+            conn.execute("DROP TABLE IF EXISTS exec_fills_v10")
+        conn.execute(
+            """CREATE TABLE exec_fills_v10 (
                 fill_id TEXT PRIMARY KEY,
                 order_link_id TEXT NOT NULL,
                 exec_run_id TEXT NOT NULL REFERENCES exec_runs(exec_run_id),
@@ -149,21 +153,22 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
                 credible INTEGER NOT NULL DEFAULT 1,
                 sufficient_sample INTEGER NOT NULL DEFAULT 1,
                 code_version TEXT DEFAULT NULL
-            )""")
-            conn.execute(
-                """INSERT INTO exec_fills_v10
-                   (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
-                    price, qty, commission, realized_pnl, filled_at,
-                    credible, sufficient_sample, code_version)
-                   SELECT fill_id, order_link_id, exec_run_id, order_id, symbol, side,
-                          price, qty, commission, realized_pnl, filled_at,
-                          credible, sufficient_sample, code_version
-                   FROM exec_fills"""
-            )
-            conn.execute("DROP TABLE exec_fills")
-            conn.execute("ALTER TABLE exec_fills_v10 RENAME TO exec_fills")
-            with suppress(sqlite3.OperationalError):
-                conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (10)")
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO exec_fills_v10
+               (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
+                price, qty, commission, realized_pnl, filled_at,
+                credible, sufficient_sample, code_version)
+               SELECT fill_id, order_link_id, exec_run_id, order_id, symbol, side,
+                      price, qty, commission, realized_pnl, filled_at,
+                      credible, sufficient_sample, code_version
+               FROM exec_fills"""
+        )
+        conn.execute("DROP TABLE exec_fills")
+        conn.execute("ALTER TABLE exec_fills_v10 RENAME TO exec_fills")
+        with suppress(sqlite3.OperationalError):
+            conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (10)")
     ensure_audit_table(conn)
     conn.commit()
 

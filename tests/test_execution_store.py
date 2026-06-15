@@ -594,3 +594,60 @@ def test_exec_fills_no_order_link_id_fk(conn: sqlite3.Connection) -> None:
         row for row in fks if row["from"] == "exec_run_id" and row["table"] == "exec_runs"
     ]
     assert len(fk_on_exec_run_id) == 1, "exec_fills.exec_run_id FK to exec_runs should remain"
+
+
+def test_save_exec_fill_columns_preserved(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec_cols", "run_cols", "s", "BTCUSDT", "60")
+    save_exec_fill(
+        conn,
+        {
+            "fill_id": "cols_fill",
+            "order_link_id": "cols_olid",
+            "exec_run_id": "exec_cols",
+            "order_id": "cols_oid",
+            "symbol": "BTCUSDT",
+            "side": "Sell",
+            "price": 60000.0,
+            "qty": 0.2,
+            "commission": 3.0,
+            "realized_pnl": 50.0,
+            "filled_at": "2026-06-01T00:00:05Z",
+        },
+    )
+    fills = get_exec_fills(conn, "exec_cols")
+    assert len(fills) == 1
+    assert fills[0]["order_link_id"] == "cols_olid"
+    assert fills[0]["order_id"] == "cols_oid"
+
+
+def test_v10_migration_preserves_data(conn: sqlite3.Connection) -> None:
+    create_exec_run(conn, "exec_v10", "run_v10", "s", "BTCUSDT", "60")
+    save_exec_fill(
+        conn,
+        {
+            "fill_id": "v10_fill",
+            "order_link_id": "v10_olid",
+            "exec_run_id": "exec_v10",
+            "order_id": "v10_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "price": 50000.0,
+            "qty": 0.5,
+            "commission": 5.0,
+            "realized_pnl": 0.0,
+            "filled_at": "2026-06-01T00:00:00Z",
+        },
+    )
+    row_count_before = conn.execute("SELECT COUNT(*) AS cnt FROM exec_fills").fetchone()["cnt"]
+    assert row_count_before == 1
+
+    ensure_exec_tables(conn)
+    row_count_after = conn.execute("SELECT COUNT(*) AS cnt FROM exec_fills").fetchone()["cnt"]
+    assert row_count_after == 1
+
+    fill = conn.execute("SELECT * FROM exec_fills WHERE fill_id = 'v10_fill'").fetchone()
+    assert fill is not None
+    assert fill["order_link_id"] == "v10_olid"
+    assert fill["order_id"] == "v10_oid"
+    assert fill["price"] == 50000.0
+    assert fill["qty"] == 0.5

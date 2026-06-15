@@ -207,3 +207,41 @@ def test_clear_stale_idempotent(ledger_conn: sqlite3.Connection) -> None:
 
     deleted2 = ledger.clear_stale(ttl_hours=24)
     assert deleted2 == 0
+
+
+def test_clear_pending_removes_pending_entries(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("pending1", "oid1")
+    ledger.try_claim("pending2", "oid2")
+
+    deleted = ledger.clear_pending()
+    assert deleted == 2
+    assert ledger.get("pending1") is None
+    assert ledger.get("pending2") is None
+
+
+def test_clear_pending_preserves_placed(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("placed_link", "oid1")
+    ledger.resolve("placed_link", "placed", "oid1")
+
+    ledger.try_claim("pending_link", "oid2")
+
+    deleted = ledger.clear_pending()
+    assert deleted == 1
+    assert ledger.get("placed_link") is not None
+    assert ledger.get("pending_link") is None
+
+
+def test_clear_pending_frees_link_for_reclaim(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    assert ledger.try_claim("orphan_link")
+    assert not ledger.try_claim("orphan_link")
+
+    ledger.clear_pending()
+    assert ledger.try_claim("orphan_link")
+
+
+def test_clear_pending_zero_on_empty(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    assert ledger.clear_pending() == 0
