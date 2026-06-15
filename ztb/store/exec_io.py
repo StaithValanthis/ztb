@@ -5,7 +5,10 @@ import sqlite3
 from contextlib import suppress
 from typing import Any
 
+from ztb.store.retry import retry_on_lock
 
+
+@retry_on_lock()
 def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS exec_runs (
@@ -173,6 +176,7 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+@retry_on_lock()
 def create_exec_run(
     conn: sqlite3.Connection,
     exec_run_id: str,
@@ -192,6 +196,7 @@ def create_exec_run(
     conn.commit()
 
 
+@retry_on_lock()
 def update_exec_run_status(
     conn: sqlite3.Connection,
     exec_run_id: str,
@@ -205,6 +210,7 @@ def update_exec_run_status(
     conn.commit()
 
 
+@retry_on_lock()
 def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO exec_orders
@@ -233,6 +239,7 @@ def save_exec_order(conn: sqlite3.Connection, order: dict[str, Any]) -> None:
     conn.commit()
 
 
+@retry_on_lock()
 def update_exec_order(
     conn: sqlite3.Connection, order_link_id: str, status: str, **kwargs: Any
 ) -> None:
@@ -250,6 +257,7 @@ def update_exec_order(
     conn.commit()
 
 
+@retry_on_lock()
 def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO exec_fills
@@ -276,6 +284,7 @@ def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
     conn.commit()
 
 
+@retry_on_lock()
 def save_position_snapshot(conn: sqlite3.Connection, snap: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO exec_positions_snapshots
@@ -296,6 +305,7 @@ def save_position_snapshot(conn: sqlite3.Connection, snap: dict[str, Any]) -> No
     conn.commit()
 
 
+@retry_on_lock()
 def save_pnl_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO exec_pnl_ledger
@@ -316,6 +326,7 @@ def save_pnl_entry(conn: sqlite3.Connection, entry: dict[str, Any]) -> None:
     conn.commit()
 
 
+@retry_on_lock()
 def save_exec_error(conn: sqlite3.Connection, error: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO exec_errors
@@ -362,6 +373,7 @@ def get_pnl_ledger(conn: sqlite3.Connection, exec_run_id: str) -> list[dict[str,
     return [dict(r) for r in rows]
 
 
+@retry_on_lock()
 def save_kill_event(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO kill_events
@@ -397,6 +409,7 @@ def get_sufficient_sample_pnl_ledger(
     return [dict(r) for r in rows]
 
 
+@retry_on_lock()
 def quarantine_corrupt_ledger_rows(
     conn: sqlite3.Connection,
     exec_run_id: str,
@@ -430,6 +443,7 @@ def count_quarantined_rows(conn: sqlite3.Connection) -> int:
     return row["cnt"] if row else 0
 
 
+@retry_on_lock()
 def save_killswitch_state(
     conn: sqlite3.Connection,
     exec_run_id: str,
@@ -476,6 +490,7 @@ def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any]
     return dict(rows[0]) if rows else None
 
 
+@retry_on_lock()
 def ensure_audit_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS audit_log (
@@ -503,6 +518,7 @@ def _compute_content_hash(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+@retry_on_lock()
 def log_audit_event(
     conn: sqlite3.Connection,
     event_type: str,
