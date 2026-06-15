@@ -83,6 +83,13 @@ class IdempotencyLedger:
         self.conn.commit()
         return deleted.rowcount
 
+    def clear_pending(self) -> int:
+        deleted = self.conn.execute(
+            "DELETE FROM idempotency WHERE status = 'pending'"
+        )
+        self.conn.commit()
+        return deleted.rowcount
+
 
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
