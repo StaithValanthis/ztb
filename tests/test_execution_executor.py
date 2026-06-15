@@ -964,6 +964,9 @@ def test_ensure_warmup_extends(mock_load: MagicMock, fake_strategy: FakeStrategy
     exe._init_run()
     result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
     assert len(result) >= 150
+    assert result.index[0] == idx2[0]
+    assert result.index[-1] == idx[-1]
+    assert result.index[-1] == small_data.index[-1]
 
 
 @patch("ztb.execution.executor.load_data")
@@ -986,6 +989,86 @@ def test_ensure_warmup_fails_empty(mock_load: MagicMock, fake_strategy: FakeStra
     exe._init_run()
     with pytest.raises(ExecutionError, match="Cannot fetch enough historical data"):
         exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_merge_preserves_original_data(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    original_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    original_data.index.name = "timestamp"
+    orig_len = len(original_data)
+    idx_ext = pd.date_range("2025-12-20", periods=160, freq="h", tz="UTC")
+    extended_data = pd.DataFrame(
+        {
+            "open": [49000.0] * 160,
+            "high": [49100.0] * 160,
+            "low": [48900.0] * 160,
+            "close": [49000.0] * 160,
+            "volume": [100.0] * 160,
+        },
+        index=idx_ext,
+    )
+    extended_data.index.name = "timestamp"
+    mock_load.return_value = extended_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(original_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 150
+    assert original_data.index[-1] in result.index
+    assert result.loc[original_data.index[-1], "close"] == 50000.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_merge_overlap(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    original_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    original_data.index.name = "timestamp"
+    idx_ext = pd.date_range("2025-12-20", periods=200, freq="h", tz="UTC")
+    extended_data = pd.DataFrame(
+        {
+            "open": [49000.0] * 200,
+            "high": [49100.0] * 200,
+            "low": [48900.0] * 200,
+            "close": [49000.0] * 200,
+            "volume": [100.0] * 200,
+        },
+        index=idx_ext,
+    )
+    extended_data.index.name = "timestamp"
+    overlap_ts = original_data.index[0]
+    extended_data.loc[overlap_ts, "close"] = 99999.0
+    mock_load.return_value = extended_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(original_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 150
+    assert result.loc[overlap_ts, "close"] == 50000.0
 
 
 @patch("ztb.execution.executor.load_data")
