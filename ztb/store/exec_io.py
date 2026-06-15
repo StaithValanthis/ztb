@@ -155,7 +155,16 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
                 code_version TEXT DEFAULT NULL
             )"""
         )
-        conn.execute("INSERT INTO exec_fills_v10 SELECT * FROM exec_fills")
+        conn.execute(
+            """INSERT INTO exec_fills_v10
+               (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
+                price, qty, commission, realized_pnl, filled_at,
+                credible, sufficient_sample, code_version)
+               SELECT fill_id, order_link_id, exec_run_id, order_id, symbol, side,
+                      price, qty, commission, realized_pnl, filled_at,
+                      credible, sufficient_sample, code_version
+               FROM exec_fills"""
+        )
         conn.execute("DROP TABLE exec_fills")
         conn.execute("ALTER TABLE exec_fills_v10 RENAME TO exec_fills")
         with suppress(sqlite3.OperationalError):
@@ -242,7 +251,6 @@ def update_exec_order(
 
 
 def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
-    order_link_id = fill.get("order_link_id", "")
     conn.execute(
         """INSERT OR IGNORE INTO exec_fills
            (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
@@ -251,7 +259,7 @@ def save_exec_fill(conn: sqlite3.Connection, fill: dict[str, Any]) -> None:
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             fill["fill_id"],
-            order_link_id,
+            fill.get("order_link_id", ""),
             fill["exec_run_id"],
             fill.get("order_id", ""),
             fill["symbol"],
