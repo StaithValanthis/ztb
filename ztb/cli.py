@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import click
+from pandas import DataFrame
 
 from ztb import __version__
 from ztb.data.bybit_rest import BackoffStrategy, BybitPublicREST, TokenBucket
@@ -331,9 +332,172 @@ def forwardtest(
         conn.close()
 
 
+def _compute_n_trials(params: dict[str, float | int | str | list[float | int | str]]) -> int:
+    if not params:
+        return 1
+    product = 1
+    for v in params.values():
+        if isinstance(v, list):
+            product *= len(v)
+    return product
+
+
 @cli.command()
-def validate() -> None:
-    click.echo("validate: not yet implemented")
+@click.argument("strategy_name")
+@click.argument("symbol")
+@click.option("--timeframe", default="60", help="Timeframe interval (1, 5, 15, 60, D, W, M)")
+@click.option("--category", default="linear", help="Market category")
+@click.option("--start", default=None, help="Start date (ISO format)")
+@click.option("--end", default=None, help="End date (ISO format)")
+@click.option("--cash", default=100000.0, type=float, help="Initial cash")
+@click.option("--commission", default=0.0005, type=float, help="Commission rate")
+@click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
+@click.option("--walk-forward-windows", default=4, type=int, help="Number of walk-forward windows")
+@click.option("--train-ratio", default=0.7, type=float, help="Training ratio per window")
+@click.option("--db", default=None, help="Path to result database")
+@click.option("--persist", is_flag=True, help="Save result to the store")
+def validate(
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+    category: str,
+    start: str | None,
+    end: str | None,
+    cash: float,
+    commission: float,
+    slippage: float,
+    walk_forward_windows: int,
+    train_ratio: float,
+    db: str | None,
+    persist: bool,
+) -> None:
+    """Run OOS validation gate for a strategy on a symbol."""
+
+    try:
+        strat_cls = get_strategy(strategy_name)
+    except KeyError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(2)
+
+    try:
+        df = load(symbol=symbol, timeframe=timeframe, category=category, start=start, end=end)
+    except DataError as exc:
+        click.echo(f"Error loading data: {exc}", err=True)
+        sys.exit(2)
+
+    strategy = strat_cls()
+    strategy.symbols = [symbol]
+    strategy.timeframe = timeframe
+
+    from ztb.validation.lookahead import run_lookahead_tripwire
+
+    def _data_factory() -> DataFrame:
+        return df[["open", "high", "low", "close", "volume"]].copy()
+
+    click.echo("Running look-ahead tripwire...")
+    lookahead_result = run_lookahead_tripwire(strategy, _data_factory)
+    if not lookahead_result.passed:
+        click.echo("VALIDATE FAIL: look-ahead detected")
+        for d in lookahead_result.details:
+            click.echo(f"  {d}")
+        sys.exit(1)
+
+    click.echo(f"Look-ahead: PASS  ({lookahead_result.bars_checked} bars checked)")
+
+    from ztb.validation.walk_forward import WalkForwardConfig, run_walk_forward
+
+    wf_config = WalkForwardConfig(
+        n_windows=walk_forward_windows,
+        train_ratio=train_ratio,
+    )
+    click.echo(f"Running walk-forward ({walk_forward_windows} windows)...")
+    wf_result = run_walk_forward(strategy, df, wf_config)
+    agg = wf_result.aggregate
+
+    total_windows = wf_result.n_windows_total
+    cred_windows = wf_result.n_windows_credible
+    stab = wf_result.stability
+    stab_str = f"{stab:.4f}" if stab is not None else "N/A"
+    click.echo(
+        f"Walk-forward: {total_windows} windows, "
+        f"{cred_windows} credible (min_trades={wf_config.min_trades})"
+    )
+    click.echo(f"Stability: {stab_str}")
+
+    from ztb.validation.deflated_sharpe import compute_deflated_sharpe
+
+    oos_sharpe = agg.sharpe if agg.sharpe is not None else 0.0
+    n_obs = agg.exposure_time if agg.exposure_time else 0
+    n_trials = _compute_n_trials(getattr(strategy, "params", {}))
+
+    dsr_result = compute_deflated_sharpe(
+        sharpe=oos_sharpe,
+        n_observations=int(n_obs),
+        n_trials=n_trials,
+    )
+
+    from ztb.validation.scoring import evaluate_acceptance_criteria
+
+    scorecard = evaluate_acceptance_criteria(wf_result, dsr_result, lookahead_result)
+
+    click.echo("")
+    click.echo(f"{'':>20} {'Sharpe':>10} {'DSR':>10} {'MaxDD':>10} {'WinRate':>8} {'Trades':>8}")
+    click.echo(f"{'':->66}")
+    for idx, w in enumerate(wf_result.per_window):
+        ws = f"{w.sharpe:.3f}" if w.sharpe is not None else "N/A"
+        wdd = f"{w.max_drawdown:.3f}" if w.max_drawdown is not None else "N/A"
+        wwr = f"{w.win_rate:.3f}" if w.win_rate is not None else "N/A"
+        flag = "  (!)" if not w.sufficient_sample else ""
+        click.echo(
+            f"  Window {idx + 1:<5}     {ws:>10} {'—':>10} {wdd:>10}"
+            f" {wwr:>8} {str(w.num_trades):>8}{flag}"
+        )
+    click.echo(f"{'':->66}")
+    agg_sharpe = f"{agg.sharpe:.3f}" if agg.sharpe is not None else "N/A"
+    agg_dd = f"{agg.max_drawdown:.3f}" if agg.max_drawdown is not None else "N/A"
+    agg_wr = f"{agg.win_rate:.3f}" if agg.win_rate is not None else "N/A"
+    dsr_val = f"{dsr_result.dsr:.3f}" if dsr_result.dsr is not None else "N/A"
+    click.echo(
+        f"  Aggregate (med) {agg_sharpe:>10} {dsr_val:>10} {agg_dd:>10}"
+        f" {agg_wr:>8} {str(agg.num_trades):>8}"
+    )
+    click.echo("")
+
+    for c in scorecard["criteria"]:
+        status = "PASS" if c["pass"] else "FAIL"
+        val_str = f"{c['value']:.3f}" if isinstance(c["value"], float) else str(c["value"])
+        click.echo(
+            f"  Criterion {c['id']}: {c['name']:<35s} "
+            f"{val_str:>10s} {c['threshold']:>10s}  {status}"
+        )
+
+    click.echo("")
+    passed = scorecard["pass"]
+    n_pass = sum(1 for c in scorecard["criteria"] if c["pass"])
+    n_total = len(scorecard["criteria"])
+    result_str = "PASS" if passed else "FAIL"
+    click.echo(f"RESULT: {result_str} ({n_pass}/{n_total}) — exit code {scorecard['exit_code']}")
+
+    if persist and passed:
+        from ztb.store.results import connect as store_connect
+        from ztb.validation.store import save_validation_run
+
+        conn = store_connect(db)
+        run_id = save_validation_run(
+            conn,
+            strategy=strategy_name,
+            symbol=symbol,
+            timeframe=timeframe,
+            overall_pass=passed,
+            wf_result=wf_result,
+            dsr=dsr_result.dsr,
+            dsr_significant=dsr_result.is_significant,
+            lookahead_pass=lookahead_result.passed,
+        )
+        conn.close()
+        click.echo(f"Saved to store: run_id={run_id}")
+
+    sys.exit(scorecard["exit_code"])
 
 
 @cli.command()

@@ -92,7 +92,7 @@ def test_forwardtest_no_data_returns_error() -> None:
 def test_validate_stub() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
-    assert result.exit_code == 0
+    assert result.exit_code == 2
 
 
 def test_run_command_help() -> None:
