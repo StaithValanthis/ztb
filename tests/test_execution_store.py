@@ -638,20 +638,14 @@ def test_v10_migration_preserves_data(conn: sqlite3.Connection) -> None:
             "filled_at": "2026-06-01T00:00:00Z",
         },
     )
-    row_count_before = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM exec_fills"
-    ).fetchone()["cnt"]
+    row_count_before = conn.execute("SELECT COUNT(*) AS cnt FROM exec_fills").fetchone()["cnt"]
     assert row_count_before == 1
 
     ensure_exec_tables(conn)
-    row_count_after = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM exec_fills"
-    ).fetchone()["cnt"]
+    row_count_after = conn.execute("SELECT COUNT(*) AS cnt FROM exec_fills").fetchone()["cnt"]
     assert row_count_after == 1
 
-    fill = conn.execute(
-        "SELECT * FROM exec_fills WHERE fill_id = 'v10_fill'"
-    ).fetchone()
+    fill = conn.execute("SELECT * FROM exec_fills WHERE fill_id = 'v10_fill'").fetchone()
     assert fill is not None
     assert fill["order_link_id"] == "v10_olid"
     assert fill["order_id"] == "v10_oid"
