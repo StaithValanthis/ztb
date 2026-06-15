@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.27 (2026-06-15)
+
+- **Feat(store):** Add `retry_on_lock` decorator with exponential backoff (+jitter) to all store write functions — catches `sqlite3.OperationalError 'database is locked'` (`busy_timeout` raised from 5000 to 30000 ms). Applied to `exec_io.py` (14 write funcs), `results.py` (3 write funcs), `idempotency.py` (5 write funcs), and `validation/store.py` (`save_validation_run`).
+- **Tests:** 16 new test cases in `test_store_retry.py` covering decorator unit tests, applied integration tests, and `busy_timeout` verification. 997/997 total tests passing (0 pre-existing).
+- V&R PASS on SHA `16854e9` ([ZTB-2232](/ZTB/issues/ZTB-2232))
+- **PR:** [#118](https://github.com/StaithValanthis/ztb/pull/118) — `feat/ztb-2155-database-locked-fix`
+- **Merge commit:** `6f75469` — two-key merge (CI green + V&R PASS on SHA `16854e9`)
+- **Tag:** v1.1.27
+
 ## v1.1.26 (2026-06-15)
 
 - **Fix(executor):** Resolve duplicate `OrderLinkedID` on stale-pending retry — stale pending rows are resolved as `failed` (not DELETEd) and retried with a nonced `order_link_id`. `_reconcile_pending_order` now queries both `get_order_history` and `get_open_orders` (dual-endpoint). Defensive `ClientError` handler catches `"OrderLinkedID is duplicate"` around `place_order` — found orders are restored; not-found bars are skipped gracefully with full state advancement. `clear_pending()` added to startup cleanup.
