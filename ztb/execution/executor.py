@@ -488,7 +488,7 @@ class Executor:
         if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
-                self.state.strategy_name, symbol, bar_ts, intent_hash
+                self.state.strategy_name, symbol, bar_ts, intent_hash, self.state.exec_run_id
             )
 
             claimed = self._idempotency.try_claim(order_link_id)

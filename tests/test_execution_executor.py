@@ -491,7 +491,7 @@ def test_executor_idempotency_restores_order(
     target_qty = round(0.5 * equity / close_price, config.asset_precision)
     intent_hash = make_intent_hash(target_qty, 0.0)
     order_link_id = make_order_link_id(
-        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash, exe.state.exec_run_id
     )
     exe._idempotency.try_claim(order_link_id, "existing_order_1")
     exe._idempotency.resolve(order_link_id, "placed", "existing_order_1")

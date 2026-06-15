@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.21 (2026-06-15)
+
+- **Feat(execution):** Add `exec_run_id` nonce to `make_order_link_id` hash inputs — prepended as `f"{exec_run_id}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"`. Cross-run order-link-id collisions eliminated; within-run dedup preserved. Caller in executor.py passes `self.state.exec_run_id`.
+- **Docs:** ENGINEERING.md §9 updated to reflect run-scoped idempotency keys.
+- **Tests:** 17/17 idempotency tests, 122/122 executor tests passing.
+- **PR:** [#99](https://github.com/StaithValanthis/ztb/pull/99) — `feat/ztb-2021-exec-run-id-nonce`
+- **Commit:** `c318d9b`
+
 ## v1.1.18 (2026-06-15)
 
 - **Fix(execution):** `top_up_demo_account` reads `walletBalance` instead of `availableBalance` from Bybit wallet-balance response — `availableBalance` does not exist in the response, so `.get()` returned `0.0`, triggering false `credited=0.0` warnings.

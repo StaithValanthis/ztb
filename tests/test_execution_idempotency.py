@@ -30,11 +30,26 @@ def test_make_order_link_id_different_strategy() -> None:
     assert id1 != id2
 
 
-def test_make_order_link_id_not_run_id() -> None:
-    """Prove the stable tuple does NOT include run_id (§0.7, fix #21)."""
-    id1 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123")
-    id2 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123")
-    assert id1 == id2  # same inputs → same id, regardless of any run_id
+def test_make_order_link_id_different_run() -> None:
+    """Prove different exec_run_id produces a different orderLinkId (§ZTB-2021)."""
+    id1 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123", "exec_run_1")
+    id2 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123", "exec_run_2")
+    assert id1 != id2
+
+
+def test_make_order_link_id_same_run_stable() -> None:
+    """Prove same inputs + same exec_run_id → same output (within-run dedup)."""
+    id1 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123", "exec_r1")
+    id2 = make_order_link_id("sma_cross", "BTCUSDT", "2026-01-01T00:00:00Z", "abc123", "exec_r1")
+    assert id1 == id2
+
+
+def test_make_order_link_id_cross_run_collision() -> None:
+    """Prove same inputs + different exec_run_id → different output (cross-run collision eliminated)."""
+    intent = "abc123"
+    id_run_a = make_order_link_id("strat", "SYM", "T1", intent, "run_a")
+    id_run_b = make_order_link_id("strat", "SYM", "T1", intent, "run_b")
+    assert id_run_a != id_run_b
 
 
 def test_make_intent_hash_stable() -> None:
@@ -108,20 +123,19 @@ def test_idempotency_resolve(ledger_conn: sqlite3.Connection) -> None:
 
 
 def test_replay_same_intent_same_id() -> None:
-    """Prove that replaying the same bar/intent produces the same orderLinkId."""
+    """Prove that replaying the same bar/intent/exec_run_id produces the same orderLinkId."""
     intent = make_intent_hash(0.5, 0.0)
-    id1 = make_order_link_id("strat", "SYM", "T1", intent)
-    id2 = make_order_link_id("strat", "SYM", "T1", intent)
+    id1 = make_order_link_id("strat", "SYM", "T1", intent, "exec_r1")
+    id2 = make_order_link_id("strat", "SYM", "T1", intent, "exec_r1")
     assert id1 == id2
-    # This simulates restart: same strategy, symbol, bar timestamp, signal → same id
 
 
 def test_different_intent_different_id() -> None:
     """Prove distinct intents produce distinct orderLinkIds."""
     intent1 = make_intent_hash(0.5, 0.0)
     intent2 = make_intent_hash(-0.5, 0.5)
-    id1 = make_order_link_id("strat", "SYM", "T1", intent1)
-    id2 = make_order_link_id("strat", "SYM", "T1", intent2)
+    id1 = make_order_link_id("strat", "SYM", "T1", intent1, "exec_r1")
+    id2 = make_order_link_id("strat", "SYM", "T1", intent2, "exec_r1")
     assert id1 != id2
 
 

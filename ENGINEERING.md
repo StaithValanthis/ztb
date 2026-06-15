@@ -102,9 +102,9 @@ The SQLite result store (M3) is **stable + additively-versioned**, never "frozen
 - All tables use `CREATE TABLE IF NOT EXISTS`; later milestones (M4/M5/M6) add tables/columns via **guarded additive migrations** — never destructive rewrites.
 - Metric access is via a **named function accessor** — `get_oos_metric(run_id, name)` / `get_oos_sharpe(run_id)` — frozen as a function, **not** a column name, so forward-test decay and leaderboards agree across milestones.
 
-## 9. Idempotency Keys (restart-safe)
+## 9. Idempotency Keys (run-scoped)
 
-Execution-order idempotency keys (`orderLinkId`, dedupe ledger) derive from the **stable tuple `(strategy, symbol, bar_ts, intent_hash)`** — **NEVER the ephemeral `run_id`**. A restart, rollback, or re-issue must produce the identical key, or crash-recovery double-fills. M6's restart/replay tests assert this.
+Execution-order idempotency keys (`orderLinkId`, dedupe ledger) derive from the **tuple `(exec_run_id, strategy, symbol, bar_ts, intent_hash)`**. The `exec_run_id` nonce differentiates keys across execution runs, preventing cross-run order-link-id collisions. Within a single run, same intent → same key (within-run dedup preserved). The hash raw string is `f"{exec_run_id}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"`. Crash-recovery on the same run produces identical keys; a new run always gets fresh keys.
 
 ## 10. Honesty & Done-ness
 
