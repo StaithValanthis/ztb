@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.15 (2026-06-15)
+
+- **Fix(store):** Add `PRAGMA busy_timeout=5000` to SQLite `connect()` to prevent 'database is locked' crashes under concurrent access (demo loop, VE tests)
+- **Chore(validation):** Thread `initial_cash`, `commission`, `slippage` from CLI through `WalkForwardConfig` to `BacktestConfig` for economic-parameter consistency in walk-forward validation
+- **Tests:** `test_economic_params_thread_to_backtest` — verifies custom economic params propagate through walk-forward pipeline
+- V&R PASS on SHA `0447328` ([ZTB-1784](/ZTB/issues/ZTB-1784)); MD authorization ([ZTB-1799](/ZTB/issues/ZTB-1799))
+- **PR:** [#86](https://github.com/StaithValanthis/ztb/pull/86) — `feat/busy-timeout`
+- **Merge commit:** `0805cca` — two-key merge (CI green + V&R PASS on SHA `0447328`)
+- **Tag:** v1.1.15
+
 ## v1.1.14 (2026-06-15)
 
 - **Fix(validation):** DEFECT 1-3 — thread actual `cash`, `commission`, `slippage` params through walk-forward harness (were hardcoded to `0.0`/`0`/`0.0`). Fix ruff-format trailing blank lines in `walk_forward.py`.
