@@ -400,15 +400,29 @@ def test_executor_fill_retry_eventually_gets_fills(
     exec_list: list[list[dict]] = [
         [],
         [],
-        [{"execId": "e1", "orderId": "test_order_fill_retry", "symbol": "BTCUSDT",
-          "side": "Buy", "execPrice": "50001.0", "execQty": "0.1", "execFee": "0.05",
-          "execTime": "2026-01-01T01:00:00Z"}],
+        [
+            {
+                "execId": "e1",
+                "orderId": "test_order_fill_retry",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "50001.0",
+                "execQty": "0.1",
+                "execFee": "0.05",
+                "execTime": "2026-01-01T01:00:00Z",
+            }
+        ],
     ]
     mock_client.get_executions.side_effect = exec_list
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-                           fill_retry_count=5, fill_retry_delay_seconds=0.0)
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        fill_retry_count=5,
+        fill_retry_delay_seconds=0.0,
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -436,8 +450,13 @@ def test_executor_fill_retry_exhausted_falls_back_to_synthetic(
     mock_bybit_cls.return_value = mock_client
 
     retries = 3
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-                           fill_retry_count=retries, fill_retry_delay_seconds=0.0)
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        fill_retry_count=retries,
+        fill_retry_delay_seconds=0.0,
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()

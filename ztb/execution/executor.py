@@ -672,7 +672,9 @@ class Executor:
                     if attempt < retries:
                         logger.info(
                             "No fills yet for order %s (attempt %d/%d)%s",
-                            order_id, attempt, retries,
+                            order_id,
+                            attempt,
+                            retries,
                             f", waiting {delay:.1f}s" if delay else "",
                         )
                         if delay:
@@ -682,7 +684,10 @@ class Executor:
                     if attempt < retries:
                         logger.warning(
                             "Fill fetch attempt %d/%d failed for order %s: %s",
-                            attempt, retries, order_id, exc,
+                            attempt,
+                            retries,
+                            order_id,
+                            exc,
                         )
                         if delay:
                             time_module.sleep(delay)
