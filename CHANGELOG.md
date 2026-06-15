@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.16 (2026-06-15)
+
+- **Fix(executor):** Detect position flips (abs(delta) > abs(current_position) with opposite signs) and set `reduce_only=False` so flip orders fill completely on Bybit. Balance cap accounts for existing position during flips — only the opening portion is subject to margin cap. Previously, flip orders were incorrectly `reduce_only=True`, which silently truncated fills to existing position size, causing persistent position drift.
+- **Tests:** 3 new tests covering long→short flip, short→long flip, and balance-cap flip scenarios — 101/101 executor tests passing
+- V&R PASS on SHA `b58ce3a` ([ZTB-1815](/ZTB/issues/ZTB-1815))
+- **PR:** [#92](https://github.com/StaithValanthis/ztb/pull/92) — `fix/reduce-only-warmup`
+- **Merge commit:** `cb8fee0` — two-key merge (CI green + V&R PASS on SHA `b58ce3a`)
+- **Tag:** v1.1.16
+
 ## v1.1.15 (2026-06-15)
 
 - **Fix(store):** Add `PRAGMA busy_timeout=5000` to SQLite `connect()` to prevent 'database is locked' crashes under concurrent access (demo loop, VE tests)
