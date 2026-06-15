@@ -4,6 +4,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from ztb.store.retry import retry_on_lock
 from ztb.validation.walk_forward import WalkForwardResult
 
 
@@ -50,6 +51,7 @@ def _generate_run_id(strategy: str, symbol: str) -> str:
     return f"val_{strategy}_{symbol}_{now}"
 
 
+@retry_on_lock()
 def save_validation_run(
     conn: sqlite3.Connection,
     strategy: str,
