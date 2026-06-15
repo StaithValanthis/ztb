@@ -299,6 +299,22 @@ class Executor:
         except Exception:
             return reconcile_account(expected, expected, self.state.symbol)
 
+    def _reconcile_pending_order(
+        self, symbol: str, order_link_id: str
+    ) -> dict[str, Any] | None:
+        if self.client is None:
+            return None
+        try:
+            orders = self.client.get_order_history(symbol=symbol, limit=50)
+            for order in orders:
+                if order.get("orderLinkId") == order_link_id:
+                    return order
+        except Exception:
+            logger.warning(
+                "reconcile_pending_order: get_order_history failed for %s", order_link_id
+            )
+        return None
+
     def step(
         self,
         data: DataFrame,
@@ -512,6 +528,43 @@ class Executor:
                         unrealized_pnl,
                         self._pnl.equity(close_price),
                         bar_ts,
+                    )
+                    return result
+
+                # M1: reconcile lost response before resubmit
+                matched = self._reconcile_pending_order(symbol, order_link_id)
+                if matched:
+                    self._idempotency.resolve(order_link_id, "placed", matched["orderId"])
+                    comm_cost = abs(delta) * close_price * self.config.commission
+                    slip_cost = abs(delta) * close_price * self.config.slippage
+                    self._pnl.apply_fill(
+                        delta, close_price, commission=comm_cost, slippage=slip_cost
+                    )
+                    self._sync_pnl_state()
+                    result["order_placed"] = True
+                    result["order"] = {"order_id": matched["orderId"], "restored": True}
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
+                    unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                    self._save_position_snapshot()
+                    self._save_pnl(
+                        self._pnl.realized_pnl,
+                        unrealized_pnl,
+                        self._pnl.equity(close_price),
+                        bar_ts,
+                    )
+                    return result
+
+                # order never reached Bybit — delete stale pending row and retry
+                self._store_conn.execute(
+                    "DELETE FROM idempotency WHERE order_link_id = ?", (order_link_id,)
+                )
+                self._store_conn.commit()
+                claimed = self._idempotency.try_claim(order_link_id)
+                if not claimed:
+                    logger.warning(
+                        "M1: retry try_claim failed after deleting stale pending %s — skipping bar",
+                        order_link_id,
                     )
                     return result
 
