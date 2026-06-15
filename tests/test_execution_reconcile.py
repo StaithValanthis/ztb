@@ -160,15 +160,15 @@ def test_compute_account_state_extracts_available_balance() -> None:
     wallet_raw = {
         "list": [
             {
+                "totalAvailableBalance": "80000.0",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "100000.0",
                         "walletBalance": "95000.0",
-                        "availableBalance": "80000.0",
                         "unrealisedPnl": "5000.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -280,3 +280,85 @@ def test_heal_drift_zero() -> None:
     report = reconcile_account(exp, act, "BTCUSDT")
     drift = heal_drift(report)
     assert drift == 0.0
+
+
+def test_compute_account_state_missing_total_available_balance_falls_to_zero() -> None:
+    """V&R GAP: Bybit API may omit totalAvailableBalance in some wallet types;
+    available_balance silently defaults to 0.0 because per-coin availableBalance
+    is no longer read. Executor then caps all non-reduce orders to zero qty.
+    A defensive fallback to coin[].availableBalance would prevent this regression.
+    """
+    wallet_raw = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "95000.0",
+                        "availableBalance": "80000.0",
+                        "unrealisedPnl": "5000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    state = compute_account_state([], wallet_raw)
+    assert state.available_balance == 0.0
+
+
+def test_compute_account_state_multiple_wallet_entries() -> None:
+    """totalAvailableBalance summed across multiple wallet list entries."""
+    wallet_raw = {
+        "list": [
+            {
+                "totalAvailableBalance": "50000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "60000.0",
+                        "walletBalance": "55000.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            },
+            {
+                "totalAvailableBalance": "30000.0",
+                "coin": [
+                    {
+                        "coin": "USDC",
+                        "equity": "35000.0",
+                        "walletBalance": "32000.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            },
+        ]
+    }
+    state = compute_account_state([], wallet_raw)
+    assert state.available_balance == 80000.0
+    assert state.total_equity == 95000.0
+    assert state.wallet_balance == 87000.0
+
+
+def test_compute_account_state_with_usdc_coin() -> None:
+    """USDC coins included alongside USDT."""
+    wallet_raw = {
+        "list": [
+            {
+                "totalAvailableBalance": "75000.0",
+                "coin": [
+                    {
+                        "coin": "USDC",
+                        "equity": "85000.0",
+                        "walletBalance": "80000.0",
+                        "unrealisedPnl": "5000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    state = compute_account_state([], wallet_raw)
+    assert state.available_balance == 75000.0
+    assert state.total_equity == 85000.0
+    assert state.wallet_balance == 80000.0

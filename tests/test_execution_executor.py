@@ -2697,7 +2697,6 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
                         "coin": "USDT",
                         "equity": "1000.0",
                         "walletBalance": "1000.0",
-                        "availableBalance": "500.0",
                         "unrealisedPnl": "0.0",
                     }
                 ],
@@ -2741,7 +2740,6 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
                         "coin": "USDT",
                         "equity": "100.0",
                         "walletBalance": "100.0",
-                        "availableBalance": "50.0",
                         "unrealisedPnl": "0.0",
                     }
                 ],
@@ -2781,13 +2779,12 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
-                "totalAvailableBalance": "0.00000004",
+                "totalAvailableBalance": "0.0001",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "0.001",
                         "walletBalance": "0.001",
-                        "availableBalance": "0.00000004",
                         "unrealisedPnl": "0.0",
                     }
                 ],
@@ -2831,7 +2828,6 @@ def test_flip_sets_reduce_only_false_with_balance_cap(
                         "coin": "USDT",
                         "equity": "100.0",
                         "walletBalance": "100.0",
-                        "availableBalance": "1.0",
                         "unrealisedPnl": "0.0",
                     }
                 ],
@@ -2968,14 +2964,15 @@ def test_executor_sizes_against_available_balance(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "200000.0",
                         "walletBalance": "200000.0",
-                        "availableBalance": "500.0",
+                        "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3014,14 +3011,15 @@ def test_executor_ab_not_enough_backoff(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "100000.0",
                         "walletBalance": "100000.0",
-                        "availableBalance": "100000.0",
+                        "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3055,14 +3053,15 @@ def test_executor_instrument_bounds_enforced(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "100000.0",
                         "walletBalance": "100000.0",
-                        "availableBalance": "100000.0",
+                        "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
