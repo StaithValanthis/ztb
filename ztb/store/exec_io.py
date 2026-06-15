@@ -447,15 +447,11 @@ def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any]
 
 
 def get_or_create_run_nonce(conn: sqlite3.Connection) -> str:
-    row = conn.execute(
-        "SELECT value FROM runtime_flags WHERE key = 'run_nonce'"
-    ).fetchone()
+    row = conn.execute("SELECT value FROM runtime_flags WHERE key = 'run_nonce'").fetchone()
     if row is not None:
         return str(row["value"])
     nonce = hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()[:16]
-    conn.execute(
-        "INSERT INTO runtime_flags (key, value) VALUES ('run_nonce', ?)", (nonce,)
-    )
+    conn.execute("INSERT INTO runtime_flags (key, value) VALUES ('run_nonce', ?)", (nonce,))
     conn.commit()
     return nonce
 
