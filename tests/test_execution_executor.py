@@ -3278,3 +3278,224 @@ def test_both_order_and_fill_persisted_together(
     assert len(orders) >= 1
     assert len(fills) >= 1
     assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_stale_pending_should_reconcile_via_order_history(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When try_claim fails and existing has no order_id, _reconcile_pending_order is called."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    equity = config.initial_cash
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    mock_client.get_order_history.return_value = [
+        {"orderLinkId": order_link_id, "orderId": "reconciled_order_1"}
+    ]
+
+    exe._idempotency.try_claim(order_link_id)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["order"]["restored"] is True
+    assert result["order"]["order_id"] == "reconciled_order_1"
+    mock_client.get_order_history.assert_called_once_with(symbol="BTCUSDT", limit=50)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_pending_order_found(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When reconcile finds order in history, idempotency is resolved to 'placed'."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    equity = config.initial_cash
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    mock_client.get_order_history.return_value = [
+        {"orderLinkId": order_link_id, "orderId": "reconciled_order_1"}
+    ]
+
+    exe._idempotency.try_claim(order_link_id)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["order"]["restored"] is True
+    assert result["order"]["order_id"] == "reconciled_order_1"
+
+    row = exe._idempotency.get(order_link_id)
+    assert row is not None
+    assert row["status"] == "placed"
+    assert row["order_id"] == "reconciled_order_1"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_pending_order_not_found(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When reconcile returns None, stale pending row is deleted and try_claim is retried."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "new_order_id"}
+    mock_client.get_order_history.return_value = []
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    equity = config.initial_cash
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    mock_client.get_order_history.return_value = []
+    exe._idempotency.try_claim(order_link_id)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["order"] is not None
+    assert result["order"]["order_id"] == "new_order_id"
+    mock_client.place_order.assert_called_once()
+    mock_client.get_order_history.assert_called_once_with(symbol="BTCUSDT", limit=50)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_pending_order_api_failure(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When get_order_history raises, the fallback deletes pending row and retries."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "new_order_id"}
+    mock_client.get_order_history.side_effect = Exception("API timeout")
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    equity = config.initial_cash
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    exe._idempotency.try_claim(order_link_id)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    mock_client.place_order.assert_called_once()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_stale_pending_fallback_does_not_break_crash_recovery(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Existing crash recovery (existing row WITH order_id) still works unchanged."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_bybit_cls.return_value = mock_client
+
+    from ztb.execution.idempotency import make_intent_hash, make_order_link_id
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    equity = config.initial_cash
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, config.asset_precision)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    order_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+
+    exe._idempotency.try_claim(order_link_id, "existing_order_1")
+    exe._idempotency.resolve(order_link_id, "placed", "existing_order_1")
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["order"]["order_id"] == "existing_order_1"
+    assert result["order"]["restored"] is True
+
+    row = exe._idempotency.get(order_link_id)
+    assert row is not None
+    assert row["status"] == "placed"
+    assert row["order_id"] == "existing_order_1"
+    mock_client.get_order_history.assert_not_called()
