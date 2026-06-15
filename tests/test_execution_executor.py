@@ -2635,3 +2635,282 @@ def test_order_sizing_buffer_unit(
     expected_equity = (config.initial_cash + expected_upnl) * 0.8
     target_qty = round(0.5 * expected_equity / close_price, config.asset_precision)
     assert result["target_position"] == pytest.approx(target_qty)
+
+
+# ---------------------------------------------------------------------------
+# Finding 2: DEMO equity cap tests (restored from main with order_sizing_buffer=1.0)
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_demo_mode_equity_cap_when_wallet_exceeds_initial_cash(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """DEMO mode caps equity at initial_cash when wallet equity exceeds it."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_capped"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "200000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "200000.0",
+                        "walletBalance": "200000.0",
+                        "availableBalance": "200000.0",
+                        "unrealisedPnl": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+        order_sizing_buffer=1.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    capped_equity = config.initial_cash
+    expected_qty = round(0.5 * capped_equity / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
+    assert exe._pnl.position < round(0.5 * 200000.0 / close_price, config.asset_precision)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_demo_mode_equity_cap_when_wallet_fetch_fails(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """DEMO mode wallet fetch failure falls through to PnLCalculator equity."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = Exception("network error")
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+        order_sizing_buffer=1.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    pnl_equity = config.initial_cash
+    expected_qty = round(0.5 * pnl_equity / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_live_mode_does_not_cap_equity(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """LIVE mode does NOT cap equity at initial_cash when wallet exceeds it."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_live"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "200000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "200000.0",
+                        "walletBalance": "200000.0",
+                        "availableBalance": "200000.0",
+                        "unrealisedPnl": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+        order_sizing_buffer=1.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    live_equity = 200000.0
+    expected_qty = round(0.5 * live_equity / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
+    capped_qty = round(0.5 * config.initial_cash / close_price, config.asset_precision)
+    assert exe._pnl.position > capped_qty + 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: order_sizing_buffer boundary tests
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+def test_order_sizing_buffer_zero(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Buffer=0.0 results in zero position (scales equity to zero)."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=0.0)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    result = exe.step(sample_data)
+    assert result["signal"] == 0.5
+    assert result["target_position"] == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_order_sizing_buffer_one(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Buffer=1.0 uses full equity for position sizing."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=1.0)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    result = exe.step(sample_data)
+    close_price = float(sample_data["close"].iloc[-1])
+    expected_qty = round(0.5 * config.initial_cash / close_price, config.asset_precision)
+    assert result["target_position"] == pytest.approx(expected_qty)
+
+
+@patch("ztb.execution.executor.load_data")
+def test_order_sizing_buffer_above_one(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Buffer>1.0 scales equity above initial_cash for position sizing."""
+    mock_load.return_value = sample_data
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, order_sizing_buffer=1.5)
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    result = exe.step(sample_data)
+    close_price = float(sample_data["close"].iloc[-1])
+    expected_qty = round(0.5 * config.initial_cash * 1.5 / close_price, config.asset_precision)
+    assert result["target_position"] == pytest.approx(expected_qty)
+    no_cap = round(0.5 * config.initial_cash / close_price, config.asset_precision)
+    assert result["target_position"] > no_cap
+
+
+# ---------------------------------------------------------------------------
+# Finding 4: total_available_balance distinction test
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_total_available_balance_caps_notional(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """max_notional uses total_available_balance, not available_balance."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_cap"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "10000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "4000.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+        order_sizing_buffer=1.0,
+        max_leverage=3.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    total_available = 10000.0
+    max_notional = total_available * config.max_leverage
+    max_qty = round(max_notional / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(max_qty)
+    assert exe._pnl.position > round(
+        4000.0 * config.max_leverage / close_price, config.asset_precision
+    )

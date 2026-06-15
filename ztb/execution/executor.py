@@ -636,8 +636,9 @@ class Executor:
             else:
                 commission_cost = qty * close_price * self.config.commission
                 slippage_cost = qty * close_price * self.config.slippage
+                fill_qty = qty if delta > 0 else -qty
                 self._pnl.apply_fill(
-                    delta, close_price, commission=commission_cost, slippage=slippage_cost
+                    fill_qty, close_price, commission=commission_cost, slippage=slippage_cost
                 )
                 self._sync_pnl_state()
                 from ztb.store.exec_io import save_exec_order
