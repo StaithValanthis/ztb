@@ -1801,6 +1801,98 @@ def test_step_impl_uses_wallet_balance(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
+def test_demo_mode_equity_cap_when_wallet_exceeds_initial_cash(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """DEMO mode caps equity at initial_cash when wallet equity exceeds it."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_capped"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "200000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "200000.0",
+                        "walletBalance": "200000.0",
+                        "availableBalance": "200000.0",
+                        "unrealisedPnl": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    capped_equity = config.initial_cash
+    expected_qty = round(0.5 * capped_equity / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
+    assert exe._pnl.position < round(0.5 * 200000.0 / close_price, config.asset_precision)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_demo_mode_equity_cap_when_wallet_fetch_fails(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """DEMO mode caps equity at initial_cash even when wallet fetch fails."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = Exception("network error")
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+        initial_cash=100000.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    close_price = float(sample_data["close"].iloc[-1])
+    capped_equity = config.initial_cash
+    expected_qty = round(0.5 * capped_equity / close_price, config.asset_precision)
+    assert exe._pnl.position == pytest.approx(expected_qty, abs=1e-8)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
 def test_polling_loop_skips_client_error(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
@@ -2286,6 +2378,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2294,7 +2387,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
                         "availableBalance": "500.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2329,6 +2422,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "50.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2337,7 +2431,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
                         "availableBalance": "50.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2374,15 +2468,16 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "0.00000004",
                 "coin": [
                     {
                         "coin": "USDT",
                         "equity": "0.001",
                         "walletBalance": "0.001",
-                        "availableBalance": "0.0001",
+                        "availableBalance": "0.00000004",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -2416,6 +2511,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "1.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -2424,7 +2520,7 @@ def test_balance_cap_does_not_apply_to_reduce_only(
                         "availableBalance": "1.0",
                         "unrealisedPnl": "0.0",
                     }
-                ]
+                ],
             }
         ]
     }
