@@ -12,9 +12,9 @@ def make_order_link_id(
     symbol: str,
     bar_ts: str,
     intent_hash: str,
-    exec_run_id: str = "",
+    run_nonce: str = "",
 ) -> str:
-    raw = f"{exec_run_id}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"
+    raw = f"{run_nonce}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"
     return hashlib.sha256(raw.encode()).hexdigest()[:40]
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import uuid
 from contextlib import suppress
 from typing import Any
 
@@ -126,10 +127,18 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL
         )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS runtime_flags (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )"""
+    )
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (6)")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (7)")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (10)")
     ensure_audit_table(conn)
     conn.commit()
 
@@ -435,6 +444,20 @@ def get_latest_unresolved_kill_event(conn: sqlite3.Connection) -> dict[str, Any]
            ORDER BY ke.event_id DESC LIMIT 1"""
     ).fetchall()
     return dict(rows[0]) if rows else None
+
+
+def get_or_create_run_nonce(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT value FROM runtime_flags WHERE key = 'run_nonce'"
+    ).fetchone()
+    if row is not None:
+        return str(row["value"])
+    nonce = hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()[:16]
+    conn.execute(
+        "INSERT INTO runtime_flags (key, value) VALUES ('run_nonce', ?)", (nonce,)
+    )
+    conn.commit()
+    return nonce
 
 
 def ensure_audit_table(conn: sqlite3.Connection) -> None:

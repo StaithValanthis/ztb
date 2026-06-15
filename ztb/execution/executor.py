@@ -57,6 +57,7 @@ class Executor:
         self._idempotency: IdempotencyLedger | None = None
         self._run_id: str = ""
         self._exec_run_id: str = ""
+        self._run_nonce: str = ""
         self._killswitch = killswitch
         self._original_sigterm: Any = None
         self._sigterm_stop: bool = False
@@ -108,9 +109,14 @@ class Executor:
 
     def _init_store(self, db_path: str | None = None) -> None:
         self._store_conn = store_connect(db_path)
-        from ztb.store.exec_io import create_exec_run, ensure_exec_tables
+        from ztb.store.exec_io import (
+            create_exec_run,
+            ensure_exec_tables,
+            get_or_create_run_nonce,
+        )
 
         ensure_exec_tables(self._store_conn)
+        self._run_nonce = get_or_create_run_nonce(self._store_conn)
         assert self.state is not None
         create_exec_run(
             self._store_conn,
@@ -488,7 +494,7 @@ class Executor:
         if abs(delta) > 1e-12 and signal_changed:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
-                self.state.strategy_name, symbol, bar_ts, intent_hash, self.state.exec_run_id
+                self.state.strategy_name, symbol, bar_ts, intent_hash, self._run_nonce
             )
 
             claimed = self._idempotency.try_claim(order_link_id)

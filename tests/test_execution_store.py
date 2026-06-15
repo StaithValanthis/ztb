@@ -15,6 +15,7 @@ from ztb.store.exec_io import (
     get_exec_fills,
     get_exec_orders,
     get_exec_run,
+    get_or_create_run_nonce,
     get_pnl_ledger,
     get_sufficient_sample_pnl_ledger,
     list_exec_runs,
@@ -54,6 +55,7 @@ def test_ensure_exec_tables(conn: sqlite3.Connection) -> None:
     assert "exec_pnl_ledger" in table_names
     assert "exec_errors" in table_names
     assert "audit_log" in table_names
+    assert "runtime_flags" in table_names
     assert "idempotency" not in table_names  # separate table
 
 
@@ -548,3 +550,24 @@ def test_schema_meta_version_9(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_meta WHERE version = 9").fetchone()
     assert row is not None
     assert row["version"] == 9
+
+
+def test_get_or_create_run_nonce_stable(conn: sqlite3.Connection) -> None:
+    """Prove get_or_create_run_nonce returns same value on repeated calls (same conn)."""
+    n1 = get_or_create_run_nonce(conn)
+    n2 = get_or_create_run_nonce(conn)
+    assert n1 == n2
+    assert len(n1) == 16
+
+
+def test_get_or_create_run_nonce_different_db() -> None:
+    """Prove different databases get different nonces."""
+    c1 = sqlite3.connect(":memory:")
+    c2 = sqlite3.connect(":memory:")
+    ensure_exec_tables(c1)
+    ensure_exec_tables(c2)
+    n1 = get_or_create_run_nonce(c1)
+    n2 = get_or_create_run_nonce(c2)
+    assert n1 != n2
+    c1.close()
+    c2.close()

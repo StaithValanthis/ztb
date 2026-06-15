@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.22 (2026-06-15)
+
+- **Feat(execution):** Replace volatile `exec_run_id` with persisted `run_nonce` in `make_order_link_id` hash inputs. `run_nonce` is stored in new `runtime_flags` table (`get_or_create_run_nonce()`), generated once per DB via `sha256(uuid4())[:16]`. Crash-recovery dedup preserved; cross-run collisions eliminated. DEFECT-1 fix (PR #106 rejected by V&R).
+- **Store:** Add `runtime_flags(key TEXT PRIMARY KEY, value TEXT)` table, schema v10.
+- **Tests:** 19/19 idempotency tests, 124/124 executor tests, 2 new `get_or_create_run_nonce` tests.
+- **Docs:** ENGINEERING.md §9 updated to persisted-nonce design.
+- **PR:** [#99](https://github.com/StaithValanthis/ztb/pull/99) — `feat/ztb-2021-exec-run-id-nonce` (v2 force-push).
+
 ## v1.1.21 (2026-06-15)
 
 - **Feat(execution):** Add `exec_run_id` nonce to `make_order_link_id` hash inputs — prepended as `f"{exec_run_id}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"`. Cross-run order-link-id collisions eliminated; within-run dedup preserved. Caller in executor.py passes `self.state.exec_run_id`.

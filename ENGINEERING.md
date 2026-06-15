@@ -102,9 +102,16 @@ The SQLite result store (M3) is **stable + additively-versioned**, never "frozen
 - All tables use `CREATE TABLE IF NOT EXISTS`; later milestones (M4/M5/M6) add tables/columns via **guarded additive migrations** — never destructive rewrites.
 - Metric access is via a **named function accessor** — `get_oos_metric(run_id, name)` / `get_oos_sharpe(run_id)` — frozen as a function, **not** a column name, so forward-test decay and leaderboards agree across milestones.
 
-## 9. Idempotency Keys (run-scoped)
+## 9. Idempotency Keys (persisted nonce)
 
-Execution-order idempotency keys (`orderLinkId`, dedupe ledger) derive from the **tuple `(exec_run_id, strategy, symbol, bar_ts, intent_hash)`**. The `exec_run_id` nonce differentiates keys across execution runs, preventing cross-run order-link-id collisions. Within a single run, same intent → same key (within-run dedup preserved). The hash raw string is `f"{exec_run_id}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"`. Crash-recovery on the same run produces identical keys; a new run always gets fresh keys.
+Execution-order idempotency keys (`orderLinkId`, dedupe ledger) derive from the **tuple `(run_nonce, strategy, symbol, bar_ts, intent_hash)`**. The `run_nonce` is a **persistent** 16-hex-char value stored in the `runtime_flags` table (key `run_nonce`), generated once per database via `sha256(uuid4())[:16]` on first use. Same database → same nonce → crash-recovery dedup works. Different database → different nonce → no Bybit cross-run collision. The hash raw string is `f"{run_nonce}:{strategy}:{symbol}:{bar_ts}:{intent_hash}"`.
+
+| Property | Value |
+|----------|-------|
+| Storage | `runtime_flags` table, key `run_nonce` |
+| Generation | `sha256(uuid4().hex.encode()).hexdigest()[:16]` |
+| Crash recovery | Same DB → same nonce → same order-link-ids |
+| Cross-run | Different DB → different nonce → different order-link-ids |
 
 ## 10. Honesty & Done-ness
 
