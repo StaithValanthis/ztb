@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.26-dev (2026-06-15)
+
+- **Combined fix:** Cherry-pick M1 reconcile onto retry-on-lock branch — both `retry_on_lock` decorator for store writes and `_reconcile_pending_order` helper for stale-pending recovery on the same branch.
+- **Store:** `ztb/store/retry.py` — `@retry_on_lock` decorator with exponential backoff + jitter, applied to all write functions in `exec_io.py`.
+- **Executor (M1):** `_reconcile_pending_order` queries Bybit order history for stale pending idempotency rows; resolves idempotency if found, deletes + retries if not found.
+- **Tests:** 1003/1003 green (incl. 16 retry-on-lock + 5 reconcile tests), ruff clean, 92% coverage.
+- **Branch:** `feat/ztb-2184-m1-retry-on-lock`
+- **Docker/packaging:** `schema.sql` included in package data (wheel fix).
+
 ## v1.1.25 (2026-06-15)
 
 - **Fix(executor):** `_reconcile_pending_order` helper and stale-pending retry path — when `try_claim` fails and the existing row has no `order_id` (API response lost), reconcile via Bybit order history before resubmitting. If the order went through, resolve idempotency and restore; if not, delete stale pending row and retry.
