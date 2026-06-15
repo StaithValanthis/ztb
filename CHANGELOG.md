@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.18 (2026-06-15)
+
+- **Fix(execution):** `top_up_demo_account` reads `walletBalance` instead of `availableBalance` from Bybit wallet-balance response — `availableBalance` does not exist in the response, so `.get()` returned `0.0`, triggering false `credited=0.0` warnings.
+- **Tests:** Test fixtures use distinct values for `walletBalance` vs `availableBalance` to catch regression
+- V&R PASS on SHA `c548b6a` ([ZTB-1880](/ZTB/issues/ZTB-1880))
+- **PR:** [#97](https://github.com/StaithValanthis/ztb/pull/97) — `feat/fix-top-up-demo-account`
+- **Merge commit:** `cc91c63` — two-key merge (CI green + V&R PASS on SHA `c548b6a`)
+- **Tag:** v1.1.18
+
 ## v1.1.17 (2026-06-15)
 
 - **Fix(executor):** Reduce-only zero-position guard — when exchange position is zero (after warmup or manual cleanup), detect before placing reduce-only order, adopt zero position, and skip the order with proper accounting. Prevents Bybit rejection of zero-position reduce-only orders.
