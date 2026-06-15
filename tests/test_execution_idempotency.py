@@ -136,3 +136,14 @@ def test_idempotency_lookup_order_wrong_status(ledger_conn: sqlite3.Connection) 
     ledger.try_claim("link1", "order1")
     oid = ledger.lookup_order("link1")
     assert oid is None
+
+
+def test_idempotency_clear(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("link_a", "order_a")
+    ledger.try_claim("link_b", "order_b")
+    assert ledger.get("link_a") is not None
+    assert ledger.get("link_b") is not None
+    ledger.clear()
+    assert ledger.get("link_a") is None
+    assert ledger.get("link_b") is None

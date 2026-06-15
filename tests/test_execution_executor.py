@@ -11,8 +11,10 @@ import pytest
 
 from ztb.execution.errors import ClientError, ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
+from ztb.execution.idempotency import IdempotencyLedger, make_intent_hash, make_order_link_id
 from ztb.execution.models import AccountState, Mode, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
+from ztb.store.results import connect as store_connect
 
 
 @pytest.fixture
@@ -3117,3 +3119,100 @@ def test_reduce_only_false_when_flip_from_short_to_long(
     call_kwargs = mock_client.place_order.call_args.kwargs
     assert call_kwargs.get("reduce_only") is False
     assert call_kwargs["qty"] > abs(result["current_position"])
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_startup_clear_stale_idempotency(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+    tmp_path: Path,
+) -> None:
+    """Pre-populate stale idempotency entries via file DB, verify run() clears them."""
+    db_path = str(tmp_path / "test_startup.db")
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    pre_conn = store_connect(db_path)
+    pre_ledger = IdempotencyLedger(pre_conn)
+    pre_ledger.try_claim("stale_link_1", "stale_order_1")
+    pre_ledger.try_claim("stale_link_2", "stale_order_2")
+    assert pre_ledger.get("stale_link_1") is not None
+    pre_conn.close()
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False,
+                           warmup_bars=0)
+    exe = Executor(signal_strat, config=config, client=mock_client)
+
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=db_path,
+    )
+
+    assert result.status == "completed"
+
+    post_conn = store_connect(db_path)
+    post_ledger = IdempotencyLedger(post_conn)
+    assert post_ledger.get("stale_link_1") is None
+    assert post_ledger.get("stale_link_2") is None
+    post_conn.close()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_orders_placed_after_clear(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+    tmp_path: Path,
+) -> None:
+    """Stale idempotency entries pre-populated in file DB; run() still calls place_order()."""
+    db_path = str(tmp_path / "test_place_after_clear.db")
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "new_order_id"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    pre_conn = store_connect(db_path)
+    pre_ledger = IdempotencyLedger(pre_conn)
+
+    equity = 10000.0
+    close_price = float(sample_data["close"].iloc[-1])
+    target_qty = round(0.5 * equity / close_price, 5)
+    intent_hash = make_intent_hash(target_qty, 0.0)
+    stale_link_id = make_order_link_id(
+        "signal_strat", "BTCUSDT", str(sample_data.index[-1]), intent_hash
+    )
+    pre_ledger.try_claim(stale_link_id, "stale_order_id")
+    pre_ledger.resolve(stale_link_id, "placed", "stale_order_id")
+    assert pre_ledger.get(stale_link_id) is not None
+    pre_conn.close()
+
+    signal_strat = SignalStrategy()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False,
+                           warmup_bars=0)
+    exe = Executor(signal_strat, config=config, client=mock_client)
+
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=db_path,
+    )
+
+    assert result.status == "completed"
+    mock_client.place_order.assert_called_once()
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs.get("symbol") == "BTCUSDT"

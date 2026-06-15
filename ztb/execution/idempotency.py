@@ -69,6 +69,10 @@ class IdempotencyLedger:
         val = row["order_id"]
         return str(val) if val else None
 
+    def clear(self) -> None:
+        self.conn.execute("DELETE FROM idempotency")
+        self.conn.commit()
+
 
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

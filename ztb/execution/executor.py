@@ -827,6 +827,8 @@ class Executor:
     ) -> ExecRunState:
         self._init_run()
         self._init_store(db_path)
+        assert self._idempotency is not None
+        self._idempotency.clear()
 
         if (
             self._killswitch is not None
