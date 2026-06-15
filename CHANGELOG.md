@@ -5,7 +5,7 @@
 - **Fix(bybit_client):** GET params signature mismatch — `_request()` sorts params for signing but passed unsorted dict to httpx. Now passes `sorted_params` to httpx so URL matches signed payload.
 - **Fix(executor):** Duplicate OrderLinkedID on stale-pending retry — `_reconcile_pending_order` queries both `get_order_history` AND `get_open_orders`; stale-pending resolved as `"failed"` + nonced link_id (not DELETE + same-ID); defensive `ClientError` handler for "OrderLinkedID is duplicate" on `place_order`; all skip paths advance state machine; `clear_pending()` in startup cleanup; `make_order_link_id` accepts optional nonce param.
 - **Tests:** 1 new bybit_client test (`test_signing_get_sorted_params_match_httpx`) + 6 new executor tests covering both fix 2 contract items.
-- **PR:** [#?](https://github.com/StaithValanthis/ztb/pull/?) — `fix/v1.1.26-signature-linkid`
+- **PR:** [#123](https://github.com/StaithValanthis/ztb/pull/123) — `fix/v1.1.26-signature-linkid`
 
 ## v1.1.25 (2026-06-15)
 
