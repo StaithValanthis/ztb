@@ -332,6 +332,16 @@ def forwardtest(
         conn.close()
 
 
+def _compute_n_trials(params: dict) -> int:
+    if not params:
+        return 1
+    product = 1
+    for v in params.values():
+        if isinstance(v, list):
+            product *= len(v)
+    return product
+
+
 @cli.command()
 @click.argument("strategy_name")
 @click.argument("symbol")
@@ -418,7 +428,7 @@ def validate(
 
     oos_sharpe = agg.sharpe if agg.sharpe is not None else 0.0
     n_obs = agg.exposure_time if agg.exposure_time else 0
-    n_trials = len(strategy.params) if hasattr(strategy, "params") and strategy.params else 1
+    n_trials = _compute_n_trials(strategy.params) if hasattr(strategy, "params") and strategy.params else 1
 
     dsr_result = compute_deflated_sharpe(
         sharpe=oos_sharpe,
