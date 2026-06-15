@@ -849,8 +849,7 @@ class Executor:
         self._init_store(db_path)
 
         if self._idempotency is not None:
-            self._idempotency.clear_stale(ttl_hours=0)
-            self._idempotency.clear_pending()
+            self._idempotency.clear_stale(ttl_hours=24)
 
         if (
             self._killswitch is not None
