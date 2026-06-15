@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.9 (2026-06-14)
+
+- **Fix(strat):** D3 fix — `bearish_resumption` 1h-native redesign: timeframe `240`→`60`, warmup `300`→`1200`, remove synthetic `df.resample("1h").ffill()` block, compute 4h indicators via genuine `df.resample("4h")` on 1h data, remove dead loader mocks from tests, update test fixtures to 1h frequency (warmup=1200)
+- **Tests:** 10 required bearish_resumption tests + all existing tests pass both 3.11/3.13, ruff/mypy clean
+- V&R PASS on SHA `3ceb797` ([ZTB-1408](/ZTB/issues/ZTB-1408), [ZTB-1410](/ZTB/issues/ZTB-1410))
+- Merge authorization: [ZTB-1411](/ZTB/issues/ZTB-1411) (MD approved)
+- **PR:** [#61](https://github.com/StaithValanthis/ztb/pull/61) — `strat/bearish_resumption`
+- **Merge commit:** `e313547` — two-key merge (CI green + V&R PASS on SHA `3ceb797`)
+- **Tag:** v1.1.9
+
 ## v1.1.8 (2026-06-14)
 
 - **[Board][CRITICAL][C1] Fix(exec):** Replace synthetic fills with real exchange executions — `_step_impl()` now calls `get_executions()` after `place_order()` to fetch real fill data, persists to `exec_fills` table, derives PnL from real fill prices (slippage=0 with real fills), records assumed-vs-actual reconciliation metric (`price_divergence`, `qty_divergence`). Schema v9: rename `credible` → `sufficient_sample` across all exec + results tables + reporting/CLI. Fallback to synthetic on API error with `_save_error()`.
