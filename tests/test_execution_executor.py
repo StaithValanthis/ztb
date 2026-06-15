@@ -1079,6 +1079,46 @@ def test_polling_loop_error_retry_then_stop(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_operational_error_suppressed(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """OperationalError from _save_error must NOT exit the loop."""
+    import sqlite3
+
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    call_count = 0
+
+    def failing_step(data: pd.DataFrame) -> dict:
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("poll error")
+
+    exe.step = failing_step  # type: ignore[assignment]
+
+    original_save_error = exe._save_error
+
+    def failing_save_error(error_type: str, message: str) -> None:
+        original_save_error(error_type, message)
+        raise sqlite3.OperationalError("database is locked")
+
+    exe._save_error = failing_save_error  # type: ignore[assignment]
+
+    with pytest.raises(PollingError, match=r"Polling loop error \(3/3\)"):
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert call_count == 3
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_sigterm_stops_via_flag(
     mock_sleep: MagicMock,
     mock_load: MagicMock,
