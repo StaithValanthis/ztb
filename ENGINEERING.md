@@ -41,6 +41,7 @@ A merge to `main` requires **BOTH keys to hold on the SAME commit SHA**:
 Rules:
 
 - **A red CI never reaches V&R.** CI-green on the PR head is a *precondition* to validation review. A red build stays inside Engineering; the owning Head re-tasks the member. Validation is never asked to review a red commit.
+- **The `ztb smoke-test` is a V&R manual precondition.** CI cannot run the smoke-test (GitHub Actions runners are blocked by Bybit/CloudFront geographic restrictions). The V&R agent MUST run `ztb smoke-test --timeout 60` locally and confirm PASS before recording a V&R PASS. See `docs/governance/vr-pass-policy.md`. A smoke-test FAIL voids the V&R PASS per the void-on-FAIL rule.
 - The V&R PASS must be recorded **against the same SHA** that CI went green on. Not "the branch," not "a later commit" — the identical commit.
 - **Head of Engineering performs the merge, and only when both keys hold on the identical SHA.** No self-certification: Engineering does not approve its own validation; V&R is independent of Engineering.
 - Branch protection on `main` enforces require-PR + green-CI mechanically; the two-key discipline enforces the rest.
@@ -55,7 +56,6 @@ CI runs on every push to a PR. **Python 3.11 and 3.13 matrix.** Each job runs al
 - `ruff-format` — formatting check.
 - `mypy` — static types.
 - `pytest --cov-fail-under=90` — full test suite, coverage floor 90%.
-- **smoke-test** — end-to-end demo order execution via Bybit DEMO API (places real MARKET BUY, validates fills + persistence + commission).
 - **secret-scan** — no credential in the diff (from M0).
 - **version-consistency** — `__version__` matches the SemVer tag / `importlib.metadata.version`.
 
