@@ -386,6 +386,38 @@ class Executor:
                 equity = actual.total_equity if actual.total_equity > 0 else equity
                 available_balance = actual.available_balance
                 total_available_balance = actual.total_available_balance
+
+                wallet_list = wallet.get("list", []) if isinstance(wallet, dict) else []
+                if wallet_list and actual.wallet_balance < 1e-12 and actual.wallet_balance >= 0:
+                    msg = f"Zero wallet balance for {symbol} — skipping bar {bar_ts}"
+                    logger.warning(msg)
+                    self._save_error("ZeroBalance", msg)
+                    self.state.errors.append(msg)
+                    zero_balance_result: dict[str, Any] = {
+                        "bar_ts": bar_ts,
+                        "close_price": close_price,
+                        "signal": target_signal,
+                        "current_position": current_position,
+                        "target_position": 0.0,
+                        "delta": 0.0,
+                        "order_placed": False,
+                        "order": None,
+                        "risk_decision": None,
+                        "fills": [],
+                        "zero_balance": True,
+                    }
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
+                    self._sync_pnl_state()
+                    unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                    self._save_position_snapshot()
+                    self._save_pnl(
+                        self._pnl.realized_pnl,
+                        unrealized_pnl,
+                        self._pnl.equity(close_price),
+                        bar_ts,
+                    )
+                    return zero_balance_result
             except Exception:
                 error_msg = f"Wallet fetch failed for {symbol}"
                 logger.warning(error_msg)

@@ -1947,6 +1947,55 @@ def test_live_mode_does_not_cap_equity(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
+def test_zero_wallet_balance_skips_trading(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "0.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "0.0",
+                        "walletBalance": "0.0",
+                        "availableBalance": "0.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        once=True,
+        risk_enabled=False,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config, client=mock_client)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-10",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+    assert exe._pnl.position == 0.0
+    assert any("Zero wallet balance" in err for err in result.errors)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
 def test_polling_loop_skips_client_error(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
