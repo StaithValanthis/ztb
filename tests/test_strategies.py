@@ -104,6 +104,147 @@ def bearish_1h_df() -> DataFrame:
     )
 
 
+class TestSMA20RejectionShort:
+    def test_registration(self) -> None:
+        cls = get("sma20_rejection_short")
+        assert cls.name == "sma20_rejection_short"
+        assert "sma20_rejection_short" in list_names()
+
+    def test_params_defaults(self) -> None:
+        cls = get("sma20_rejection_short")
+        expected = {
+            "volume_spike_mult": 3.0,
+            "volume_spike_lookback": 5,
+            "volume_collapse_ratio": 0.5,
+            "trail_atr_mult": 2.0,
+            "max_hold_bars": 10,
+        }
+        assert cls.params == expected
+
+    def test_short_only_no_long(self) -> None:
+        cls = get("sma20_rejection_short")
+        s = cls()
+        df = _sample_df(300)
+        signals = s.generate_signals(df)
+        valid = signals.dropna()
+        assert valid.between(-1.0, 0.0).all()
+        assert (valid != 1.0).all()
+
+    def test_generate_signals_len(self) -> None:
+        cls = get("sma20_rejection_short")
+        s = cls()
+        df = _sample_df(300)
+        signals = s.generate_signals(df)
+        assert len(signals) == len(df)
+
+    def test_warmup_is_flat(self) -> None:
+        cls = get("sma20_rejection_short")
+        s = cls()
+        df = _sample_df(300)
+        signals = s.generate_signals(df)
+        assert (signals.iloc[: s.warmup] == 0.0).all()
+
+    def test_no_nan(self) -> None:
+        cls = get("sma20_rejection_short")
+        s = cls()
+        df = _sample_df(300)
+        signals = s.generate_signals(df)
+        assert signals.iloc[s.warmup :].isna().sum() == 0
+
+    def test_no_signal_in_bull_macro(self) -> None:
+        n = 500
+        rng = np.random.default_rng(42)
+        closes = 40000.0 + np.linspace(0, 6000, n) + rng.normal(size=n) * 50
+        opens = closes + rng.normal(size=n) * 10
+        highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 20
+        lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 20
+        df = DataFrame(
+            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.ones(n) * 1000},
+            index=pd.date_range("2020-01-01", periods=n, freq="4h"),
+        )
+        cls = get("sma20_rejection_short")
+        s = cls()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).sum() == 0, "No shorts should fire in bull macro"
+
+    def test_entry_on_rejection_pattern(self) -> None:
+        n = 500
+        rng = np.random.default_rng(99)
+        phase1 = np.ones(200) * 100000.0 + rng.normal(size=200) * 200
+        phase2 = np.linspace(100000, 40000, 150) + rng.normal(size=150) * 200
+        phase3 = np.linspace(40000, 62000, 35) + rng.normal(size=35) * 100
+        phase4 = np.linspace(62000, 35000, 10) + rng.normal(size=10) * 200
+        phase5 = np.linspace(35000, 25000, 105) + rng.normal(size=105) * 100
+        closes = np.concatenate([phase1, phase2, phase3, phase4, phase5])
+        opens = closes + rng.normal(size=n) * 80
+        highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 120
+        lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 120
+        volume = np.ones(n) * 500
+        volume[380:384] = volume[380:384] * 8
+        volume[384:388] = volume[384:388] * 0.4
+        df = DataFrame(
+            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volume},
+            index=pd.date_range("2020-01-01", periods=n, freq="4h"),
+        )
+        cls = get("sma20_rejection_short")
+        s = cls()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        entry_count = (post == -1.0).sum()
+        assert entry_count >= 1, (
+            f"Expected at least 1 short entry on rejection pattern, got {entry_count}"
+        )
+
+    def test_exit_on_sma20_reclaim(self) -> None:
+        n = 600
+        rng = np.random.default_rng(99)
+        phase1 = np.ones(200) * 100000.0 + rng.normal(size=200) * 200
+        phase2 = np.linspace(100000, 40000, 150) + rng.normal(size=150) * 200
+        phase3 = np.linspace(40000, 62000, 35) + rng.normal(size=35) * 100
+        phase4_sharp = np.linspace(62000, 35000, 10) + rng.normal(size=10) * 200
+        phase4_bounce = np.linspace(35000, 65000, 20) + rng.normal(size=20) * 150
+        phase5 = np.linspace(65000, 30000, 185) + rng.normal(size=185) * 100
+        closes = np.concatenate([phase1, phase2, phase3, phase4_sharp, phase4_bounce, phase5])
+        closes = np.clip(closes, 20000, None)
+        opens = closes + rng.normal(size=n) * 80
+        highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 120
+        lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 120
+        volume = np.ones(n) * 500
+        volume[380:384] = volume[380:384] * 8
+        volume[384:388] = volume[384:388] * 0.4
+        df = DataFrame(
+            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volume},
+            index=pd.date_range("2020-01-01", periods=n, freq="4h"),
+        )
+        cls = get("sma20_rejection_short")
+        s = cls()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        entries = (post == -1.0).sum()
+        zeros = (post == 0.0).sum()
+        assert entries >= 1
+        assert zeros >= 1, "Should have exits (zeros) when SMA20 reclaim happens"
+
+    def test_signal_deterministic(self) -> None:
+        n = 300
+        rng = np.random.default_rng(42)
+        closes = 40000.0 + np.cumsum(rng.normal(size=n) * 10) - np.linspace(0, 5000, n)
+        opens = closes + rng.normal(size=n) * 5
+        highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 10
+        lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 10
+        df = DataFrame(
+            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.abs(rng.normal(size=n)) * 1000 + 500},
+            index=pd.date_range("2020-01-01", periods=n, freq="4h"),
+        )
+        cls = get("sma20_rejection_short")
+        s1 = cls()
+        s2 = cls()
+        sig1 = s1.generate_signals(df)
+        sig2 = s2.generate_signals(df)
+        assert sig1.equals(sig2)
+
+
 class TestBearishResumption:
     def test_registration(self) -> None:
         cls = get("bearish_resumption")
