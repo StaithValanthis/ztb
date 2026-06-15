@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.1.12 (2026-06-15)
+
+- **Fix(exec):** Size against actual wallet balance, verify top-up with `TopUpResult`/wallet read-back, backoff on `'ab not enough'` (ClientError) — skip bar, no retry. Wallet fetch failure skips bar (no fallback to PnLCalculator). Uses per-coin `available_balance * max_leverage` for order sizing instead of `equity` alone. DEMO equity cap preserved outside the wallet-fetch try/except.
+- **Tests:** 7 new tests (`test_top_up_demo_account_verifies_balance`, `test_top_up_demo_account_faucet_cap`, `test_top_up_demo_account_fails_gracefully`, `test_executor_wallet_fetch_failure_skips_bar`, `test_executor_sizes_against_available_balance`, `test_executor_ab_not_enough_backoff`, `test_executor_instrument_bounds_enforced`) plus update `test_demo_mode_equity_cap_when_wallet_fetch_fails` — 144/144 pass, ruff/mypy clean
+- Merge authorization: [ZTB-1735](/ZTB/issues/ZTB-1735) (MD authorized)
+- **PR:** [#83](https://github.com/StaithValanthis/ztb/pull/83) — `feat/ab-not-enough-fix`
+- **Merge commits:** `7571325` (conflict resolution), `5c6a247` (two-key merge via PR #87)
+- **Tag:** v1.1.12
+
+## v1.1.11 (2026-06-15)
+
+- **Fix(exec):** DEMO mode equity cap — cap wallet equity at `initial_cash` to prevent accumulated demo top-ups from inflating position sizing. Also uses account-level `totalAvailableBalance` instead of per-coin `availableBalance` for order qty cap. Changed `ExecRunConfig.slippage` default from `0.0` to `0.0005`.
+- **Bugfix:** Move DEMO equity cap outside try/except block — when `get_wallet_balance()` raised, the cap was silently bypassed, leaving equity uncapped.
+- **Tests:** 2 new tests (`test_demo_mode_equity_cap_when_wallet_exceeds_initial_cash`, `test_demo_mode_equity_cap_when_wallet_fetch_fails`) — 892/892 pass both 3.11/3.13, 93% coverage, ruff/mypy clean
+- V&R PASS on SHA `d0d9092` ([ZTB-1689](/ZTB/issues/ZTB-1689), [ZTB-1691](/ZTB/issues/ZTB-1691))
+- Merge authorization: [ZTB-1701](/ZTB/issues/ZTB-1701) (MD approved)
+- **PR:** [#71](https://github.com/StaithValanthis/ztb/pull/71) — `fix/ztb-1545-demo-mode-equity-cap`
+- **Merge commit:** `c257a20` — two-key merge (CI green + V&R PASS on SHA `d0d9092`)
+- **Tag:** v1.1.11
+
+## v1.1.10 (2026-06-15)
+
+- **[Board][CRITICAL][C3/C4]** Build real OOS validation infra: walk-forward harness with enforced train/test split (forward window after dev window), Deflated Sharpe/PSR (Bailey & Lopez de Prado, n_trials/skew/kurtosis, Lo 2002 EVT max dist for n>1), look-ahead tripwire (Mode 1 frame check — corrupts last-bar OHLCV on detected leakage), 8-criteria binary scoring (accept/reject), `ztb validate <strategy> <symbol>` canonical CLI gate with exit codes 0/1/2. Store schema v10: `run_id` PK, validation results table. Replaces all prior stubs.
+- **Tests:** 9 new validation test modules (DSR, look-ahead, scoring, store, walk-forward, CLI) — 941 tests pass both 3.11/3.13, ≥90% validation coverage, ruff/mypy clean
+- V&R PASS on SHA `1bb003a` ([ZTB-1643](/ZTB/issues/ZTB-1643)); vr-pass CI on final SHA `0dfc43e` also PASS
+- Merge authorization: [ZTB-1660](/ZTB/issues/ZTB-1660) (MD approved)
+- **PR:** [#76](https://github.com/StaithValanthis/ztb/pull/76) — `feat/validation-package`
+- **Merge commit:** `d8caf2a` — two-key merge (CI green + V&R PASS)
+- **Tag:** v1.1.10
+
 ## v1.1.9 (2026-06-14)
 
 - **Fix(strat):** D3 fix — `bearish_resumption` 1h-native redesign: timeframe `240`→`60`, warmup `300`→`1200`, remove synthetic `df.resample("1h").ffill()` block, compute 4h indicators via genuine `df.resample("4h")` on 1h data, remove dead loader mocks from tests, update test fixtures to 1h frequency (warmup=1200)
