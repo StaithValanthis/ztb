@@ -168,7 +168,7 @@ def test_compute_account_state_extracts_available_balance() -> None:
                         "walletBalance": "95000.0",
                         "unrealisedPnl": "5000.0",
                     }
-                ]
+                ],
             }
         ]
     }
