@@ -745,6 +745,26 @@ class Executor:
                         "code_version": __version__,
                     },
                 )
+                from ztb.store.exec_io import save_exec_fill
+
+                save_exec_fill(
+                    self._store_conn,
+                    {
+                        "fill_id": f"synthetic-{order_link_id}",
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": order_id,
+                        "symbol": symbol,
+                        "side": side.value,
+                        "price": close_price,
+                        "qty": qty,
+                        "commission": commission_cost,
+                        "realized_pnl": 0.0,
+                        "filled_at": bar_ts,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    },
+                )
 
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}

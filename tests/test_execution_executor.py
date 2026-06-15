@@ -3117,3 +3117,164 @@ def test_reduce_only_false_when_flip_from_short_to_long(
     call_kwargs = mock_client.place_order.call_args.kwargs
     assert call_kwargs.get("reduce_only") is False
     assert call_kwargs["qty"] > abs(result["current_position"])
+
+
+# ---------------------------------------------------------------------------
+# ZTB-2072: exec_fills are persisted on every order path
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_synthetic_fill_saved_when_no_exchange_fills(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Synthetic fallback path saves an exec_fill record when exchange returns no fills."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid_syn"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1, "Expected at least one synthetic exec_fill"
+    fill = fills[0]
+    assert "synthetic" in fill["fill_id"]
+    assert fill["order_link_id"] == result["order"]["order_link_id"]
+    assert fill["qty"] > 0
+    assert fill["price"] > 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_synthetic_fill_commission_matches_order(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Synthetic fill commission matches the configured commission rate."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid_c"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, commission=0.002)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    close_price = float(sample_data["close"].iloc[-1])
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    expected_commission = placed_qty * close_price * 0.002
+    assert fills[0]["commission"] == pytest.approx(expected_commission, abs=1e-8)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_real_fills_saved_when_exchange_returns_fills(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Real fills from exchange are saved to exec_fills table."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid_real"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = [
+        {
+            "execId": "real_fill_1",
+            "orderId": "test_oid_real",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50001.0",
+            "execQty": "0.001",
+            "execFee": "0.05",
+            "execTime": "2026-01-01T00:00:00Z",
+        }
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    fill = fills[0]
+    assert fill["fill_id"] == "real_fill_1"
+    assert fill["price"] == pytest.approx(50001.0)
+    assert fill["qty"] == pytest.approx(0.001)
+    assert abs(fill["commission"] - 0.05) < 1e-8
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_both_order_and_fill_persisted_together(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Both exec_order and exec_fill are persisted in the same step."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_oid_pair"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe.step(sample_data)
+
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+
+    assert len(orders) >= 1
+    assert len(fills) >= 1
+    assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
