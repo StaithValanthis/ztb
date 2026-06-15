@@ -792,7 +792,10 @@ class Executor:
                 f"Exchange cannot provide enough historical data for {symbol} {timeframe}: "
                 f"got {len(extended)} bars, need {warmup} for warmup"
             )
-        return extended
+        combined = pd.concat([extended, data])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        return combined  # type: ignore[no-any-return]
 
     def _fetch_new_bars(
         self,
