@@ -332,7 +332,7 @@ def forwardtest(
         conn.close()
 
 
-def _compute_n_trials(params: dict) -> int:
+def _compute_n_trials(params: dict[str, float | int | str | list[float | int | str]]) -> int:
     if not params:
         return 1
     product = 1
