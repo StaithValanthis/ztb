@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ztb.execution.errors import ExecutionError, PollingError
+from ztb.execution.errors import ClientError, ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
-from ztb.execution.models import AccountState, Mode, Position
+from ztb.execution.models import AccountState, Mode, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
@@ -2127,7 +2127,13 @@ def test_top_up_failure_non_fatal(
     """Top-up failure does not crash the run; run continues."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
-    mock_client.top_up_demo_account.side_effect = Exception("top-up failed")
+    mock_client.top_up_demo_account.return_value = TopUpResult(
+        success=False,
+        credited_amount=0.0,
+        coin="USDT",
+        requested_amount=100000.0,
+        message="top-up failed",
+    )
     mock_client.get_positions.return_value = []
     mock_client.get_wallet_balance.return_value = {"list": []}
     mock_bybit_cls.return_value = mock_client
@@ -2356,7 +2362,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     assert result["order_placed"] is True
     call_kwargs = mock_client.place_order.call_args.kwargs
     capped_qty = call_kwargs["qty"]
-    assert capped_qty == 0.001
+    assert capped_qty == 0.0005
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2366,7 +2372,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When capped qty rounds to zero, order is skipped."""
+    """When available_balance*max_leverage rounds target qty to zero, no order is placed."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
@@ -2397,8 +2403,9 @@ def test_balance_cap_skips_when_capped_qty_zero(
     exe.state.current_position = 0.0
 
     result = exe.step(sample_data)
-    assert result.get("order_skipped") is True
-    assert "below minimum" in result.get("skip_reason", "").lower()
+    assert result.get("order_placed") is False
+    assert abs(result.get("delta", 0.0)) < 1e-12
+    mock_client.place_order.assert_not_called()
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2512,3 +2519,161 @@ def test_polling_loop_sigterm_no_polling_error(
     exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     assert not any("Max polling errors" in e for e in exe.state.errors)
+
+
+# ---------------------------------------------------------------------------
+# ZTB-1658: 'ab not enough' fix — wallet fetch, available balance, backoff
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_wallet_fetch_failure_skips_bar(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Wallet fetch failure skips bar — order NOT placed."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = ClientError(0, "wallet down")
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result.get("wallet_fetch_failed") is True
+    assert result.get("order_placed") is False
+    mock_client.place_order.assert_not_called()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_sizes_against_available_balance(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """target_qty is capped by available_balance * max_leverage, not by initial_cash."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "200000.0",
+                        "walletBalance": "200000.0",
+                        "availableBalance": "500.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=3.0, initial_cash=100000.0
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    max_qty = round(0.5 * min(100000.0, 500.0 * 3.0) / close_price, config.asset_precision)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    assert placed_qty <= max_qty + 1e-12
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_ab_not_enough_backoff(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """'ab not enough' ClientError is caught, logged, and bar skipped without retry."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "100000.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_client.place_order.side_effect = ClientError(100, "ab not enough for new order")
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result.get("client_error") is True
+    assert "ab not enough" in result.get("error", "")
+    assert mock_client.place_order.call_count == 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_instrument_bounds_enforced(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Instrument min/max bounds are enforced via _validate_qty in place_order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "100000.0",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty below minOrderQty"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert "Qty below minOrderQty" in result.get("skip_reason", "")
