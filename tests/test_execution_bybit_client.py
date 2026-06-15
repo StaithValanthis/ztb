@@ -825,7 +825,7 @@ def test_top_up_demo_account_calls_api() -> None:
                             "coin": "USDT",
                             "equity": "50000.0",
                             "walletBalance": "50000.0",
-                            "availableBalance": "50000.0",
+                            "availableBalance": "25000.0",
                         }
                     ]
                 }
@@ -901,7 +901,7 @@ def test_top_up_demo_account_verifies_balance() -> None:
                             "coin": "USDT",
                             "equity": "75000.0",
                             "walletBalance": "75000.0",
-                            "availableBalance": "75000.0",
+                            "availableBalance": "40000.0",
                         }
                     ]
                 }
@@ -930,7 +930,7 @@ def test_top_up_demo_account_faucet_cap() -> None:
                             "coin": "USDT",
                             "equity": "100.0",
                             "walletBalance": "100.0",
-                            "availableBalance": "100.0",
+                            "availableBalance": "50.0",
                         }
                     ]
                 }
