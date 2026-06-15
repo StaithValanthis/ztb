@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.22 (2026-06-15)
+
+- **Fix(executor):** `IdempotencyLedger.clear_pending()` — delete orphaned `pending` idempotency rows on startup. `clear_stale(ttl_hours=0)` only cleared `placed`/`filled` rows; `pending` rows from crashed runs (between `try_claim` and `resolve`) blocked the next retry with "OrderLinkedID is duplicate" (2,297×/60min).
+- **Tests:** 4 new `clear_pending` tests + 4 new/updated `exec_fills` tests (column preservation, v10 migration data integrity). 61/61 tests passing.
+- V&R PASS on SHA `0700a59` ([ZTB-2019](/ZTB/issues/ZTB-2019))
+- **PR:** [#104](https://github.com/StaithValanthis/ztb/pull/104) — `feat/ztb-1935-fix-linkedid-schema`
+- **Merge commit:** `a69727b` — two-key merge (CI green + V&R PASS on SHA `0700a59`)
+- **Tag:** v1.1.22
+
 ## v1.1.21 (2026-06-15)
 
 - **Fix(store):** Remove FK constraint from `exec_fills.order_link_id` → `exec_orders(order_link_id)` — stable-tuple `orderLinkId` values from the exchange (repeated across fills for the same logical order) no longer cause FK violations. Schema v10 migration recreates `exec_fills` without the FK. Removed implicit parent-order auto-creation in `save_exec_fill` (the FK workaround).
