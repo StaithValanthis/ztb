@@ -816,8 +816,7 @@ def test_top_up_demo_account_calls_api() -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
     with patch.object(client, "_request") as mock_request:
-        faucet_resp = {"result": "ok"}
-        wallet_resp = {
+        pre_wallet = {
             "list": [
                 {
                     "coin": [
@@ -831,22 +830,69 @@ def test_top_up_demo_account_calls_api() -> None:
                 }
             ]
         }
-        mock_request.side_effect = [faucet_resp, wallet_resp]
+        faucet_resp = {"result": "ok"}
+        post_wallet = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "100000.0",
+                            "walletBalance": "100000.0",
+                            "availableBalance": "75000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [pre_wallet, faucet_resp, post_wallet]
         result = client.top_up_demo_account("USDT", "100000")
-        assert mock_request.call_count == 2
-        assert mock_request.call_args_list[0][0] == ("POST", "/v5/account/demo-apply-money")
-        assert mock_request.call_args_list[0][1] == {
+        assert mock_request.call_count == 3
+        assert mock_request.call_args_list[0][0] == ("GET", "/v5/account/wallet-balance")
+        assert mock_request.call_args_list[1][0] == ("POST", "/v5/account/demo-apply-money")
+        assert mock_request.call_args_list[1][1] == {
             "body": {
                 "adjustType": 0,
                 "utaDemoApplyMoney": [{"coin": "USDT", "amountStr": "100000"}],
             }
         }
-        assert mock_request.call_args_list[1][0] == ("GET", "/v5/account/wallet-balance")
+        assert mock_request.call_args_list[2][0] == ("GET", "/v5/account/wallet-balance")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 50000.0
+        assert result.credited_amount == 100000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
+    client.close()
+
+
+def test_top_up_demo_account_skip_if_funded() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        pre_wallet = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "150000.0",
+                            "walletBalance": "150000.0",
+                            "availableBalance": "120000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [pre_wallet]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert mock_request.call_count == 1
+        assert mock_request.call_args_list[0][0] == ("GET", "/v5/account/wallet-balance")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 150000.0
+        assert result.coin == "USDT"
+        assert result.requested_amount == 100000.0
+        assert "Already funded" in result.message
     client.close()
 
 
@@ -892,8 +938,7 @@ def test_top_up_demo_account_verifies_balance() -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
     with patch.object(client, "_request") as mock_request:
-        faucet_resp = {"result": "ok"}
-        wallet_resp = {
+        pre_wallet = {
             "list": [
                 {
                     "coin": [
@@ -907,11 +952,26 @@ def test_top_up_demo_account_verifies_balance() -> None:
                 }
             ]
         }
-        mock_request.side_effect = [faucet_resp, wallet_resp]
+        faucet_resp = {"result": "ok"}
+        post_wallet = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "100000.0",
+                            "walletBalance": "100000.0",
+                            "availableBalance": "65000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [pre_wallet, faucet_resp, post_wallet]
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 75000.0
+        assert result.credited_amount == 100000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
     client.close()
@@ -921,8 +981,7 @@ def test_top_up_demo_account_faucet_cap() -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
     with patch.object(client, "_request") as mock_request:
-        faucet_resp = {"result": "ok"}
-        wallet_resp = {
+        pre_wallet = {
             "list": [
                 {
                     "coin": [
@@ -936,7 +995,22 @@ def test_top_up_demo_account_faucet_cap() -> None:
                 }
             ]
         }
-        mock_request.side_effect = [faucet_resp, wallet_resp]
+        faucet_resp = {"result": "ok"}
+        post_wallet = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "100.0",
+                            "walletBalance": "100.0",
+                            "availableBalance": "50.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [pre_wallet, faucet_resp, post_wallet]
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True

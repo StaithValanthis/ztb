@@ -307,6 +307,14 @@ class BybitClient:
         except Exception:
             pass
 
+    @staticmethod
+    def _parse_wallet_balance(wallet: dict[str, Any], coin: str) -> float:
+        for account_info in wallet.get("list", []):
+            for coin_entry in account_info.get("coin", []):
+                if coin_entry.get("coin", "") == coin:
+                    return float(coin_entry.get("walletBalance", 0.0))
+        return 0.0
+
     def top_up_demo_account(self, coin: str, amount: str) -> TopUpResult:
         if self._config.mode != Mode.DEMO:
             return TopUpResult(
@@ -317,24 +325,58 @@ class BybitClient:
                 message="LIVE mode — no-op",
             )
         try:
+            target = float(amount)
+            wallet = self.get_wallet_balance(coin=coin)
+            current_balance = self._parse_wallet_balance(wallet, coin)
+
+            if current_balance >= target:
+                logger.info(
+                    "Demo account already funded: %s %s, skipping top-up (requested %s)",
+                    current_balance,
+                    coin,
+                    amount,
+                )
+                return TopUpResult(
+                    success=True,
+                    credited_amount=current_balance,
+                    coin=coin,
+                    requested_amount=target,
+                    message=f"Already funded — balance {current_balance} {coin}",
+                )
+
             body = {
                 "adjustType": 0,
                 "utaDemoApplyMoney": [{"coin": coin, "amountStr": amount}],
             }
             self._request("POST", "/v5/account/demo-apply-money", body=body)
             wallet = self.get_wallet_balance(coin=coin)
-            credited = 0.0
-            for account_info in wallet.get("list", []):
-                for coin_entry in account_info.get("coin", []):
-                    if coin_entry.get("coin", "") == coin:
-                        credited = float(coin_entry.get("walletBalance", 0.0))
-            logger.info("Demo account credited: %s %s (requested %s)", credited, coin, amount)
+            post_balance = self._parse_wallet_balance(wallet, coin)
+
+            delta = post_balance - current_balance
+            if delta < 0.01:
+                logger.info(
+                    "Demo faucet cap reached — balance unchanged at %s %s (requested %s)",
+                    post_balance,
+                    coin,
+                    amount,
+                )
+                return TopUpResult(
+                    success=True,
+                    credited_amount=post_balance,
+                    coin=coin,
+                    requested_amount=target,
+                    message=f"Faucet cap reached — balance {post_balance} {coin}",
+                )
+
+            logger.info(
+                "Demo account credited: %s %s (requested %s)", post_balance, coin, amount
+            )
             return TopUpResult(
                 success=True,
-                credited_amount=credited,
+                credited_amount=post_balance,
                 coin=coin,
-                requested_amount=float(amount),
-                message=f"Credited {credited} {coin}",
+                requested_amount=target,
+                message=f"Credited {post_balance} {coin}",
             )
         except Exception as exc:
             return TopUpResult(
