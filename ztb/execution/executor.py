@@ -299,9 +299,7 @@ class Executor:
         except Exception:
             return reconcile_account(expected, expected, self.state.symbol)
 
-    def _reconcile_pending_order(
-        self, symbol: str, order_link_id: str
-    ) -> dict[str, Any] | None:
+    def _reconcile_pending_order(self, symbol: str, order_link_id: str) -> dict[str, Any] | None:
         if self.client is None:
             return None
         try:
