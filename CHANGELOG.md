@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.19 (2026-06-15)
+
+- **Feat(execution):** `IdempotencyLedger.clear_stale(ttl_hours=24)` — deletes resolved entries older than a configurable TTL to prevent unbounded `idempotency` table growth. Adds `count()` method and `idx_idempotency_stale` index on `(status, created_at)` for efficient cleanup queries.
+- **Fix(store):** `save_exec_fill` ensures parent `exec_orders` row exists before inserting into `exec_fills` — prevents silent FK violation data loss by auto-creating a minimal order entry when fills arrive without a pre-existing order row.
+- **Tests:** New tests for `clear_stale()`, `count()`, and FK self-healing in `save_exec_fill`.
+
 ## v1.1.18 (2026-06-15)
 
 - **Fix(execution):** `top_up_demo_account` reads `walletBalance` instead of `availableBalance` from Bybit wallet-balance response — `availableBalance` does not exist in the response, so `.get()` returned `0.0`, triggering false `credited=0.0` warnings.

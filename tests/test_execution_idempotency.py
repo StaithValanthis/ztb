@@ -136,3 +136,74 @@ def test_idempotency_lookup_order_wrong_status(ledger_conn: sqlite3.Connection) 
     ledger.try_claim("link1", "order1")
     oid = ledger.lookup_order("link1")
     assert oid is None
+
+
+def test_idempotency_count_empty(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    assert ledger.count() == 0
+
+
+def test_idempotency_count_nonempty(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("link1", "order1")
+    ledger.try_claim("link2", "order2")
+    assert ledger.count() == 2
+
+
+def test_clear_stale_removes_old_resolved(ledger_conn: sqlite3.Connection) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("stale_placed", "oid1")
+    ledger.resolve("stale_placed", "placed", "oid1")
+
+    ledger.try_claim("stale_filled", "oid2")
+    ledger.resolve("stale_filled", "filled", "oid2")
+
+    ledger.try_claim("fresh_pending", "oid3")
+
+    old_ts = (datetime.now(UTC) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ledger.conn.execute(
+        "UPDATE idempotency SET created_at = ? WHERE order_link_id IN (?, ?)",
+        (old_ts, "stale_placed", "stale_filled"),
+    )
+    ledger.conn.commit()
+
+    deleted = ledger.clear_stale(ttl_hours=24)
+    assert deleted == 2
+    assert ledger.get("stale_placed") is None
+    assert ledger.get("stale_filled") is None
+    assert ledger.get("fresh_pending") is not None
+
+
+def test_clear_stale_skips_recent_entries(ledger_conn: sqlite3.Connection) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("recent_placed", "oid1")
+    ledger.resolve("recent_placed", "placed", "oid1")
+
+    ledger.try_claim("recent_pending", "oid2")
+
+    deleted = ledger.clear_stale(ttl_hours=24)
+    assert deleted == 0
+    assert ledger.get("recent_placed") is not None
+    assert ledger.get("recent_pending") is not None
+
+
+def test_clear_stale_idempotent(ledger_conn: sqlite3.Connection) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("stale", "oid1")
+    ledger.resolve("stale", "filled", "oid1")
+
+    old_ts = (datetime.now(UTC) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ledger.conn.execute(
+        "UPDATE idempotency SET created_at = ? WHERE order_link_id = ?", (old_ts, "stale")
+    )
+    ledger.conn.commit()
+
+    deleted = ledger.clear_stale(ttl_hours=24)
+    assert deleted == 1
+
+    deleted2 = ledger.clear_stale(ttl_hours=24)
+    assert deleted2 == 0
