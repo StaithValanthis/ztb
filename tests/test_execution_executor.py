@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -78,6 +78,207 @@ def test_executor_dry_run(
         db_path=":memory:",
     )
     assert result.status == "completed"
+    assert result.bars_processed > 0
+
+
+# =========================================================================
+# Replay-on-restart cursor: 6-test suite (ZTB-2503 contract frozen)
+# =========================================================================
+
+
+@patch("ztb.execution.executor.load_data")
+def test_replay_on_restart_skips_processed_bars(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Prior run with last_bar_ts=bar_150 -> loop starts at bar_151, bars 0..150 skipped."""
+    mock_load.return_value = sample_data
+    cursor_ts = str(sample_data.index[150])
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    with patch("ztb.store.exec_io.get_last_bar_ts", return_value=cursor_ts):
+        result = exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-06T00:00:00Z",
+            end="2026-01-08T12:00:00Z",
+            db_path=":memory:",
+        )
+
+    assert result.status == "completed"
+    expected = len(sample_data) - 150 - 1
+    assert result.bars_processed == expected, (
+        f"Expected {expected} bars after cursor skip, got {result.bars_processed}"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_replay_on_restart_maintains_warmup(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Cursor at bar_150 (warmup=100) -> first processed bar has 100+ warmup bars."""
+    mock_load.return_value = sample_data
+    cursor_ts = str(sample_data.index[150])
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+
+    original_step = exe.step
+    first_data_len: int | None = None
+
+    def tracking_step(data: pd.DataFrame) -> dict[str, Any]:
+        nonlocal first_data_len
+        if first_data_len is None:
+            first_data_len = len(data)
+        return original_step(data)
+
+    exe.step = tracking_step
+
+    with patch("ztb.store.exec_io.get_last_bar_ts", return_value=cursor_ts):
+        result = exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-06T00:00:00Z",
+            end="2026-01-08T12:00:00Z",
+            db_path=":memory:",
+        )
+
+    assert result.status == "completed"
+    assert first_data_len is not None, "step should have been called"
+    assert first_data_len >= signal_strat.warmup, (
+        f"First step data length {first_data_len} must >= warmup {signal_strat.warmup}"
+    )
+    assert first_data_len == 152, (
+        f"First step should have 152 bars (cursor at 150 + 2), got {first_data_len}"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_replay_on_restart_no_prior_run(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """No prior run -> all bars processed (backward compat)."""
+    mock_load.return_value = sample_data
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-06T00:00:00Z",
+        end="2026-01-08T12:00:00Z",
+        db_path=":memory:",
+    )
+
+    assert result.status == "completed"
+    assert result.bars_processed == len(sample_data) - FakeStrategy.warmup
+    assert result.last_bar_ts == str(sample_data.index[-1])
+
+
+@patch("ztb.execution.executor.load_data")
+def test_replay_on_restart_persists_cursor(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After run(), SELECT last_bar_ts matches last processed bar."""
+    mock_load.return_value = sample_data
+    cursor_ts = str(sample_data.index[150])
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    with patch("ztb.store.exec_io.get_last_bar_ts", return_value=cursor_ts):
+        result = exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-06T00:00:00Z",
+            end="2026-01-08T12:00:00Z",
+            db_path=":memory:",
+        )
+
+    assert result.status == "completed"
+    assert result.last_bar_ts == str(sample_data.index[-1]), (
+        f"last_bar_ts should be last bar {sample_data.index[-1]}, got {result.last_bar_ts}"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_replay_on_restart_invalid_cursor(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Cursor timestamp not in data -> all bars processed, warning logged, no crash."""
+    mock_load.return_value = sample_data
+    invalid_ts = "2099-01-01T00:00:00+00:00"
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    with patch("ztb.store.exec_io.get_last_bar_ts", return_value=invalid_ts):
+        result = exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-06T00:00:00Z",
+            end="2026-01-08T12:00:00Z",
+            db_path=":memory:",
+        )
+
+    assert result.status == "completed"
+    assert result.bars_processed == len(sample_data) - FakeStrategy.warmup
+    assert any("not in data" in rec.message for rec in caplog.records), (
+        "Warning about missing cursor should be logged"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_replay_on_restart_polling_loop_continues(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Cursor skip -> after historical loop, polling loop continues normally."""
+    mock_load.return_value = sample_data
+    cursor_ts = str(sample_data.index[150])
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+        loop_flush_interval=1,
+    )
+    exe = Executor(fake_strategy, config=config)
+
+    mock_sleep.side_effect = [
+        0.01,
+        0.01,
+        lambda: setattr(exe, "_sigterm_stop", True),
+    ]
+
+    with patch("ztb.store.exec_io.get_last_bar_ts", return_value=cursor_ts):
+        result = exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-06T00:00:00Z",
+            end="2026-01-08T12:00:00Z",
+            db_path=":memory:",
+        )
+
+    assert result.status == "completed"
+    assert result.bars_processed > 0
+    expected_historical = len(sample_data) - 150 - 1
+    assert result.bars_processed >= expected_historical, (
+        f"bars_processed {result.bars_processed} < historical {expected_historical}"
+    )
     assert result.bars_processed > 0
 
 
