@@ -1260,7 +1260,6 @@ class Executor:
                     ):
                         self._flush_bars_processed()
                 consecutive_errors = 0
-                self._flush_bars_processed()
             except ClientError:
                 continue
             except sqlite3.OperationalError as exc:
