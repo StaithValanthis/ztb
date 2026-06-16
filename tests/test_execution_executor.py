@@ -4074,7 +4074,7 @@ def test_real_fills_saved_when_exchange_returns_fills(
     ]
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, risk_enabled=False)
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4167,7 +4167,7 @@ def test_poll_fills_returns_fills_on_first_attempt(
     ]
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, risk_enabled=False)
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4213,7 +4213,7 @@ def test_poll_fills_retries_and_finds_fills_on_second_attempt(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO,
+        mode=Mode.LIVE,
         dry_run=False,
         risk_enabled=False,
         poll_fill_max_attempts=3,
@@ -4250,7 +4250,7 @@ def test_poll_fills_exhausts_attempts_and_falls_back_to_synthetic(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO,
+        mode=Mode.LIVE,
         dry_run=False,
         risk_enabled=False,
         poll_fill_max_attempts=3,
@@ -4305,7 +4305,7 @@ def test_poll_fills_handles_api_error_and_retries(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO,
+        mode=Mode.LIVE,
         dry_run=False,
         risk_enabled=False,
         poll_fill_max_attempts=3,
@@ -4336,6 +4336,114 @@ def test_poll_fills_config_defaults(
     config = ExecRunConfig()
     assert config.poll_fill_max_attempts == 5
     assert config.poll_fill_interval == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_skipped_in_demo_mode(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills returns [] immediately when mode is DEMO."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "demo_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+    assert mock_client.get_executions.call_count == 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_demo_mode_synthetic_fills_no_polling(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Demo-mode step() records synthetic fills without calling get_executions."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "synth_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic" in fills[0]["fill_id"]
+    assert mock_client.get_executions.call_count == 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_polling_loop_killswitch_checked_after_sleep(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Killswitch tripped during sleep is caught before _fetch_new_bars."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "ks_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+        risk_enabled=False,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    exe._killswitch = MagicMock()
+    exe._killswitch.is_tripped = False
+
+    call_count = 0
+
+    def trip_after_sleep(*args: Any, **kwargs: Any) -> bool:
+        nonlocal call_count
+        call_count += 1
+        return call_count != 1
+
+    exe._check_killswitch = trip_after_sleep  # type: ignore[assignment]
+
+    exe._sigterm_stop = False
+    exe._run_polling_loop(sample_data, "BTCUSDT", "1m", "spot")
+
+    assert any("Killswitch tripped during sleep" in e for e in exe.state.errors)
+    assert mock_client.get_executions.call_count == 0
 
 
 # ---------------------------------------------------------------------------
