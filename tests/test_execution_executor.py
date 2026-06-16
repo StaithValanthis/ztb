@@ -3463,7 +3463,7 @@ def test_reduce_only_proceeds_when_exchange_has_position_short(
 
 
 # ---------------------------------------------------------------------------
-# ZTB-1465: Wallet balance fix — cap qty to total_available_balance
+# ZTB-2683: Wallet balance fix — cap qty to coin-level available_balance
 # ---------------------------------------------------------------------------
 
 
@@ -3474,7 +3474,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When total_available_balance is low, qty is capped to prevent 'ab not enough'."""
+    """When available_balance is low, qty is capped to prevent 'ab not enough'."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -3518,7 +3518,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When total_available_balance is very low, qty is capped below the signal target."""
+    """When available_balance is very low, qty is capped below the signal target."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -3564,7 +3564,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When total_available_balance*max_leverage rounds target qty to zero, no order is placed."""
+    """When available_balance*max_leverage rounds target qty to zero, no order is placed."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
@@ -3748,12 +3748,12 @@ def test_executor_wallet_fetch_failure_skips_bar(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_executor_sizes_against_total_available_balance(
+def test_executor_sizes_against_available_balance(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """target_qty is capped by total_available_balance * max_leverage, not by initial_cash."""
+    """target_qty is capped by available_balance * max_leverage, not by initial_cash."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.get_wallet_balance.return_value = {
