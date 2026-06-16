@@ -854,9 +854,9 @@ class Executor:
 
             if order_result.get("skipped"):
                 result["order_skipped"] = True
-                result["skip_reason"] = order_result.get("reason", "")
-                self._save_error("OrderSkipped", order_result.get("reason", ""))
-                self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
+                result["skip_reason"] = str(order_result.get("reason", ""))
+                self._save_error("OrderSkipped", result["skip_reason"])
+                self.state.errors.append(f"Order skipped: {result['skip_reason']}")
                 self.state.bars_processed += 1
                 self.state.last_bar_ts = bar_ts
                 self._sync_pnl_state()
