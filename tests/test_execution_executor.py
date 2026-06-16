@@ -1048,6 +1048,53 @@ def test_polling_loop_killswitch_stops(
     assert any("Killswitch" in e for e in exe.state.errors)
 
 
+@patch("ztb.store.exec_io.save_killswitch_state")
+def test_check_killswitch_operational_error_suppressed(
+    mock_save_ks: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """OperationalError from save_killswitch_state must NOT crash _check_killswitch()."""
+    import sqlite3
+
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_save_ks.side_effect = sqlite3.OperationalError("database is locked")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    ks = LiveKillSwitch()
+    ks.manual_trip("test")
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+    result = exe._check_killswitch()
+    assert result is True
+    assert exe._killswitch.is_tripped is True
+
+
+@patch("ztb.store.exec_io.save_killswitch_state")
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_heartbeat_save_killswitch_operational_error_suppressed(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    mock_save_ks: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """OperationalError from save_killswitch_state in heartbeat persist must NOT crash the loop."""
+    import sqlite3
+
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_save_ks.side_effect = sqlite3.OperationalError("database is locked")
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=False)
+    ks = LiveKillSwitch(max_data_staleness_sec=1e12)
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe.run(symbol="BTCUSDT")
+    assert exe._killswitch.is_tripped is False
+
+
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_error_retry_then_stop(
