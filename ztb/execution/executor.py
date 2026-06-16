@@ -333,19 +333,21 @@ class Executor:
     ) -> list[dict[str, Any]]:
         assert self.state is not None
         assert self.client is not None
-        max_attempts = self.config.poll_fill_max_attempts
-        interval = self.config.poll_fill_interval
+        timeout = self.config.fill_poll_timeout
+        interval = self.config.fill_poll_interval
+        deadline = time_module.monotonic() + timeout
 
-        for attempt in range(1, max_attempts + 1):
+        while True:
             try:
                 from ztb.execution.reconcile import parse_fills as _parse_fills
 
                 raw_fills = self.client.get_executions(order_id=order_id)
                 parsed = list(_parse_fills(raw_fills))
                 if parsed:
+                    elapsed = timeout - max(0.0, deadline - time_module.monotonic())
                     logger.info(
-                        "Polled fills for %s on attempt %d/%d: %d fill(s)",
-                        order_link_id, attempt, max_attempts, len(parsed),
+                        "Polled fills for %s in %.1fs: %d fill(s)",
+                        order_link_id, elapsed, len(parsed),
                     )
                     return [
                         {
@@ -365,23 +367,27 @@ class Executor:
                         }
                         for f in parsed
                     ]
-                if attempt < max_attempts:
-                    logger.debug(
-                        "No fills yet for %s (attempt %d/%d), retrying in %.1fs",
-                        order_link_id, attempt, max_attempts, interval,
-                    )
-                    time_module.sleep(interval)
+
+                remaining = deadline - time_module.monotonic()
+                if remaining <= 0:
+                    break
+                logger.debug(
+                    "No fills yet for %s, retrying in %.1fs (%.1fs left)",
+                    order_link_id, interval, remaining,
+                )
+                time_module.sleep(min(interval, remaining))
             except Exception:
                 logger.warning(
-                    "Poll fills attempt %d/%d failed for order %s",
-                    attempt, max_attempts, order_id,
+                    "Poll fills failed for order %s",
+                    order_id,
                 )
-                if attempt < max_attempts:
-                    time_module.sleep(interval)
+                if time_module.monotonic() >= deadline:
+                    break
+                time_module.sleep(interval)
 
         logger.warning(
-            "Fill polling exhausted for %s after %d attempts — returning empty",
-            order_link_id, max_attempts,
+            "Fill polling exhausted for %s after %.1fs — returning empty",
+            order_link_id, timeout,
         )
         return []
 
@@ -1179,6 +1185,18 @@ class Executor:
 
         return self.state
 
+    def _flush_bars_processed(self) -> None:
+        assert self.state is not None
+        from ztb.store.exec_io import update_exec_run_status
+
+        with contextlib.suppress(sqlite3.OperationalError):
+            update_exec_run_status(
+                self._store_conn,
+                self.state.exec_run_id,
+                self.state.status,
+                self.state.bars_processed,
+            )
+
     def _run_polling_loop(
         self,
         data: DataFrame,
@@ -1225,6 +1243,7 @@ class Executor:
                     if result.get("client_error"):
                         continue
                 consecutive_errors = 0
+                self._flush_bars_processed()
             except ClientError:
                 continue
             except sqlite3.OperationalError as exc:

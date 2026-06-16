@@ -3674,7 +3674,7 @@ def test_synthetic_fill_saved_when_no_exchange_fills(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3714,7 +3714,7 @@ def test_synthetic_fill_commission_matches_order(
 
     config = ExecRunConfig(
         mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        commission=0.002, poll_fill_max_attempts=1,
+        commission=0.002, fill_poll_timeout=0.0,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3800,7 +3800,7 @@ def test_both_order_and_fill_persisted_together(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3899,7 +3899,7 @@ def test_poll_fills_retries_and_finds_fills_on_second_attempt(
 
     config = ExecRunConfig(
         mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        fill_poll_timeout=0.5, fill_poll_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3933,7 +3933,7 @@ def test_poll_fills_exhausts_attempts_and_falls_back_to_synthetic(
 
     config = ExecRunConfig(
         mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        fill_poll_timeout=0.03, fill_poll_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3944,7 +3944,7 @@ def test_poll_fills_exhausts_attempts_and_falls_back_to_synthetic(
     result = exe.step(sample_data)
     assert result["order_placed"] is True
     assert "real_fills" not in result or len(result["real_fills"]) == 0
-    assert mock_client.get_executions.call_count == 3
+    assert mock_client.get_executions.call_count >= 1
 
     from ztb.store.exec_io import get_exec_fills
 
@@ -3985,7 +3985,7 @@ def test_poll_fills_handles_api_error_and_retries(
 
     config = ExecRunConfig(
         mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        fill_poll_timeout=0.5, fill_poll_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -4010,8 +4010,8 @@ def test_poll_fills_config_defaults(
 ) -> None:
     """ExecRunConfig has sensible defaults for fill polling."""
     config = ExecRunConfig()
-    assert config.poll_fill_max_attempts == 5
-    assert config.poll_fill_interval == 0.5
+    assert config.fill_poll_timeout == 30.0
+    assert config.fill_poll_interval == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -4128,7 +4128,7 @@ def test_reconcile_pending_order_not_found(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4175,7 +4175,7 @@ def test_reconcile_pending_order_api_failure(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4270,7 +4270,7 @@ def test_stale_pending_resolve_failed_nonce(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4529,7 +4529,7 @@ def test_reconcile_query_failure_skip(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, fill_poll_timeout=0.0,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
