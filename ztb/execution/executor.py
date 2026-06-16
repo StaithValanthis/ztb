@@ -180,13 +180,14 @@ class Executor:
             persist = self._killswitch.to_persistable_state()
             from ztb.store.exec_io import save_killswitch_state
 
-            save_killswitch_state(
-                self._store_conn,
-                self.state.exec_run_id,
-                persist["tripped"],
-                persist["hwm_equity"],
-                persist["last_heartbeat"],
-            )
+            with contextlib.suppress(sqlite3.OperationalError):
+                save_killswitch_state(
+                    self._store_conn,
+                    self.state.exec_run_id,
+                    persist["tripped"],
+                    persist["hwm_equity"],
+                    persist["last_heartbeat"],
+                )
         return bool(tripped)
 
     def _save_kill_events(self) -> None:
@@ -1087,13 +1088,14 @@ class Executor:
                         persist = self._killswitch.to_persistable_state()
                         from ztb.store.exec_io import save_killswitch_state
 
-                        save_killswitch_state(
-                            self._store_conn,
-                            self.state.exec_run_id,
-                            persist["tripped"],
-                            persist["hwm_equity"],
-                            persist["last_heartbeat"],
-                        )
+                        with contextlib.suppress(sqlite3.OperationalError):
+                            save_killswitch_state(
+                                self._store_conn,
+                                self.state.exec_run_id,
+                                persist["tripped"],
+                                persist["hwm_equity"],
+                                persist["last_heartbeat"],
+                            )
 
         if self.config.loop and not self.config.once:
             try:
