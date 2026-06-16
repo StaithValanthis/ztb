@@ -6,6 +6,8 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from ztb.store.retry import retry_on_lock
+
 
 def make_order_link_id(
     strategy: str,
@@ -31,6 +33,7 @@ class IdempotencyLedger:
         self.conn.row_factory = sqlite3.Row
         _ensure_idempotency_table(conn)
 
+    @retry_on_lock()
     def try_claim(self, order_link_id: str, order_id: str = "") -> bool:
         try:
             self.conn.execute(
@@ -44,6 +47,7 @@ class IdempotencyLedger:
             self.conn.rollback()
             return False
 
+    @retry_on_lock()
     def resolve(self, order_link_id: str, status: str, order_id: str = "") -> None:
         with suppress(BaseException):
             self.conn.execute(
@@ -76,6 +80,7 @@ class IdempotencyLedger:
         row = self.conn.execute("SELECT COUNT(*) AS cnt FROM idempotency").fetchone()
         return row["cnt"] if row else 0
 
+    @retry_on_lock()
     def clear_stale(self, ttl_hours: int = 24) -> int:
         cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -86,6 +91,7 @@ class IdempotencyLedger:
         self.conn.commit()
         return deleted.rowcount
 
+    @retry_on_lock()
     def clear_pending(self) -> int:
         deleted = self.conn.execute("DELETE FROM idempotency WHERE status = 'pending'")
         self.conn.commit()
@@ -96,6 +102,7 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@retry_on_lock()
 def _ensure_idempotency_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS idempotency (

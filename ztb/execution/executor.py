@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import signal
+import sqlite3
 import time as time_module
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -178,13 +180,14 @@ class Executor:
             persist = self._killswitch.to_persistable_state()
             from ztb.store.exec_io import save_killswitch_state
 
-            save_killswitch_state(
-                self._store_conn,
-                self.state.exec_run_id,
-                persist["tripped"],
-                persist["hwm_equity"],
-                persist["last_heartbeat"],
-            )
+            with contextlib.suppress(sqlite3.OperationalError):
+                save_killswitch_state(
+                    self._store_conn,
+                    self.state.exec_run_id,
+                    persist["tripped"],
+                    persist["hwm_equity"],
+                    persist["last_heartbeat"],
+                )
         return bool(tripped)
 
     def _save_kill_events(self) -> None:
@@ -223,6 +226,13 @@ class Executor:
     def _compute_target_position(self, data: DataFrame) -> float:
         warmup = getattr(self.strategy, "warmup", 0)
         if len(data) <= warmup:
+            logger.warning(
+                "Strategy '%s' not called: data length (%d) <= warmup (%d). "
+                "Returning 0.0 — ensure _ensure_warmup is providing enough bars.",
+                self.strategy.name,
+                len(data),
+                warmup,
+            )
             return 0.0
         signals = self.strategy.generate_signals(data)
         return float(signals.iloc[-1])
@@ -909,19 +919,22 @@ class Executor:
             timeframe=timeframe,
             category=category,
             start=extended_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            end=None,
+            end=current_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         if extended is None or extended.empty:
             raise ExecutionError(
                 f"Cannot fetch enough historical data for {symbol} {timeframe}: "
                 f"need {warmup} bars for warmup, exchange returned empty data"
             )
-        if len(extended) < warmup:
+        combined = pd.concat([extended, data])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        if len(combined) < warmup:
             raise ExecutionError(
                 f"Exchange cannot provide enough historical data for {symbol} {timeframe}: "
-                f"got {len(extended)} bars, need {warmup} for warmup"
+                f"got {len(combined)} bars, need {warmup} for warmup"
             )
-        return extended
+        return combined
 
     def _fetch_new_bars(
         self,
@@ -1073,13 +1086,14 @@ class Executor:
                         persist = self._killswitch.to_persistable_state()
                         from ztb.store.exec_io import save_killswitch_state
 
-                        save_killswitch_state(
-                            self._store_conn,
-                            self.state.exec_run_id,
-                            persist["tripped"],
-                            persist["hwm_equity"],
-                            persist["last_heartbeat"],
-                        )
+                        with contextlib.suppress(sqlite3.OperationalError):
+                            save_killswitch_state(
+                                self._store_conn,
+                                self.state.exec_run_id,
+                                persist["tripped"],
+                                persist["hwm_equity"],
+                                persist["last_heartbeat"],
+                            )
 
         if self.config.loop and not self.config.once:
             try:
@@ -1087,6 +1101,8 @@ class Executor:
             except PollingError as e:
                 self._save_error("PollingError", str(e))
                 self.state.errors.append(str(e))
+            except sqlite3.OperationalError as e:
+                self.state.errors.append(f"Fatal DB error in polling loop: {e}")
 
         from ztb.store.exec_io import update_exec_run_status
 
@@ -1123,12 +1139,16 @@ class Executor:
         max_errors = 3
 
         while not self._sigterm_stop:
-            if self._check_killswitch():
-                self.state.errors.append("Killswitch tripped — stopping polling loop")
-                self._save_error("KillswitchTripped", "Killswitch tripped during polling loop")
-                break
-
             try:
+                if self._check_killswitch():
+                    self.state.errors.append("Killswitch tripped — stopping polling loop")
+                    with contextlib.suppress(sqlite3.OperationalError):
+                        self._save_error(
+                            "KillswitchTripped",
+                            "Killswitch tripped during polling loop",
+                        )
+                    break
+
                 time_module.sleep(poll_interval)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
                 result = self.step(data)
@@ -1137,11 +1157,19 @@ class Executor:
                 consecutive_errors = 0
             except ClientError:
                 continue
+            except sqlite3.OperationalError as exc:
+                consecutive_errors += 1
+                err_msg = f"Polling loop DB error ({consecutive_errors}/{max_errors}): {exc}"
+                self.state.errors.append(err_msg)
+                if consecutive_errors >= max_errors:
+                    self.state.errors.append("Max polling errors reached — stopping")
+                    raise PollingError(err_msg) from exc
             except Exception as exc:
                 consecutive_errors += 1
                 err_msg = f"Polling loop error ({consecutive_errors}/{max_errors}): {exc}"
                 self.state.errors.append(err_msg)
-                self._save_error("PollingError", str(exc))
+                with contextlib.suppress(sqlite3.OperationalError):
+                    self._save_error("PollingError", str(exc))
                 if consecutive_errors >= max_errors:
                     self.state.errors.append("Max polling errors reached — stopping")
                     raise PollingError(err_msg) from exc

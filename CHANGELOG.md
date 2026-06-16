@@ -1,5 +1,61 @@
 # Changelog
 
+## v1.1.31 (2026-06-16)
+
+- **Fix(executor):** Bound `_ensure_warmup` data fetch to `[extended_start, current_start]` (was `end=None` → unbounded epoch→now pagination). Merge extended data with original via `pd.concat` + index dedup (`keep="last"`) + `sort_index()`. Defensive `max(wait, 0.01)` in TokenBucket spin-wait loop to reduce CPU.
+- **Root cause:** `_ensure_warmup` called `load_data(..., end=None)`, triggering `paginate_kline` from now back to extended_start — on cold cache, this paginated thousands of 1000-bar windows, producing 3+ minute stalls (rate-limited to ~10 req/s by TokenBucket). Second defect: `return extended` discarded original data, causing the second warmup check to re-fetch.
+- **Tests:** 6 new test cases: end-bound validation, merge preserves original data, overlap dedup (original wins), no-cascade on re-check, TokenBucket no-busy-spin, executor dry-run completes in <5s (1.40s wall). Full regression: 992/992 tests passing (pre-existing env/version-skew exclusions).
+- V&R contract co-sign: [ZTB-2321](/ZTB/issues/ZTB-2321) PASS
+- V&R PASS on SHA `6944fea` ([ZTB-2361](/ZTB/issues/ZTB-2361)); re-validated on `722240a` (vr-pass CI check)
+- **PR:** [#132](https://github.com/StaithValanthis/ztb/pull/132) — `fix/ztb-2276-warmup-rate-limit`
+- **Merge commit:** `ea836a8` — two-key merged (CI green + V&R PASS on same SHA)
+- **Tag:** v1.1.31
+
+## v1.1.30 (2026-06-16)
+
+- **Fix(executor):** Wrap `save_killswitch_state()` with `contextlib.suppress(sqlite3.OperationalError)` in `_check_killswitch()` and the per-bar heartbeat persist — when the DB is locked, the killswitch break signal (`return True`) now propagates even when the DB write fails. Previously, an `OperationalError` inside `_check_killswitch()` would silently lose the killswitch signal and crash via max_errors/PollingError instead of a graceful killswitch stop.
+- **Tests:** 2 new test cases verifying OperationalError does not crash `_check_killswitch()` or the heartbeat persist path. All tests pass.
+- V&R PASS on SHA `0aa0a85` (vr-pass CI check)
+- **PR:** [#130](https://github.com/StaithValanthis/ztb/pull/130) — `feat/ztb-2319-suppress-killswitch`
+- **Merge commit:** `6b2af83` — two-key merge (CI green + V&R PASS on SHA `0aa0a85`)
+- **Tag:** v1.1.30
+
+## v1.1.29 (2026-06-15)
+
+- **Fix(executor):** Catch `sqlite3.OperationalError` in polling loop error path — the executor's `_run_polling_loop` now wraps the fill-poll query in a try/except for `OperationalError`. Before: a transient `database is locked` during polling crashed the entire loop. After: the error is logged and the loop retries on the next tick.
+- **Tests:** 1 new test case covering `OperationalError` suppression in polling loop. 1018/1021 passing (3 pre-existing: `test_cli_smoke_test_network`, `test_cli_run_with_preflight`, `test_version_consistency` — env/version-skew only).
+- V&R PASS on SHA `70b2a1a`
+- **PR:** [#126](https://github.com/StaithValanthis/ztb/pull/126) — `feat/ztb-2255-fix-polling-loop-operational-error`
+- **Merge commit:** `c152a91` — two-key merge (CI green + V&R PASS on SHA `70b2a1a`)
+- **Tag:** v1.1.29
+
+## v1.1.28 (2026-06-15)
+
+- **Fix(engine):** `run_backtest` and `run_forwardtest` now extend data backwards before `strategy.generate_signals()` when the data window from `--start` is shorter than `strategy.warmup + 1`. Before: all signals silently zeroed → 0 trades, 0 risk_decisions. After: warmup bars fetched via optional `loader` parameter; if no loader is available, raises `ValueError` (no silent zero trades). Executor `_compute_target_position` now logs a warning when skipping strategy evaluation due to insufficient warmup data.
+- **Tests:** 8 new test cases covering `--start` data slicing across backtest, forwardtest, and executor. 815/815 passing full suite.
+- V&R PASS on SHA `508f588` ([ZTB-2253](/ZTB/issues/ZTB-2253))
+- **PR:** [#127](https://github.com/StaithValanthis/ztb/pull/127) — `fix/ztb-2250-start-silent-skip`
+- **Merge commit:** `8399e49` — two-key merge (CI green + V&R PASS on SHA `508f588`)
+- **Tag:** v1.1.28
+
+## v1.1.27 (2026-06-15)
+
+- **Feat(store):** Add `retry_on_lock` decorator with exponential backoff (+jitter) to all store write functions — catches `sqlite3.OperationalError 'database is locked'` (`busy_timeout` raised from 5000 to 30000 ms). Applied to `exec_io.py` (14 write funcs), `results.py` (3 write funcs), `idempotency.py` (5 write funcs), and `validation/store.py` (`save_validation_run`).
+- **Tests:** 16 new test cases in `test_store_retry.py` covering decorator unit tests, applied integration tests, and `busy_timeout` verification. 997/997 total tests passing (0 pre-existing).
+- V&R PASS on SHA `16854e9` ([ZTB-2232](/ZTB/issues/ZTB-2232))
+- **PR:** [#118](https://github.com/StaithValanthis/ztb/pull/118) — `feat/ztb-2155-database-locked-fix`
+- **Merge commit:** `6f75469` — two-key merge (CI green + V&R PASS on SHA `16854e9`)
+- **Tag:** v1.1.27
+
+## v1.1.26 (2026-06-15)
+
+- **Fix(executor):** Resolve duplicate `OrderLinkedID` on stale-pending retry — stale pending rows are resolved as `failed` (not DELETEd) and retried with a nonced `order_link_id`. `_reconcile_pending_order` now queries both `get_order_history` and `get_open_orders` (dual-endpoint). Defensive `ClientError` handler catches `"OrderLinkedID is duplicate"` around `place_order` — found orders are restored; not-found bars are skipped gracefully with full state advancement. `clear_pending()` added to startup cleanup.
+- **Tests:** 6 new test cases (`test_stale_pending_resolve_failed_nonce`, `test_reconcile_pending_order_open_orders_match`, `test_reconcile_pending_order_both_endpoints`, `test_place_order_duplicate_reconcile_found`, `test_place_order_duplicate_skip_bar_advances_state`, `test_reconcile_query_failure_skip`). 120/120 executor tests passing (994/997 total — 3 pre-existing: version skew + network).
+- V&R PASS on SHA `ceb9962` ([ZTB-2213](/ZTB/issues/ZTB-2213))
+- **PR:** [#122](https://github.com/StaithValanthis/ztb/pull/122) — `feat/orderlinkid-duplicate-fix`
+- **Merge commit:** `475cd86` — two-key merge (CI green + V&R PASS on SHA `ceb9962`)
+- **Tag:** v1.1.26
+
 ## v1.1.25 (2026-06-15)
 
 - **Fix(executor):** `_reconcile_pending_order` helper and stale-pending retry path — when `try_claim` fails and the existing row has no `order_id` (API response lost), reconcile via Bybit order history before resubmitting. If the order went through, resolve idempotency and restore; if not, delete stale pending row and retry.

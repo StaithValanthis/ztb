@@ -10,6 +10,7 @@ from typing import Any
 from ztb import __version__
 from ztb.engine.backtest import BacktestResult
 from ztb.engine.forwardtest import ForwardtestResult
+from ztb.store.retry import retry_on_lock
 
 _METRIC_NAMES = frozenset(
     {
@@ -44,7 +45,7 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     _ensure_schema(conn)
     _run_migrations(conn)
@@ -99,6 +100,7 @@ def _generate_run_id(strategy_name: str, symbol: str) -> str:
     return f"{strategy_name}_{symbol}_{now}"
 
 
+@retry_on_lock()
 def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
     run_id = _generate_run_id(result.strategy_name, result.symbol)
     conn.execute("BEGIN")
@@ -207,6 +209,7 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
     return run_id
 
 
+@retry_on_lock()
 def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str:
     run_id = _generate_run_id(result.strategy_name, result.symbol)
     conn.execute("BEGIN")
@@ -419,6 +422,7 @@ def get_oos_sharpe(conn: sqlite3.Connection, run_id: str) -> float | None:
     return get_oos_metric(conn, run_id, "sharpe")
 
 
+@retry_on_lock()
 def save_risk_decisions(
     conn: sqlite3.Connection,
     run_id: str,
