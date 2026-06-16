@@ -362,7 +362,7 @@ class Executor:
             try:
                 from ztb.execution.reconcile import parse_fills as _parse_fills
 
-                raw_fills = self.client.get_executions(order_id=order_id)
+                raw_fills = self.client.get_executions(symbol=self.state.symbol, order_id=order_id)
                 parsed = list(_parse_fills(raw_fills))
                 if parsed:
                     logger.info(
