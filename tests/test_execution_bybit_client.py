@@ -956,3 +956,39 @@ def test_top_up_demo_account_fails_gracefully() -> None:
         assert result.credited_amount == 0.0
         assert result.requested_amount == 100000.0
     client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_executions_signs_query_in_sent_order(mock_client_cls: MagicMock) -> None:
+    """Regression lock for the get_executions signature bug.
+
+    The GET query string must be signed in the order it is SENT (params-dict
+    insertion order), NOT sorted(). A sorted-vs-sent mismatch made Bybit reject
+    every execution query with "Error sign" -> 0 real fills (the root cause the
+    firm masked with the DEMO synthetic short-circuit, d797575).
+    """
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"list": []}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+
+    captured: dict[str, str] = {}
+    real_sign = client._sign
+
+    def _capture(ts: str, method: str, path: str, body: str) -> str:
+        captured["payload"] = body
+        return real_sign(ts, method, path, body)
+
+    with patch.object(client, "_sign", side_effect=_capture):
+        client.get_executions(symbol="BTCUSDT", order_id="abc-123", category="linear")
+
+    payload = captured["payload"]
+    # signed string must match what is SENT (insertion order: symbol before orderId)
+    assert "symbol=BTCUSDT&orderId=abc-123" in payload, payload
+    # must NOT be alphabetically sorted (orderId before symbol) — that was the bug
+    assert "orderId=abc-123&symbol=BTCUSDT" not in payload, payload

@@ -4348,8 +4348,8 @@ def test_poll_fills_config_defaults(
 ) -> None:
     """ExecRunConfig has sensible defaults for fill polling."""
     config = ExecRunConfig()
-    assert config.poll_fill_max_attempts == 5
-    assert config.poll_fill_interval == 0.5
+    assert config.poll_fill_max_attempts == 15
+    assert config.poll_fill_interval == 2.0
 
 
 @patch("ztb.execution.executor.time_module.sleep")
@@ -4400,20 +4400,26 @@ def test_poll_fills_aborts_early_on_sigterm(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_poll_fills_skipped_in_demo_mode(
+def test_poll_fills_runs_in_demo_mode(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """_poll_fills returns [] immediately when mode is DEMO."""
+    """DEMO mode polls get_executions for real fills (no synthetic short-circuit).
+
+    Regression lock: demo must NOT skip fill polling (was the d797575 bug).
+    """
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "demo_oid"}
     mock_client.get_positions.return_value = []
     mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4422,26 +4428,28 @@ def test_poll_fills_skipped_in_demo_mode(
 
     result = exe.step(sample_data)
     assert result["order_placed"] is True
-    assert "real_fills" not in result or len(result["real_fills"]) == 0
-    assert mock_client.get_executions.call_count == 0
+    assert mock_client.get_executions.call_count >= 1
 
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_demo_mode_synthetic_fills_no_polling(
+def test_demo_mode_polls_then_synthetic_fallback(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """Demo-mode step() records synthetic fills without calling get_executions."""
+    """DEMO step() polls get_executions; synthetic fallback ONLY when no real fill returns."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "synth_oid"}
     mock_client.get_positions.return_value = []
     mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4456,7 +4464,7 @@ def test_demo_mode_synthetic_fills_no_polling(
     fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
     assert len(fills) >= 1
     assert "synthetic" in fills[0]["fill_id"]
-    assert mock_client.get_executions.call_count == 0
+    assert mock_client.get_executions.call_count >= 1
 
 
 @patch("ztb.execution.executor.load_data")
