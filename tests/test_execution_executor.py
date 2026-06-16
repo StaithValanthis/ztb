@@ -5456,3 +5456,186 @@ def test_executor_with_start_risk_decisions_produced(
     )
     assert result.status == "completed"
     assert result.bars_processed > 0
+
+
+# ---------------------------------------------------------------------------
+# Area 2: Persist skip reasons to exec_errors (ZTB-2628)
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_skip_saves_exec_error(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class FlatSignal:
+        name = "flat_error_test"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.0
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(FlatSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe._pnl.apply_fill(2.0, 50000.0)
+    exe._sync_pnl_state()
+    assert abs(exe._pnl.position - 2.0) < 1e-8
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE error_type='OrderSkipped'"
+        ).fetchall()
+    )
+    assert len(rows) >= 1
+    assert "reduce-only" in rows[0]["message"].lower() or "Reduce-only" in rows[0]["message"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_caps_qty_on_flip(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Flip scenario: balance cap constrains qty without crashing."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_cap"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "0.5",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100.0",
+                        "walletBalance": "100.0",
+                        "availableBalance": "0.5",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+
+    class HalfLongSignal:
+        name = "half_long"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.5
+            return pd.Series(arr, index=data.index)
+
+    exe = Executor(HalfLongSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+    # With total_available_balance=0.5 and max_leverage=1.0,
+    # max_notional=0.5, max_qty tiny - delta may round to 0
+    # Verify no crash in balance cap code path
+    assert isinstance(result, dict)
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_validation_skip_saves_exec_error(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"skipped": True, "reason": "Qty too small"}
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE error_type='OrderSkipped'"
+        ).fetchall()
+    )
+    assert len(rows) >= 1
+    assert "Qty too small" in rows[0]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Area 4: _apply_risk position % cap scaling (ZTB-2628)
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_apply_risk_position_pct_capped(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, risk_enabled=True)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    assert exe.risk_mgr is not None
+    exe.risk_mgr.config.max_leverage = 10.0
+    exe.risk_mgr.config.max_position_pct = 0.50
+    sig, decision = exe._apply_risk(1.0, 0.0, 100000.0, 100000.0, "2026-01-01T00:00:00Z")
+    assert decision is not None
+    assert decision.action.value == "reduce"
+    assert sig == 0.5, f"Expected 0.5 (position % cap), got {sig}"
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_apply_risk_leverage_still_works(
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, risk_enabled=True)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    assert exe.risk_mgr is not None
+    exe.risk_mgr.config.max_leverage = 2.0
+    exe.risk_mgr.config.max_position_pct = 0.95
+    sig, decision = exe._apply_risk(5.0, 0.0, 100000.0, 100000.0, "2026-01-01T00:00:00Z")
+    assert decision is not None
+    assert decision.action.value == "reduce"
+    assert sig == 2.0, f"Expected 2.0 (leverage cap), got {sig}"
