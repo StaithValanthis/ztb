@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.30 (2026-06-16)
+
+- **Fix(executor):** Wrap `save_killswitch_state()` with `contextlib.suppress(sqlite3.OperationalError)` in `_check_killswitch()` and the per-bar heartbeat persist — when the DB is locked, the killswitch break signal (`return True`) now propagates even when the DB write fails. Previously, an `OperationalError` inside `_check_killswitch()` would silently lose the killswitch signal and crash via max_errors/PollingError instead of a graceful killswitch stop.
+- **Tests:** 2 new test cases verifying OperationalError does not crash `_check_killswitch()` or the heartbeat persist path. All tests pass.
+- V&R PASS on SHA `0aa0a85` (vr-pass CI check)
+- **PR:** [#130](https://github.com/StaithValanthis/ztb/pull/130) — `feat/ztb-2319-suppress-killswitch`
+- **Merge commit:** `6b2af83` — two-key merge (CI green + V&R PASS on SHA `0aa0a85`)
+- **Tag:** v1.1.30
+
 ## v1.1.29 (2026-06-15)
 
 - **Fix(executor):** Catch `sqlite3.OperationalError` in polling loop error path — the executor's `_run_polling_loop` now wraps the fill-poll query in a try/except for `OperationalError`. Before: a transient `database is locked` during polling crashed the entire loop. After: the error is logged and the loop retries on the next tick.
