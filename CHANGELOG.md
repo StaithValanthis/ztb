@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.42 (2026-06-16)
+
+- **Fix(engine):** Inert demo bot forward fix — 4 root-cause areas (ZTB-2628, ZTB-2636). Area 1: DEBUG logging in `_request()` and `place_order()` for demobot observability. Area 2: Persist skip reasons (`reduce-only`, `validation`) to `exec_errors` table with `error_type='OrderSkipped'`. Area 3: Floor-rounding warning in `_validate_qty` when qty rounds to 0. Area 4: `_apply_risk` position % cap scaling — `max_position_pct` now limits signal before leverage cap.
+- **Tests:** 8 new test cases covering all 4 areas — logging, exec_errors, floor-rounding, position % cap.
+- **Contract:** `docs/contract-ztb-2628-inert-demo-fix.md` — frozen contract for V&R co-sign.
+- **PR:** [#163](https://github.com/StaithValanthis/ztb/pull/163)
+- **Tag:** v1.1.42
+
 ## v1.1.41 (2026-06-16)
 
 - **Fix(executor):** Restore real demo fills — `get_executions` signature regression + 3 compounding bugs in the fill pipeline (ZTB-2658). Signed request fix; DEMO skip removal; `get_open_orders` response parsing. Real fill flow verified end-to-end.
