@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.39 (2026-06-16)
+
+- **Fix(executor):** Add `_sigterm_stop` checks inside `_poll_fills()` retry loop — aborts fill polling early on SIGTERM so the process exits promptly (ZTB-2506).
+- **Tests:** 1 new LIVE-mode test verifying `_poll_fills` breaks out of the retry loop when `_sigterm_stop` is set mid-polling.
+- CI green on SHA `91b571b` (branch).
+
 ## v1.1.38 (2026-06-16)
 
 - **Fix(executor):** `_poll_fills` early return in DEMO mode — skips live polling cost when not needed (ZTB-2434).
