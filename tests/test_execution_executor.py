@@ -1085,7 +1085,9 @@ def test_ensure_warmup_merge_overlap(
     exe._init_run()
     result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2025-12-31T10:00:00Z")
     assert overlap_ts in result.index, "overlapping timestamp should exist in result"
-    assert result.loc[overlap_ts, "close"] == 55555.0, "original data should win on overlap (keep='last')"
+    assert (
+        result.loc[overlap_ts, "close"] == 55555.0
+    ), "original data should win on overlap (keep='last')"
 
 
 @patch("ztb.execution.executor.load_data")
