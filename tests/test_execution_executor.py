@@ -3713,8 +3713,11 @@ def test_synthetic_fill_commission_matches_order(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        commission=0.002, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        commission=0.002,
+        poll_fill_max_attempts=1,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3800,7 +3803,10 @@ def test_both_order_and_fill_persisted_together(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3898,8 +3904,11 @@ def test_poll_fills_retries_and_finds_fills_on_second_attempt(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3932,8 +3941,11 @@ def test_poll_fills_exhausts_attempts_and_falls_back_to_synthetic(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -3984,8 +3996,11 @@ def test_poll_fills_handles_api_error_and_retries(
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
-        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
     )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
@@ -4128,7 +4143,10 @@ def test_reconcile_pending_order_not_found(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4175,7 +4193,10 @@ def test_reconcile_pending_order_api_failure(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4270,7 +4291,10 @@ def test_stale_pending_resolve_failed_nonce(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -4529,7 +4553,10 @@ def test_reconcile_query_failure_skip(
 
     signal_strat = SignalStrategy()
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
     )
     exe = Executor(signal_strat, config=config)
     exe._init_run()

@@ -345,7 +345,10 @@ class Executor:
                 if parsed:
                     logger.info(
                         "Polled fills for %s on attempt %d/%d: %d fill(s)",
-                        order_link_id, attempt, max_attempts, len(parsed),
+                        order_link_id,
+                        attempt,
+                        max_attempts,
+                        len(parsed),
                     )
                     return [
                         {
@@ -368,20 +371,26 @@ class Executor:
                 if attempt < max_attempts:
                     logger.debug(
                         "No fills yet for %s (attempt %d/%d), retrying in %.1fs",
-                        order_link_id, attempt, max_attempts, interval,
+                        order_link_id,
+                        attempt,
+                        max_attempts,
+                        interval,
                     )
                     time_module.sleep(interval)
             except Exception:
                 logger.warning(
                     "Poll fills attempt %d/%d failed for order %s",
-                    attempt, max_attempts, order_id,
+                    attempt,
+                    max_attempts,
+                    order_id,
                 )
                 if attempt < max_attempts:
                     time_module.sleep(interval)
 
         logger.warning(
             "Fill polling exhausted for %s after %d attempts — returning empty",
-            order_link_id, max_attempts,
+            order_link_id,
+            max_attempts,
         )
         return []
 
