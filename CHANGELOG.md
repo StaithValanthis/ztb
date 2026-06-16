@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.33 (2026-06-16)
+
+- **Fix(executor):** Process each intermediate bar individually in `_run_polling_loop` during polling catch-up. When `_fetch_new_bars` returns multiple bars (e.g. after network interruption), the loop iterates through each bar via `range(old_len, new_len)` and calls `step()` with the correctly growing data slice — each bar triggers signal generation, signal-change detection, and killswitch check.
+- **Invariants:** (1) Each intermediate bar triggers signal on its own slice; (2) signal change detection works across bars; (3) idempotency via unique `orderLinkId` per `bar_ts`; (4) killswitch checked per bar, breaks early on trip; (5) `ClientError` on any bar logs and continues (does not skip remaining bars); (6) `consecutive_errors` reset after each batch.
+- **Tests:** 5 new test cases: multi-bar catchup with correct chunk sizes (201, 202, 203); killswitch break on bar 2; ClientError continues on bar 2 (bars 1+3 processed); zero-new-bar normal poll; single-bar normal path. Full suite: 1034/1034 passing.
+- V&R PASS on SHA `5634811` ([ZTB-2407](/ZTB/issues/ZTB-2407))
+- **PR:** [#133](https://github.com/StaithValanthis/ztb/pull/133) — `feat/ztb-2342-fetch-new-bars-catchup`
+- **Merge commit:** `e00a2ee` — two-key merged (CI green + V&R PASS on SHA `5634811`)
+- **Tag:** v1.1.33
+
 ## v1.1.32 (2026-06-16)
 
 - **Fix(executor):** Use account-level `totalAvailableBalance` instead of per-coin `availableBalance` in `_step_impl` sizing. Bybit UTA demo accounts omit coin-level `availableBalance`, causing the sizing path to treat it as `0.0` and never place orders. Replaced `available_balance` with `total_available_balance` in the sizing condition and notional calculation; removed unused `available_balance` variable.
