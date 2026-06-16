@@ -4798,6 +4798,3 @@ def test_executor_with_start_risk_decisions_produced(
     )
     assert result.status == "completed"
     assert result.bars_processed > 0
-
-
-
