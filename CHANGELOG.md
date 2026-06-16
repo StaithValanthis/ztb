@@ -2,9 +2,12 @@
 
 ## v1.1.42 (2026-06-16)
 
-- **Fix(executor):** Remove `no_cache=True` from `_fetch_new_bars()` — restores cache-first polling. The ZTB-2599 flag caused every poll iteration to re-download the full data window from the exchange (~50× slowdown, rate-limit-induced silent `PollingError` exit at ~21 min). The cache-incremental pattern (`read_cache` + `write_cache` + `merge_incremental`) already handles fresh data correctly; `no_cache` is preserved on `load()` as an escape hatch for cold-start use.
+- **Fix(engine):** Inert demo bot forward fix — 4 root-cause areas (ZTB-2628, ZTB-2636). Area 1: DEBUG logging in `_request()` and `place_order()` for better demobot observability. Area 2: Persist skip reasons (`reduce-only`, `validation`) to `exec_errors` table with `error_type='OrderSkipped'`. Area 3: Floor-rounding warning in `_validate_qty` when qty rounds to 0. Area 4: `_apply_risk` position % cap scaling — `max_position_pct` now limits signal before leverage cap.
+- **Tests:** 8 new test cases covering all 4 areas — logging, exec_errors, floor-rounding, position % cap.
+- **Contract:** `docs/contract-ztb-2628-inert-demo-fix.md` — frozen contract for V&R co-sign.
+- **Fix(executor):** Remove `no_cache=True` from `_fetch_new_bars()` — restores cache-first polling (ZTB-2638). The ZTB-2599 flag caused every poll iteration to re-download the full data window from the exchange (~50× slowdown, rate-limit-induced silent `PollingError` exit at ~21 min). The cache-incremental pattern (`read_cache` + `write_cache` + `merge_incremental`) already handles fresh data correctly; `no_cache` is preserved on `load()` as an escape hatch for cold-start use.
 - **Tests:** Updated `test_fetch_new_bars_passes_no_cache` — now asserts `no_cache` defaults to `False` (was asserting `True`).
-- **PR:** [#164](https://github.com/StaithValanthis/ztb/pull/164)
+- **PR:** [#163](https://github.com/StaithValanthis/ztb/pull/163), [#164](https://github.com/StaithValanthis/ztb/pull/164)
 - **Tag:** v1.1.42
 
 ## v1.1.41 (2026-06-16)
