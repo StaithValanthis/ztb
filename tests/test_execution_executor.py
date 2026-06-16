@@ -389,6 +389,87 @@ def test_executor_non_dry_run_places_order(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
+def test_executor_fill_retry_eventually_gets_fills(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_order_fill_retry"}
+    exec_list: list[list[dict]] = [
+        [],
+        [],
+        [
+            {
+                "execId": "e1",
+                "orderId": "test_order_fill_retry",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "50001.0",
+                "execQty": "0.1",
+                "execFee": "0.05",
+                "execTime": "2026-01-01T01:00:00Z",
+            }
+        ],
+    ]
+    mock_client.get_executions.side_effect = exec_list
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        fill_retry_count=5,
+        fill_retry_delay_seconds=0.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" in result
+    assert len(result["real_fills"]) == 1
+    assert result["real_fills"][0]["fill_id"] == "e1"
+    assert mock_client.get_executions.call_count == 3
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_fill_retry_exhausted_falls_back_to_synthetic(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "test_order_retry_exhausted"}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    retries = 3
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        fill_retry_count=retries,
+        fill_retry_delay_seconds=0.0,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result
+    assert mock_client.get_executions.call_count == retries
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
 def test_executor_skipped_order_early_return(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,

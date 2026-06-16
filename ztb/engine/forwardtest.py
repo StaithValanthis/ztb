@@ -48,6 +48,7 @@ class ForwardtestConfig:
     min_trades: int = 5
     risk_enabled: bool = True
     risk_config: RiskConfig | None = None
+    oos_start: int = 0
 
 
 def run_forwardtest(

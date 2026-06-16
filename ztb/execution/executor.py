@@ -760,37 +760,70 @@ class Executor:
             order_id = order_result.get("orderId", "")
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            # Real fill pipeline: fetch actual fills from exchange
+            # Real fill pipeline: fetch actual fills from exchange (with retry/delay)
             real_fills: list[dict[str, Any]] = []
             from ztb.execution.reconcile import parse_fills as _parse_fills
 
-            try:
-                raw_fills = self.client.get_executions(order_id=order_id)
-                for f in _parse_fills(raw_fills):
-                    real_fills.append(
-                        {
-                            "fill_id": f.exec_id,
-                            "order_link_id": order_link_id,
-                            "exec_run_id": self.state.exec_run_id,
-                            "order_id": f.order_id,
-                            "symbol": f.symbol,
-                            "side": f.side.value,
-                            "price": f.price,
-                            "qty": f.qty,
-                            "commission": f.commission,
-                            "realized_pnl": f.realized_pnl,
-                            "filled_at": f.timestamp,
-                            "sufficient_sample": 1,
-                            "code_version": __version__,
-                        }
-                    )
-            except Exception:
+            retries = self.config.fill_retry_count
+            delay = self.config.fill_retry_delay_seconds
+            last_error: str | None = None
+            for attempt in range(1, retries + 1):
+                try:
+                    raw_fills = self.client.get_executions(order_id=order_id)
+                    if raw_fills:
+                        for f in _parse_fills(raw_fills):
+                            real_fills.append(
+                                {
+                                    "fill_id": f.exec_id,
+                                    "order_link_id": order_link_id,
+                                    "exec_run_id": self.state.exec_run_id,
+                                    "order_id": f.order_id,
+                                    "symbol": f.symbol,
+                                    "side": f.side.value,
+                                    "price": f.price,
+                                    "qty": f.qty,
+                                    "commission": f.commission,
+                                    "realized_pnl": f.realized_pnl,
+                                    "filled_at": f.timestamp,
+                                    "sufficient_sample": 1,
+                                    "code_version": __version__,
+                                }
+                            )
+                        break
+                    if attempt < retries:
+                        logger.info(
+                            "No fills yet for order %s (attempt %d/%d)%s",
+                            order_id,
+                            attempt,
+                            retries,
+                            f", waiting {delay:.1f}s" if delay else "",
+                        )
+                        if delay:
+                            time_module.sleep(delay)
+                except Exception as exc:
+                    last_error = str(exc)
+                    if attempt < retries:
+                        logger.warning(
+                            "Fill fetch attempt %d/%d failed for order %s: %s",
+                            attempt,
+                            retries,
+                            order_id,
+                            exc,
+                        )
+                        if delay:
+                            time_module.sleep(delay)
+            else:
                 logger.warning(
-                    "Failed to fetch fills for order %s, falling back to synthetic fill",
+                    "Failed to fetch fills for order %s after %d attempts%s",
                     order_id,
+                    retries,
+                    f" (last error: {last_error})" if last_error else " (no fills returned)",
                 )
-                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
-                real_fills = []
+                self._save_error(
+                    "FillFetchError",
+                    f"Failed to fetch fills for order {order_id} after {retries} attempts"
+                    + (f": {last_error}" if last_error else " (no fills returned)"),
+                )
 
             if real_fills:
                 total_fill_qty = sum(f["qty"] for f in real_fills)
