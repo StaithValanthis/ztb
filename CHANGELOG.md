@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.1.42 (2026-06-16)
+
+- **Fix(executor):** Remove `no_cache=True` from `_fetch_new_bars()` — restores cache-first polling. The ZTB-2599 flag caused every poll iteration to re-download the full data window from the exchange (~50× slowdown, rate-limit-induced silent `PollingError` exit at ~21 min). The cache-incremental pattern (`read_cache` + `write_cache` + `merge_incremental`) already handles fresh data correctly; `no_cache` is preserved on `load()` as an escape hatch for cold-start use.
+- **Tests:** Updated `test_fetch_new_bars_passes_no_cache` — now asserts `no_cache` defaults to `False` (was asserting `True`).
+- **PR:** [#156](https://github.com/StaithValanthis/ztb/pull/156)
+- **Merge commit:** `<PENDING>` — two-key merged
+- **Tag:** v1.1.42
+
+## v1.1.41 (2026-06-16)
+
+- **Fix(executor):** Restore real demo fills — `get_executions` signature regression + 3 compounding bugs in the fill pipeline (ZTB-2658). Signed request fix; DEMO skip removal; `get_open_orders` response parsing. Real fill flow verified end-to-end.
+- **Test(regression):** Source-regression locks for the real-fill root cause — test locks `get_executions` signature order to prevent recurrence (ZTB-2685, PR #159).
+- **PR:** [#157](https://github.com/StaithValanthis/ztb/pull/157), [#159](https://github.com/StaithValanthis/ztb/pull/159)
+- **Merge commit:** `4a9613e` — two-key merged
+- **Tag:** v1.1.41
+
 ## v1.1.40 (2026-06-16)
 
 - **Fix(data):** Add `no_cache` param to `load()` so the polling loop skips stale cached data (ZTB-2599). `_fetch_new_bars()` now passes `no_cache=True` to bypass cache reads — cache writes still happen so subsequent cold loads benefit. Existing cache short-circuit for bounded queries unchanged.
