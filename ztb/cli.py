@@ -513,6 +513,12 @@ def validate(
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
 @click.option("--expected-tag", default=None, help="Expected git tag for pinning")
 @click.option("--expected-version", default=None, help="Expected installed version")
+@click.option(
+    "--loop-flush-interval",
+    default=1,
+    type=int,
+    help="Flush bars_processed to DB every N bars (0=disabled)",
+)
 def run(
     strategy_name: str,
     symbol: str,
@@ -533,6 +539,7 @@ def run(
     preflight: bool,
     expected_tag: str | None,
     expected_version: str | None,
+    loop_flush_interval: int,
 ) -> None:
     """Execute a strategy on live/demo data."""
     from ztb.execution.executor import Executor
@@ -580,6 +587,7 @@ def run(
         initial_cash=cash,
         risk_enabled=not no_risk,
         asset_precision=asset_precision,
+        loop_flush_interval=loop_flush_interval,
     )
 
     killswitch = LiveKillSwitch() if exec_mode == ExecMode.LIVE and not dry_run else None
