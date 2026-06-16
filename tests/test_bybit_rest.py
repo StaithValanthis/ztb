@@ -125,8 +125,11 @@ class TestBybitPublicREST:
         limiter = TokenBucket(capacity=100, refill_rate=100, refill_interval=1.0)
         backoff = BackoffStrategy()
         c = BybitPublicREST(
-            rate_limiter=limiter, backoff=backoff, timeout=5.0,
-            base_url="https://api-demo.bybit.com", max_retries=3,
+            rate_limiter=limiter,
+            backoff=backoff,
+            timeout=5.0,
+            base_url="https://api-demo.bybit.com",
+            max_retries=3,
         )
         mock_429 = MagicMock(spec=httpx.Response)
         mock_429.status_code = 429
@@ -139,8 +142,11 @@ class TestBybitPublicREST:
         limiter = TokenBucket(capacity=100, refill_rate=100, refill_interval=1.0)
         backoff = BackoffStrategy()
         c = BybitPublicREST(
-            rate_limiter=limiter, backoff=backoff, timeout=5.0,
-            base_url="https://api-demo.bybit.com", max_retries=2,
+            rate_limiter=limiter,
+            backoff=backoff,
+            timeout=5.0,
+            base_url="https://api-demo.bybit.com",
+            max_retries=2,
         )
         mock_resp = MagicMock(spec=httpx.Response)
         mock_resp.status_code = 200

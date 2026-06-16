@@ -107,7 +107,7 @@ class BybitClient:
                     continue
                 if resp.status_code == 429:
                     if attempt < self._config.max_retries - 1:
-                        time.sleep(2.0 ** attempt)
+                        time.sleep(2.0**attempt)
                         continue
                     raise ClientError(429, "rate limited")
                 data: dict[str, Any] = resp.json()
