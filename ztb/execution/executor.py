@@ -921,19 +921,22 @@ class Executor:
             timeframe=timeframe,
             category=category,
             start=extended_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            end=None,
+            end=current_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         if extended is None or extended.empty:
             raise ExecutionError(
                 f"Cannot fetch enough historical data for {symbol} {timeframe}: "
                 f"need {warmup} bars for warmup, exchange returned empty data"
             )
-        if len(extended) < warmup:
+        combined = pd.concat([extended, data])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+        if len(combined) < warmup:
             raise ExecutionError(
                 f"Exchange cannot provide enough historical data for {symbol} {timeframe}: "
-                f"got {len(extended)} bars, need {warmup} for warmup"
+                f"got {len(combined)} bars, need {warmup} for warmup"
             )
-        return extended
+        return combined
 
     def _fetch_new_bars(
         self,
