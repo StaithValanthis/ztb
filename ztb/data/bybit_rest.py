@@ -46,7 +46,8 @@ class BybitPublicREST:
                 wait = self._rate_limiter.wait_time()
                 import time as _time
 
-                _time.sleep(wait)
+                sleep_time = max(wait, 0.01)
+                _time.sleep(sleep_time)
                 continue
 
             try:

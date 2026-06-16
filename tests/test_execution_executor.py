@@ -989,6 +989,203 @@ def test_ensure_warmup_fails_empty(mock_load: MagicMock, fake_strategy: FakeStra
 
 
 @patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_end_bound(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    small_data = sample_data.iloc[:50]
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert mock_load.call_count >= 1
+    _name, kwargs = mock_load.call_args
+    end_val = kwargs.get("end")
+    assert end_val is not None, "end must not be None — should be bounded to current_start"
+    assert "2026-01-01" in str(end_val), "end should be the original start date"
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_merge_preserves_original_data(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    small_data.index.name = "timestamp"
+    idx_ext = pd.date_range("2025-12-20", periods=160, freq="h", tz="UTC")
+    extended = pd.DataFrame(
+        {
+            "open": [49000.0] * 160,
+            "high": [49100.0] * 160,
+            "low": [48900.0] * 160,
+            "close": [49000.0] * 160,
+            "volume": [100.0] * 160,
+        },
+        index=idx_ext,
+    )
+    extended.index.name = "timestamp"
+    mock_load.return_value = extended
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 150
+    last_original_idx = small_data.index[-1]
+    last_original_close = small_data["close"].iloc[-1]
+    assert last_original_idx in result.index
+    assert result.loc[last_original_idx, "close"] == last_original_close
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_merge_overlap(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    overlap_ts = pd.Timestamp("2025-12-31 12:00", tz="UTC")
+    idx = pd.date_range("2025-12-31 10:00", periods=5, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 5,
+            "high": [50100.0] * 5,
+            "low": [49900.0] * 5,
+            "close": [55555.0] * 5,
+            "volume": [100.0] * 5,
+        },
+        index=idx,
+    )
+    small_data.index.name = "timestamp"
+    idx_ext = pd.date_range("2025-12-20", periods=300, freq="h", tz="UTC")
+    ext_close = [44444.0] * 300
+    extended = pd.DataFrame(
+        {
+            "open": [49000.0] * 300,
+            "high": [49100.0] * 300,
+            "low": [48900.0] * 300,
+            "close": ext_close,
+            "volume": [100.0] * 300,
+        },
+        index=idx_ext,
+    )
+    extended.index.name = "timestamp"
+    mock_load.return_value = extended
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2025-12-31T10:00:00Z")
+    assert overlap_ts in result.index, "overlapping timestamp should exist in result"
+    assert result.loc[overlap_ts, "close"] == 55555.0, (
+        "original data should win on overlap (keep='last')"
+    )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_ensure_warmup_no_extra_fetch(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    idx = pd.date_range("2026-01-01", periods=50, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=idx,
+    )
+    small_data.index.name = "timestamp"
+    idx_ext = pd.date_range("2025-12-20", periods=200, freq="h", tz="UTC")
+    extended = pd.DataFrame(
+        {
+            "open": [49000.0] * 200,
+            "high": [49100.0] * 200,
+            "low": [48900.0] * 200,
+            "close": [49000.0] * 200,
+            "volume": [100.0] * 200,
+        },
+        index=idx_ext,
+    )
+    extended.index.name = "timestamp"
+    mock_load.return_value = extended
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result) >= 150
+    mock_load.reset_mock()
+    result2 = exe._ensure_warmup(result, 150, "BTCUSDT", "60", "linear", "2026-01-01")
+    assert len(result2) >= 150
+    mock_load.assert_not_called()
+
+
+@patch("ztb.execution.executor.load_data")
+def test_executor_with_start_dry_run_completes_quickly(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+) -> None:
+    import time
+
+    small_idx = pd.date_range("2026-06-14", periods=50, freq="h", tz="UTC")
+    small_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 50,
+            "high": [50100.0] * 50,
+            "low": [49900.0] * 50,
+            "close": [50000.0] * 50,
+            "volume": [100.0] * 50,
+        },
+        index=small_idx,
+    )
+    small_data.index.name = "timestamp"
+    ext_idx = pd.date_range("2026-06-01", periods=400, freq="h", tz="UTC")
+    ext_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 400,
+            "high": [50100.0] * 400,
+            "low": [49900.0] * 400,
+            "close": [50000.0] * 400,
+            "volume": [100.0] * 400,
+        },
+        index=ext_idx,
+    )
+    ext_data.index.name = "timestamp"
+    mock_load.side_effect = [small_data, ext_data]
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        warmup_bars=10,
+        lookback_bars=0,
+    )
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    start_wall = time.monotonic()
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-06-14",
+        end="2026-06-15",
+        db_path=":memory:",
+    )
+    elapsed = time.monotonic() - start_wall
+    assert result.status == "completed"
+    assert result.bars_processed > 0
+    assert elapsed < 10.0, f"Executor took {elapsed:.2f}s, expected <5s (no 3-minute hang)"
+
+
+@patch("ztb.execution.executor.load_data")
 def test_fetch_new_bars_no_new_data(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
@@ -2943,7 +3140,7 @@ def test_reduce_only_proceeds_when_exchange_has_position_short(
 
 
 # ---------------------------------------------------------------------------
-# ZTB-1465: Wallet balance fix — cap qty to available_balance
+# ZTB-1465: Wallet balance fix — cap qty to total_available_balance
 # ---------------------------------------------------------------------------
 
 
@@ -2954,7 +3151,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance is low, qty is capped to prevent 'ab not enough'."""
+    """When total_available_balance is low, qty is capped to prevent 'ab not enough'."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -2998,7 +3195,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance is very low, qty is capped below the signal target."""
+    """When total_available_balance is very low, qty is capped below the signal target."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -3044,7 +3241,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance*max_leverage rounds target qty to zero, no order is placed."""
+    """When total_available_balance*max_leverage rounds target qty to zero, no order is placed."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
@@ -3228,17 +3425,18 @@ def test_executor_wallet_fetch_failure_skips_bar(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_executor_sizes_against_available_balance(
+def test_executor_sizes_against_total_available_balance(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """target_qty is capped by available_balance * max_leverage, not by initial_cash."""
+    """target_qty is capped by total_available_balance * max_leverage, not by initial_cash."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3246,7 +3444,7 @@ def test_executor_sizes_against_available_balance(
                         "walletBalance": "200000.0",
                         "availableBalance": "500.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3285,6 +3483,7 @@ def test_executor_ab_not_enough_backoff(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3292,7 +3491,7 @@ def test_executor_ab_not_enough_backoff(
                         "walletBalance": "100000.0",
                         "availableBalance": "100000.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3326,6 +3525,7 @@ def test_executor_instrument_bounds_enforced(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3333,7 +3533,7 @@ def test_executor_instrument_bounds_enforced(
                         "walletBalance": "100000.0",
                         "availableBalance": "100000.0",
                     }
-                ]
+                ],
             }
         ]
     }

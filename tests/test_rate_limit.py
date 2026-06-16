@@ -52,6 +52,22 @@ class TestTokenBucket:
         with pytest.raises(ValueError, match="refill_interval"):
             TokenBucket(capacity=5, refill_rate=5, refill_interval=0)
 
+    def test_tokenbucket_no_busy_spin(self) -> None:
+        import time as _time
+
+        bucket = TokenBucket(capacity=10, refill_rate=10, refill_interval=1.0)
+        for _ in range(10):
+            bucket.consume(1)
+        assert not bucket.consume(1)
+        deadline = _time.monotonic() + 1.5
+        got_token = False
+        while _time.monotonic() < deadline:
+            if bucket.consume(1):
+                got_token = True
+                break
+            _time.sleep(0.01)
+        assert got_token, "Should have refilled a token within 1.5s"
+
 
 class TestBackoffStrategy:
     def test_delay_attempt_zero(self) -> None:

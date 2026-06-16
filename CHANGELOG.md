@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.1.32 (2026-06-16)
+
+- **Fix(executor):** Use account-level `totalAvailableBalance` instead of per-coin `availableBalance` in `_step_impl` sizing. Bybit UTA demo accounts omit coin-level `availableBalance`, causing the sizing path to treat it as `0.0` and never place orders. Replaced `available_balance` with `total_available_balance` in the sizing condition and notional calculation; removed unused `available_balance` variable.
+- **Tests:** Updated existing test wallet fixtures to include `totalAvailableBalance` field. Added UTA regression test `test_executor_uta_no_coin_available_balance`. Full suite: 996/997 pass (1 pre-existing network test failure).
+- **Root cause:** Bybit V5 wallet API for UTA accounts does not include coin-level `availableBalance` key. Code at `executor.py:449` treated missing key as `0.0`, defeating the primary balance-based order sizing.
+- V&R PASS on SHA `897e478` ([ZTB-2248](/ZTB/issues/ZTB-2248))
+- **PR:** [#138](https://github.com/StaithValanthis/ztb/pull/138) — `feat/ztb-2225-available-balance-sizing`
+- **Merge commit:** `1bb1b93` — two-key merged (CI green + V&R PASS on SHA `897e478`; branch updated with main between validation and merge — fix code unchanged)
+- **Tag:** v1.1.32
+
+## v1.1.31 (2026-06-16)
+
+- **Fix(executor):** Bound `_ensure_warmup` data fetch to `[extended_start, current_start]` (was `end=None` → unbounded epoch→now pagination). Merge extended data with original via `pd.concat` + index dedup (`keep="last"`) + `sort_index()`. Defensive `max(wait, 0.01)` in TokenBucket spin-wait loop to reduce CPU.
+- **Root cause:** `_ensure_warmup` called `load_data(..., end=None)`, triggering `paginate_kline` from now back to extended_start — on cold cache, this paginated thousands of 1000-bar windows, producing 3+ minute stalls (rate-limited to ~10 req/s by TokenBucket). Second defect: `return extended` discarded original data, causing the second warmup check to re-fetch.
+- **Tests:** 6 new test cases: end-bound validation, merge preserves original data, overlap dedup (original wins), no-cascade on re-check, TokenBucket no-busy-spin, executor dry-run completes in <5s (1.40s wall). Full regression: 992/992 tests passing (pre-existing env/version-skew exclusions).
+- V&R contract co-sign: [ZTB-2321](/ZTB/issues/ZTB-2321) PASS
+- V&R PASS on SHA `6944fea` ([ZTB-2361](/ZTB/issues/ZTB-2361)); re-validated on `722240a` (vr-pass CI check)
+- **PR:** [#132](https://github.com/StaithValanthis/ztb/pull/132) — `fix/ztb-2276-warmup-rate-limit`
+- **Merge commit:** `ea836a8` — two-key merged (CI green + V&R PASS on same SHA)
+- **Tag:** v1.1.31
+
 ## v1.1.30 (2026-06-16)
 
 - **Fix(executor):** Wrap `save_killswitch_state()` with `contextlib.suppress(sqlite3.OperationalError)` in `_check_killswitch()` and the per-bar heartbeat persist — when the DB is locked, the killswitch break signal (`return True`) now propagates even when the DB write fails. Previously, an `OperationalError` inside `_check_killswitch()` would silently lose the killswitch signal and crash via max_errors/PollingError instead of a graceful killswitch stop.
