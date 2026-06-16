@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.40 (2026-06-16)
+
+- **Fix(data):** Add `no_cache` param to `load()` so the polling loop skips stale cached data (ZTB-2599). `_fetch_new_bars()` now passes `no_cache=True` to bypass cache reads — cache writes still happen so subsequent cold loads benefit. Existing cache short-circuit for bounded queries unchanged.
+- **Tests:** 2 new tests: `test_load_no_cache_skips_cache` (no_cache=True fetches fresh data beyond cache boundary), `test_fetch_new_bars_passes_no_cache` (verifies no_cache=True passed through). All existing loader/cache/executor tests pass.
+- V&R contract co-sign: [ZTB-2608](/ZTB/issues/ZTB-2608) PASS
+- V&R PASS on SHA `aeef78c` ([ZTB-2608](/ZTB/issues/ZTB-2608))
+- **PR:** [#152](https://github.com/StaithValanthis/ztb/pull/152)
+- **Merge commit:** `6f2db2a` — two-key merged (CI green on SHA `aeef78c` + V&R PASS on SHA `aeef78c` via GitHub PR)
+- **Tag:** v1.1.40
+
 ## v1.1.39 (2026-06-16)
 
 - **Fix(executor):** Add `_sigterm_stop` checks inside `_poll_fills()` retry loop — aborts fill polling early on SIGTERM so the process exits promptly (ZTB-2506).
