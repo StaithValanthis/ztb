@@ -15,6 +15,19 @@ from ztb.execution.models import AccountState, Mode, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
+@pytest.fixture(autouse=True)
+def _no_poll_sleep() -> None:
+    """Eliminate fill-polling sleep so tests complete instantly.
+
+    The default poll_fill_max_attempts=15 with poll_fill_interval=2.0 makes
+    every test that places an order wait ~30 seconds.  Patching the sleep
+    inside the executor module keeps the full polling logic but removes only
+    the wall-clock delay.
+    """
+    with patch("ztb.execution.executor.time_module.sleep"):
+        yield
+
+
 @pytest.fixture
 def sample_data() -> pd.DataFrame:
     idx = pd.date_range("2026-01-01", periods=200, freq="h", tz="UTC")
