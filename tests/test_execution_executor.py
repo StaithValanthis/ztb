@@ -4242,7 +4242,9 @@ def test_poll_fills_returns_fills_on_first_attempt(
     assert len(result["real_fills"]) == 1
     assert result["real_fills"][0]["fill_id"] == "fill_on_first"
     assert mock_client.get_executions.call_count == 1
-    mock_client.get_executions.assert_called_with(symbol="BTCUSDT", order_id="poll_oid_ok")
+    mock_client.get_executions.assert_called_with(
+        symbol="BTCUSDT", order_id="poll_oid_ok"
+    )
 
 
 @patch("ztb.execution.executor.load_data")
@@ -4386,7 +4388,9 @@ def test_poll_fills_handles_api_error_and_retries(
     assert len(result["real_fills"]) == 1
     assert result["real_fills"][0]["fill_id"] == "fill_after_error"
     assert mock_client.get_executions.call_count == 2
-    mock_client.get_executions.assert_any_call(symbol="BTCUSDT", order_id="poll_oid_err")
+    mock_client.get_executions.assert_any_call(
+        symbol="BTCUSDT", order_id="poll_oid_err"
+    )
 
 
 @patch("ztb.execution.executor.load_data")
