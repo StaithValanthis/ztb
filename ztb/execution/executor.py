@@ -338,6 +338,9 @@ class Executor:
         deadline = time_module.monotonic() + timeout
 
         while True:
+            if self._sigterm_stop:
+                logger.warning("SIGTERM received — aborting fill polling for %s", order_link_id)
+                break
             try:
                 from ztb.execution.reconcile import parse_fills as _parse_fills
 
@@ -385,6 +388,9 @@ class Executor:
                     "Poll fills failed for order %s",
                     order_id,
                 )
+                if self._sigterm_stop:
+                    logger.warning("SIGTERM received — aborting fill polling for %s", order_link_id)
+                    break
                 if time_module.monotonic() >= deadline:
                     break
                 time_module.sleep(interval)
