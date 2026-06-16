@@ -78,6 +78,8 @@ def test_exec_run_config_defaults() -> None:
     assert c.once is False
     assert c.risk_enabled is True
     assert c.initial_cash == 100_000.0
+    assert c.fill_retry_count == 5
+    assert c.fill_retry_delay_seconds == 0.0
 
 
 def test_exec_run_config_demo_mode() -> None:
