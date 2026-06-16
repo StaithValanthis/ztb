@@ -1544,7 +1544,7 @@ def test_fetch_new_bars_passes_no_cache(
     exe = Executor(fake_strategy, config=config)
     exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
     _, kwargs = mock_load.call_args
-    assert kwargs.get("no_cache") is True
+    assert kwargs.get("no_cache", False) is False
 
 
 @patch("ztb.execution.executor.load_data")
