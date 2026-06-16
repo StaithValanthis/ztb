@@ -3673,7 +3673,9 @@ def test_synthetic_fill_saved_when_no_exchange_fills(
     mock_client.get_executions.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -3710,7 +3712,10 @@ def test_synthetic_fill_commission_matches_order(
     mock_client.get_executions.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, commission=0.002)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
+        commission=0.002, poll_fill_max_attempts=1,
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -3794,7 +3799,9 @@ def test_both_order_and_fill_persisted_together(
     mock_client.get_executions.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()
@@ -3811,6 +3818,203 @@ def test_both_order_and_fill_persisted_together(
     assert len(orders) >= 1
     assert len(fills) >= 1
     assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
+
+
+# ---------------------------------------------------------------------------
+# ZTB-2447: exec_fill polling loop
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_returns_fills_on_first_attempt(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills returns fills immediately when exchange has them on first call."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "poll_oid_ok"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = [
+        {
+            "execId": "fill_on_first",
+            "orderId": "poll_oid_ok",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50001.0",
+            "execQty": "0.001",
+            "execFee": "0.05",
+            "execTime": "2026-01-01T00:00:01Z",
+        }
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" in result
+    assert len(result["real_fills"]) == 1
+    assert result["real_fills"][0]["fill_id"] == "fill_on_first"
+    assert mock_client.get_executions.call_count == 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_retries_and_finds_fills_on_second_attempt(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills retries and finds fills on the second attempt."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "poll_oid_retry"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.side_effect = [
+        [],
+        [
+            {
+                "execId": "fill_on_retry",
+                "orderId": "poll_oid_retry",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "50002.0",
+                "execQty": "0.001",
+                "execFee": "0.05",
+                "execTime": "2026-01-01T00:00:02Z",
+            }
+        ],
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
+        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" in result
+    assert len(result["real_fills"]) == 1
+    assert result["real_fills"][0]["fill_id"] == "fill_on_retry"
+    assert mock_client.get_executions.call_count == 2
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_exhausts_attempts_and_falls_back_to_synthetic(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills exhausts all attempts and falls back to synthetic fill."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "poll_oid_exhaust"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
+        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+    assert mock_client.get_executions.call_count == 3
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic" in fills[0]["fill_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_handles_api_error_and_retries(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills handles an API error (exception) and retries."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "poll_oid_err"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.side_effect = [
+        Exception("API timeout"),
+        [
+            {
+                "execId": "fill_after_error",
+                "orderId": "poll_oid_err",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "50003.0",
+                "execQty": "0.001",
+                "execFee": "0.05",
+                "execTime": "2026-01-01T00:00:03Z",
+            }
+        ],
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False,
+        poll_fill_max_attempts=3, poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" in result
+    assert len(result["real_fills"]) == 1
+    assert result["real_fills"][0]["fill_id"] == "fill_after_error"
+    assert mock_client.get_executions.call_count == 2
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_config_defaults(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """ExecRunConfig has sensible defaults for fill polling."""
+    config = ExecRunConfig()
+    assert config.poll_fill_max_attempts == 5
+    assert config.poll_fill_interval == 0.5
+
+
+# ---------------------------------------------------------------------------
 
 
 @patch("ztb.execution.executor.load_data")
@@ -3923,7 +4127,9 @@ def test_reconcile_pending_order_not_found(
     from ztb.execution.idempotency import make_intent_hash, make_order_link_id
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+    )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -3968,7 +4174,9 @@ def test_reconcile_pending_order_api_failure(
     from ztb.execution.idempotency import make_intent_hash, make_order_link_id
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+    )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -4061,7 +4269,9 @@ def test_stale_pending_resolve_failed_nonce(
     from ztb.execution.idempotency import make_intent_hash, make_order_link_id
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+    )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -4318,7 +4528,9 @@ def test_reconcile_query_failure_skip(
     from ztb.execution.idempotency import make_intent_hash, make_order_link_id
 
     signal_strat = SignalStrategy()
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1,
+    )
     exe = Executor(signal_strat, config=config)
     exe._init_run()
     exe._init_store(":memory:")
