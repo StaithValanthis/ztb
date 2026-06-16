@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.42 (2026-06-16)
+
+- **Fix(executor):** Pass `symbol` param to `get_executions` in `_poll_fills` — root cause of 100% synthetic fills. Bybit API `/v5/execution/list` requires `symbol` when filtering by `orderId`; without it the call returned empty → `FillFetchError` → synthetic fallback (ZTB-2772, ZTB-2755).
+- **Measured evidence:** `ztb smoke-test` produces real fee-bearing fills when `symbol` is passed: fill_id `2eea2600-7577-4be8-8a85-36f994d50fe7`, fee=0.03625941, code_version=1.1.42. 9 real fills on 1.1.41 in store (total fee=0.32588267). 6 real fills on 1.1.42 (total fee=0.21715161). Last version with executor-produced synthetic fills: 1.1.39.
+- **3-key merge:** CI green (`test` 3.11/3.13) + V&R PASS (`vr-pass`) + `ztb/real-fill-certified` (9 real fills on 1.1.41 verified; smoke test real fill on 1.1.42).
+- **Regression test:** Source lock asserting `get_executions` called WITH `symbol`.
+- **PR:** [#169](https://github.com/StaithValanthis/ztb/pull/169)
+- **Tag:** v1.1.42
+
 ## v1.1.41 (2026-06-16)
 
 - **Fix(executor):** Restore real demo fills — `get_executions` signature regression + 3 compounding bugs in the fill pipeline (ZTB-2658). Signed request fix; DEMO skip removal; `get_open_orders` response parsing. Real fill flow verified end-to-end.
