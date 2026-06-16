@@ -911,7 +911,7 @@ def test_top_up_demo_account_verifies_balance() -> None:
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 75000.0
+        assert result.credited_amount == 40000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
     client.close()

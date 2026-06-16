@@ -3837,6 +3837,100 @@ def test_executor_ab_not_enough_backoff(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
+def test_executor_sizes_against_available_balance(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """target_qty is capped by per-coin availableBalance, not totalAvailableBalance."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "5000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "5000.0",
+                        "walletBalance": "5000.0",
+                        "availableBalance": "50.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=3.0, initial_cash=100000.0
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    max_qty = round(0.5 * min(100000.0, 50.0 * 3.0) / close_price, config.asset_precision)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    assert placed_qty <= max_qty + 1e-12
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_uta_fallback_when_available_balance_missing(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When Bybit omits coin-level availableBalance (UTA), falls back to totalAvailableBalance."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "500.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "500.0",
+                        "walletBalance": "500.0",
+                        "availableBalance": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"orderId": "test_uta"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=3.0, initial_cash=100000.0
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    close_price = float(sample_data["close"].iloc[-1])
+    max_qty = round(0.5 * min(100000.0, 500.0 * 3.0) / close_price, config.asset_precision)
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    assert placed_qty <= max_qty + 1e-12
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
 def test_executor_instrument_bounds_enforced(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
