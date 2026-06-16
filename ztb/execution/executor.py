@@ -1150,10 +1150,22 @@ class Executor:
                     break
 
                 time_module.sleep(poll_interval)
+                old_len = len(data)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
-                result = self.step(data)
-                if result.get("client_error"):
-                    continue
+                new_len = len(data)
+
+                if new_len > old_len:
+                    for i in range(old_len, new_len):
+                        chunk = data.iloc[: i + 1]
+                        result = self.step(chunk)
+                        if result.get("killswitch_tripped"):
+                            break
+                        if result.get("client_error"):
+                            continue
+                else:
+                    result = self.step(data)
+                    if result.get("client_error"):
+                        continue
                 consecutive_errors = 0
             except ClientError:
                 continue

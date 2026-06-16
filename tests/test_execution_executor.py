@@ -1323,6 +1323,252 @@ def test_polling_loop_error_retry_then_stop(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_processes_each_bar(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """3 new bars → 3 step() calls with correct chunk sizes."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+    step_close_vals: list[float] = []
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        step_close_vals.append(float(data["close"].iloc[-1]))
+        if len(step_data_lengths) >= 4:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: no new bars → 1 step call with full sample_data
+    # Round 2: 3 new bars → 3 step() calls inside the for loop
+    # Round 3: killswitch check → break
+    assert len(step_data_lengths) == 4
+    assert step_data_lengths[0] == len(sample_data)
+    assert step_data_lengths[1] == len(sample_data) + 1
+    assert step_close_vals[1] == 50150.0
+    assert step_data_lengths[2] == len(sample_data) + 2
+    assert step_close_vals[2] == 50250.0
+    assert step_data_lengths[3] == len(sample_data) + 3
+    assert step_close_vals[3] == 50350.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_killswitch_breaks_early(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Killswitch trip on bar 2 must break out of the catch-up loop."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        # Trip killswitch on bar 2 (3rd total step call, 1st is round 1 with no new bars)
+        if len(step_data_lengths) == 3:
+            ks.manual_trip("test")
+            return {"bar_ts": str(data.index[-1]), "killswitch_tripped": True}
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: 1 step (sample_data)
+    # Round 2 catch-up: 2 steps (bars 1 and 2, then break on bar 2)
+    assert len(step_data_lengths) == 3
+    assert step_data_lengths[0] == len(sample_data)
+    assert step_data_lengths[1] == len(sample_data) + 1
+    assert step_data_lengths[2] == len(sample_data) + 2  # bar 3 not processed
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_client_error_continues(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """ClientError on bar 2 must not skip bar 3 processing (step returns dict, not raises)."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+    step_call_idx = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        step_call_idx[0] += 1
+        # Bar 2 (3rd total: round1 + bar1) returns client_error (step's internal contract)
+        if step_call_idx[0] == 3:
+            return {"bar_ts": str(data.index[-1]), "client_error": True}
+        if step_call_idx[0] >= 4:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: 1 step (sample_data)
+    # Round 2 catch-up: 3 steps (bar1, bar2 [client_error], bar3)
+    assert len(step_data_lengths) == 4
+    assert step_data_lengths[1] == len(sample_data) + 1  # bar 1
+    assert step_data_lengths[2] == len(sample_data) + 2  # bar 2 (client_error, skipped)
+    assert step_data_lengths[3] == len(sample_data) + 3  # bar 3 processed despite bar 2 error
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_zero_new_bars_normal_poll(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """No new bars → single step() call, normal path."""
+    mock_load.side_effect = [sample_data, pd.DataFrame(), pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_call_count = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_call_count[0] += 1
+        ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert step_call_count[0] == 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_one_new_bar_normal_path(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """1 new bar → single step() call via else branch."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC")
+    single_bar = pd.DataFrame(
+        {
+            "open": [50100.0],
+            "high": [50200.0],
+            "low": [50000.0],
+            "close": [50150.0],
+            "volume": [150.0],
+        },
+        index=new_idx,
+    )
+    single_bar.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, single_bar, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_call_count = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_call_count[0] += 1
+        if step_call_count[0] >= 2:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # 1 call for round 1 (no new bars), 1 call for round 2 (1 new bar)
+    assert step_call_count[0] == 2
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_operational_error_suppressed(
     mock_sleep: MagicMock,
     mock_load: MagicMock,
