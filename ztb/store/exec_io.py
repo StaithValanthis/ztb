@@ -20,7 +20,8 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
             mode TEXT NOT NULL DEFAULT 'demo',
             started_at TEXT NOT NULL,
             bars_processed INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'running'
+            status TEXT NOT NULL DEFAULT 'running',
+            last_bar_ts TEXT NOT NULL DEFAULT ''
         )"""
     )
     conn.execute(
@@ -172,6 +173,11 @@ def ensure_exec_tables(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE exec_fills_v10 RENAME TO exec_fills")
         with suppress(sqlite3.OperationalError):
             conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (10)")
+    # Schema v11: add last_bar_ts to exec_runs
+    with suppress(sqlite3.OperationalError):
+        conn.execute("ALTER TABLE exec_runs ADD COLUMN last_bar_ts TEXT NOT NULL DEFAULT ''")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (11)")
     ensure_audit_table(conn)
     conn.commit()
 
@@ -202,12 +208,27 @@ def update_exec_run_status(
     exec_run_id: str,
     status: str,
     bars_processed: int = 0,
+    last_bar_ts: str = "",
 ) -> None:
     conn.execute(
-        "UPDATE exec_runs SET status = ?, bars_processed = ? WHERE exec_run_id = ?",
-        (status, bars_processed, exec_run_id),
+        "UPDATE exec_runs SET status=?, bars_processed=?, last_bar_ts=? WHERE exec_run_id=?",
+        (status, bars_processed, last_bar_ts, exec_run_id),
     )
     conn.commit()
+
+
+@retry_on_lock()
+def get_last_bar_ts(
+    conn: sqlite3.Connection, strategy_name: str, symbol: str, timeframe: str
+) -> str:
+    row = conn.execute(
+        """SELECT last_bar_ts FROM exec_runs
+           WHERE strategy_name=? AND symbol=? AND timeframe=?
+           AND status='completed' AND last_bar_ts IS NOT NULL AND last_bar_ts!=''
+           ORDER BY started_at DESC LIMIT 1""",
+        (strategy_name, symbol, timeframe),
+    ).fetchone()
+    return str(row[0]) if row else ""
 
 
 @retry_on_lock()
