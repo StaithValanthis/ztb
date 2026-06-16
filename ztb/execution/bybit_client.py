@@ -107,6 +107,16 @@ class BybitClient:
                     continue
                 data: dict[str, Any] = resp.json()
                 ret_code = data.get("retCode", -1)
+                ret_msg = data.get("retMsg", "")
+                result_preview = str(data.get("result", {}))[:200]
+                logger.debug(
+                    "%s %s \u2192 retCode=%s retMsg=%s result=%s",
+                    method,
+                    path,
+                    ret_code,
+                    ret_msg,
+                    result_preview,
+                )
                 if ret_code == 0:
                     result: dict[str, Any] = data.get("result", {})
                     if self._config.mode == Mode.LIVE:
@@ -146,6 +156,13 @@ class BybitClient:
     ) -> dict[str, Any]:
         validated = self._validate_qty(symbol, qty, category)
         if validated.get("skipped"):
+            if self._config.mode == Mode.DEMO:
+                logger.info(
+                    "place_order SKIPPED: symbol=%s side=%s reason=%s",
+                    symbol,
+                    side,
+                    validated.get("reason", ""),
+                )
             return validated
         qty = validated["qty"]
         body: dict[str, Any] = {
@@ -162,7 +179,18 @@ class BybitClient:
             body["reduceOnly"] = True
         if price is not None and order_type == OrderType.LIMIT:
             body["price"] = str(price)
-        return self._request("POST", "/v5/order/create", body=body)
+        result = self._request("POST", "/v5/order/create", body=body)
+        if self._config.mode == Mode.DEMO:
+            order_id = result.get("orderId", "N/A")
+            logger.info(
+                "place_order DEMO: symbol=%s side=%s qty=%s order_link_id=%s orderId=%s",
+                symbol,
+                side,
+                qty,
+                order_link_id,
+                order_id,
+            )
+        return result
 
     def cancel_order(
         self,
@@ -280,7 +308,15 @@ class BybitClient:
         min_qty = float(ls.get("minOrderQty", "0"))
         max_qty = float(ls.get("maxOrderQty", "0"))
 
+        orig_qty = qty
         qty = self.round_to_step(qty, qty_step)
+        if qty < 1e-12 and orig_qty > 1e-12:
+            logger.warning(
+                "_validate_qty: qty floored to 0 for %s (orig=%s, step=%s)",
+                symbol,
+                orig_qty,
+                qty_step,
+            )
 
         if qty < min_qty - 1e-12:
             return {

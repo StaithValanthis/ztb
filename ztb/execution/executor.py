@@ -287,8 +287,16 @@ class Executor:
         if decision.action == RiskDecisionAction.halt:
             return 0.0, decision
         if decision.action == RiskDecisionAction.reduce:
-            sig_val = abs(target_signal) * equity
-            scale = decision.max_notional / sig_val if sig_val > 0 else 0.0
+            if decision.max_pos_size > 0:
+                pos_notional = decision.max_pos_size * price
+                scale = (
+                    pos_notional / abs(target_signal * equity)
+                    if abs(target_signal * equity) > 0
+                    else 0.0
+                )
+            else:
+                sig_val = abs(target_signal) * equity
+                scale = decision.max_notional / sig_val if sig_val > 0 else 0.0
             return target_signal * min(scale, 1.0), decision
         return target_signal, decision
 
@@ -741,6 +749,7 @@ class Executor:
                     f"(PnL had {current_position}, actual "
                     f"{reconcile_report.actual_position})"
                 )
+                self._save_error("OrderSkipped", result["skip_reason"])
                 self.state.errors.append(result["skip_reason"])
                 self.state.bars_processed += 1
                 self.state.last_bar_ts = bar_ts
@@ -774,6 +783,7 @@ class Executor:
                         result["skip_reason"] = (
                             f"Qty capped to {max_qty} by balance limit, below minimum"
                         )
+                        self._save_error("OrderSkipped", result["skip_reason"])
                         self.state.errors.append(result["skip_reason"])
                         self.state.bars_processed += 1
                         self.state.last_bar_ts = bar_ts
@@ -844,9 +854,11 @@ class Executor:
                 raise
 
             if order_result.get("skipped"):
+                skip_reason: str = str(order_result.get("reason", ""))
                 result["order_skipped"] = True
-                result["skip_reason"] = order_result.get("reason", "")
-                self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
+                result["skip_reason"] = skip_reason
+                self._save_error("OrderSkipped", skip_reason)
+                self.state.errors.append(f"Order skipped: {skip_reason}")
                 self.state.bars_processed += 1
                 self.state.last_bar_ts = bar_ts
                 self._sync_pnl_state()
@@ -865,9 +877,13 @@ class Executor:
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
             # Real fill pipeline: poll for fills from exchange
-            real_fills: list[dict[str, Any]] = self._poll_fills(
-                order_id=order_id, order_link_id=order_link_id
-            )
+            real_fills: list[dict[str, Any]]
+            if self.config.mode == Mode.DEMO:
+                real_fills = []
+            else:
+                real_fills = self._poll_fills(
+                    order_id=order_id, order_link_id=order_link_id
+                )
             if not real_fills:
                 self._save_error("FillFetchError", f"No fills after polling for order {order_id}")
 
