@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.43 (2026-06-16)
+
+- **Chore:** Bump version to v1.1.43 on PR #167 — version bump only, no code changes.
+- **PR:** [#167](https://github.com/StaithValanthis/ztb/pull/167)
+- **Tag:** v1.1.43
+
 ## v1.1.42 (2026-06-16)
 
 - **Fix(executor):** Pass `symbol` param to `get_executions` in `_poll_fills` — root cause of 100% synthetic fills. Bybit API `/v5/execution/list` requires `symbol` when filtering by `orderId`; without it the call returned empty → `FillFetchError` → synthetic fallback (ZTB-2772, ZTB-2755).
