@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.44 (2026-06-16)
+
+- **Fix(executor):** Defer `_last_executed_signal` update until after `place_order` succeeds — prevents permanent signal consumption when `place_order` raises `ClientError` (ZTB-2765). The premature update at executor.py:614 caused `ClientError` to consume the signal permanently, producing zero orders forever. Now `_last_executed_signal` is updated only on successful order paths (duplicate-handled, order-placed+filled, signal-changed+delta≈0).
+- **Fix(symbol param):** Rebased on `feat/fix-poll-fills-symbol` — `get_executions` now called with `symbol` param (cherry-picked into `origin/main` during rebase, commit skipped as already-applied).
+- **Tests:** 5 new tests covering failure/retry/skip/capped-zero paths + regression lock for `get_executions` symbol param.
+- **Two-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `d51cc6f` via `ztb-vr-pass-bridge.py`.
+- **Real-fill gate:** EXEMPTED per two-tier policy for prerequisite fixes (Board 2026-06-16). Admin-set `ztb/real-fill-certified = success`.
+- **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs.
+- **PR:** [#172](https://github.com/StaithValanthis/ztb/pull/172)
+- **Merge commit:** `1ff26af` — two-key merged
+- **Tag:** v1.1.44
+
 ## v1.1.43 (2026-06-16)
 
 - **Chore:** Bump version to v1.1.43 on PR #167 — version bump only, no code changes.
