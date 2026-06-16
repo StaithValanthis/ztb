@@ -107,7 +107,6 @@ class ExecRunConfig:
     max_leverage: float = 3.0
     loop_flush_interval: int = 1
     data_load_timeout_seconds: int = 600
-    loop_flush_interval: int = 1
     fill_poll_timeout: float = 30.0
     fill_poll_interval: float = 1.0
 
