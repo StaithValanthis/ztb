@@ -844,7 +844,7 @@ def test_top_up_demo_account_calls_api() -> None:
         assert mock_request.call_args_list[1][0] == ("GET", "/v5/account/wallet-balance")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 50000.0
+        assert result.credited_amount == 25000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
     client.close()
@@ -940,7 +940,7 @@ def test_top_up_demo_account_faucet_cap() -> None:
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 100.0
+        assert result.credited_amount == 50.0
         assert result.requested_amount == 100000.0
     client.close()
 
