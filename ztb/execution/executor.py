@@ -326,6 +326,76 @@ class Executor:
             logger.warning("reconcile_pending_order: query failed for %s", order_link_id)
         return None
 
+    def _poll_fills(
+        self,
+        order_id: str,
+        order_link_id: str,
+    ) -> list[dict[str, Any]]:
+        assert self.state is not None
+        assert self.client is not None
+        timeout = self.config.fill_poll_timeout
+        interval = self.config.fill_poll_interval
+        deadline = time_module.monotonic() + timeout
+
+        while True:
+            try:
+                from ztb.execution.reconcile import parse_fills as _parse_fills
+
+                raw_fills = self.client.get_executions(order_id=order_id)
+                parsed = list(_parse_fills(raw_fills))
+                if parsed:
+                    elapsed = timeout - max(0.0, deadline - time_module.monotonic())
+                    logger.info(
+                        "Polled fills for %s in %.1fs: %d fill(s)",
+                        order_link_id,
+                        elapsed,
+                        len(parsed),
+                    )
+                    return [
+                        {
+                            "fill_id": f.exec_id,
+                            "order_link_id": order_link_id,
+                            "exec_run_id": self.state.exec_run_id,
+                            "order_id": f.order_id,
+                            "symbol": f.symbol,
+                            "side": f.side.value,
+                            "price": f.price,
+                            "qty": f.qty,
+                            "commission": f.commission,
+                            "realized_pnl": f.realized_pnl,
+                            "filled_at": f.timestamp,
+                            "sufficient_sample": 1,
+                            "code_version": __version__,
+                        }
+                        for f in parsed
+                    ]
+
+                remaining = deadline - time_module.monotonic()
+                if remaining <= 0:
+                    break
+                logger.debug(
+                    "No fills yet for %s, retrying in %.1fs (%.1fs left)",
+                    order_link_id,
+                    interval,
+                    remaining,
+                )
+                time_module.sleep(min(interval, remaining))
+            except Exception:
+                logger.warning(
+                    "Poll fills failed for order %s",
+                    order_id,
+                )
+                if time_module.monotonic() >= deadline:
+                    break
+                time_module.sleep(interval)
+
+        logger.warning(
+            "Fill polling exhausted for %s after %.1fs — returning empty",
+            order_link_id,
+            timeout,
+        )
+        return []
+
     def step(
         self,
         data: DataFrame,
@@ -759,37 +829,12 @@ class Executor:
             order_id = order_result.get("orderId", "")
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            # Real fill pipeline: fetch actual fills from exchange
-            real_fills: list[dict[str, Any]] = []
-            from ztb.execution.reconcile import parse_fills as _parse_fills
-
-            try:
-                raw_fills = self.client.get_executions(order_id=order_id)
-                for f in _parse_fills(raw_fills):
-                    real_fills.append(
-                        {
-                            "fill_id": f.exec_id,
-                            "order_link_id": order_link_id,
-                            "exec_run_id": self.state.exec_run_id,
-                            "order_id": f.order_id,
-                            "symbol": f.symbol,
-                            "side": f.side.value,
-                            "price": f.price,
-                            "qty": f.qty,
-                            "commission": f.commission,
-                            "realized_pnl": f.realized_pnl,
-                            "filled_at": f.timestamp,
-                            "sufficient_sample": 1,
-                            "code_version": __version__,
-                        }
-                    )
-            except Exception:
-                logger.warning(
-                    "Failed to fetch fills for order %s, falling back to synthetic fill",
-                    order_id,
-                )
-                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
-                real_fills = []
+            # Real fill pipeline: poll for fills from exchange
+            real_fills: list[dict[str, Any]] = self._poll_fills(
+                order_id=order_id, order_link_id=order_link_id
+            )
+            if not real_fills:
+                self._save_error("FillFetchError", f"No fills after polling for order {order_id}")
 
             if real_fills:
                 total_fill_qty = sum(f["qty"] for f in real_fills)
@@ -1146,9 +1191,9 @@ class Executor:
         return self.state
 
     def _flush_bars_processed(self) -> None:
+        assert self.state is not None
         from ztb.store.exec_io import update_exec_run_status
 
-        assert self.state is not None
         with contextlib.suppress(sqlite3.OperationalError):
             update_exec_run_status(
                 self._store_conn,
@@ -1215,6 +1260,7 @@ class Executor:
                     ):
                         self._flush_bars_processed()
                 consecutive_errors = 0
+                self._flush_bars_processed()
             except ClientError:
                 continue
             except sqlite3.OperationalError as exc:
