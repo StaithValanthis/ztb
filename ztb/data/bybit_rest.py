@@ -35,11 +35,13 @@ class BybitPublicREST:
         backoff: BackoffStrategy,
         timeout: float = 10.0,
         base_url: str = BASE_URL_DEMO,
+        max_retries: int = 5,
     ) -> None:
         self._rate_limiter = rate_limiter
         self._backoff = backoff
         self._timeout = timeout
         self._base_url = base_url
+        self._max_retries = max_retries
         self._client = httpx.Client(timeout=httpx.Timeout(timeout))
 
     def close(self) -> None:
@@ -49,9 +51,8 @@ class BybitPublicREST:
         self, method: str, path: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
-        attempt = 0
-        while True:
-            if not self._rate_limiter.consume():
+        for attempt in range(self._max_retries):
+            while not self._rate_limiter.consume():
                 wait = self._rate_limiter.wait_time()
                 _time.sleep(max(wait, 0.01))
                 continue
@@ -99,10 +100,11 @@ class BybitPublicREST:
             )
 
             if resp.status_code == 429:
-                delay = self._backoff.delay(attempt)
-                _time.sleep(delay)
-                attempt += 1
-                continue
+                if attempt < self._max_retries - 1:
+                    delay = self._backoff.delay(attempt)
+                    _time.sleep(delay)
+                    continue
+                raise FetchError(f"rate limit retries exhausted for {path}")
 
             if resp.status_code != 200:
                 raise FetchError(f"HTTP {resp.status_code} for {path}: {resp.text[:200]}")
@@ -111,15 +113,17 @@ class BybitPublicREST:
             ret_code = data.get("retCode", -1)
             if ret_code != 0:
                 if ret_code in (10002, 10006, 10028):
-                    delay = self._backoff.delay(attempt)
-                    _time.sleep(delay)
-                    attempt += 1
-                    continue
+                    if attempt < self._max_retries - 1:
+                        delay = self._backoff.delay(attempt)
+                        _time.sleep(delay)
+                        continue
+                    raise FetchError(f"rate limit retries exhausted for {path}")
                 raise FetchError(
                     f"Bybit API error (retCode={ret_code}) for {path}: {data.get('retMsg', '')}"
                 )
 
             return data
+        raise FetchError(f"rate limit retries exhausted for {path}")
 
     def get_kline(
         self,

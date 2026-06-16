@@ -266,6 +266,65 @@ def test_max_retries_on_500_exhausted(mock_client_cls: MagicMock) -> None:
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_429_retries_then_succeeds(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    fail_resp = MagicMock()
+    fail_resp.status_code = 429
+    fail_resp.json.return_value = {"retCode": 10004, "retMsg": "rate limited"}
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [fail_resp, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_429_on_last_attempt_raises_client_error(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    fail_resp = MagicMock()
+    fail_resp.status_code = 429
+    mock_instance.request.return_value = fail_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="rate limited"):
+        client._request("GET", "/v5/market/time")
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_http_429_with_10028_retries_then_succeeds(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    resp_429 = MagicMock()
+    resp_429.status_code = 429
+    resp_429.json.return_value = {"retCode": 10028, "retMsg": "rate limit"}
+    resp_10028 = MagicMock()
+    resp_10028.status_code = 200
+    resp_10028.json.return_value = {"retCode": 10028, "retMsg": "rate limit"}
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [resp_429, resp_10028, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=3)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 3
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
 def test_generic_ret_code_raises(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
     mock_client_cls.return_value = mock_instance
