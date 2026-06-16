@@ -350,6 +350,9 @@ class Executor:
         order_id: str,
         order_link_id: str,
     ) -> list[dict[str, Any]]:
+        if self.config.mode == Mode.DEMO:
+            logger.info("Skipping fill polling in DEMO mode — using synthetic fills")
+            return []
         assert self.state is not None
         assert self.client is not None
         max_attempts = self.config.poll_fill_max_attempts
@@ -1244,6 +1247,16 @@ class Executor:
                     break
 
                 time_module.sleep(poll_interval)
+                if self._check_killswitch():
+                    self.state.errors.append(
+                        "Killswitch tripped during sleep — stopping polling loop"
+                    )
+                    with contextlib.suppress(sqlite3.OperationalError):
+                        self._save_error(
+                            "KillswitchTripped",
+                            "Killswitch tripped after sleep",
+                        )
+                    break
                 old_len = len(data)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
                 new_len = len(data)
