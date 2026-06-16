@@ -4368,10 +4368,12 @@ def test_poll_fills_aborts_early_on_sigterm(
     exe._init_store(":memory:")
     exe.client = mock_client
 
-    calls = iter([
-        [],
-        lambda: setattr(exe, "_sigterm_stop", True) or [],
-    ])
+    calls = iter(
+        [
+            [],
+            lambda: setattr(exe, "_sigterm_stop", True) or [],
+        ]
+    )
     mock_client.get_executions.side_effect = lambda *a, **kw: (
         v() if callable(v := next(calls)) else v
     )
