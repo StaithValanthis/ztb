@@ -19,6 +19,9 @@ class _MockClient:
         self.pages = pages or []
         self.call_count = 0
 
+    def close(self) -> None:
+        pass
+
     def get_kline(
         self,
         category: str,

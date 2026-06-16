@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import logging
 import signal
@@ -1018,30 +1019,53 @@ class Executor:
             except Exception as exc:
                 self._save_error("DemoAccountTopUpError", str(exc))
 
-        data = load_data(
-            symbol=symbol,
-            timeframe=timeframe,
-            category=category,
-            start=start,
-            end=end,
-        )
+        def _do_data_load() -> DataFrame:
+            result = load_data(
+                symbol=symbol,
+                timeframe=timeframe,
+                category=category,
+                start=start,
+                end=end,
+            )
 
-        if data is None or data.empty:
-            raise ExecutionError(f"No data loaded for {symbol} {timeframe}")
+            if result is None or result.empty:
+                raise ExecutionError(f"No data loaded for {symbol} {timeframe}")
+
+            assert self.state is not None
+            w = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
+
+            eff = (
+                self.config.lookback_bars
+                if self.config.lookback_bars and self.config.lookback_bars > 0
+                else max(w * 2, 200)
+            )
+            if len(result) < eff:
+                result = self._ensure_warmup(result, eff, symbol, timeframe, category, start)
+
+            if len(result) < w:
+                result = self._ensure_warmup(result, w, symbol, timeframe, category, start)
+
+            return result
+
+        timeout_s = self.config.data_load_timeout_seconds
+        if timeout_s > 0:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_do_data_load)
+                try:
+                    data = fut.result(timeout=timeout_s)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(
+                        "Data load timed out after %ds — symbol=%s timeframe=%s",
+                        timeout_s,
+                        symbol,
+                        timeframe,
+                    )
+                    raise ExecutionError(f"Data load timed out after {timeout_s}s") from None
+        else:
+            data = _do_data_load()
 
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
-
-        effective_lookback = (
-            self.config.lookback_bars
-            if self.config.lookback_bars and self.config.lookback_bars > 0
-            else max(warmup * 2, 200)
-        )
-        if len(data) < effective_lookback:
-            data = self._ensure_warmup(data, effective_lookback, symbol, timeframe, category, start)
-
-        if len(data) < warmup:
-            data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
 
         if not self.config.dry_run and self.client is not None and len(data) > warmup:
             try:
