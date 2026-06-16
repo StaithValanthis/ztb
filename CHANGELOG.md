@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.36 (2026-06-16)
+
+- **Fix(executor):** Remove broken data-load watchdog (ZTB-2358) — `ThreadPoolExecutor` watchdog threads caused the main data-load loop to stall, preventing bar processing entirely (ZTB-2521). Reverts `_fetch_and_load_data` to synchronous main-thread data load with direct `try/finally` cleanup. Removes `data_load_timeout_seconds` from `ExecRunConfig`, `ThreadPoolExecutor` usage, `BybitPublicREST.close()`, and 4 watchdog-specific test cases.
+- **Fix(executor):** Restore main-thread data load — simplifies error handling, eliminates thread-join deadlock that blocked bars_processed > 0 on v1.1.35.
+- **Tests:** 4 watchdog-specific tests removed; remaining 1033/1033 passing. Ruff/mypy clean.
+- V&R contract co-sign: [ZTB-2525](/ZTB/issues/ZTB-2525) PASS
+- V&R PASS on SHA `e3dcc163` ([ZTB-2527](/ZTB/issues/ZTB-2527))
+- **PR:** [#146](https://github.com/StaithValanthis/ztb/pull/146) — `feat/ztb-2504-cherry-pick-watchdog-removal`
+- **Merge commit:** `0f2e861` — two-key merged (CI green + V&R PASS on SHA `e3dcc163`)
+- **Tag:** v1.1.36
+
 ## v1.1.35 (2026-06-16)
 
 - **Feat(executor):** Configurable polling loop for `get_executions()` in `_step_impl` (ZTB-2447). New `_poll_fills()` method retries at `poll_fill_interval` (default 0.5s) up to `poll_fill_max_attempts` (default 5, total ~2.5s) before falling through to synthetic fill fallback. Real `execId` fills are recorded when they arrive during polling, enabling the `CONFIRM` gate for deploy (ZTB-2308). Added `poll_fill_max_attempts` and `poll_fill_interval` to `ExecRunConfig`.
