@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.1.38 (2026-06-16)
+
+- **Fix(executor):** `_poll_fills` early return in DEMO mode — skips live polling cost when not needed (ZTB-2434).
+- **Fix(executor):** Killswitch gap after `sleep()` in `_run_polling_loop` — check killswitch before `_fetch_new_bars()` to stop faster (ZTB-2496).
+- **Tests:** 2 new DEMO-mode tests verifying zero polling in demo; 1 new killswitch-gap test. 4 existing poll_fills tests moved to Mode.LIVE.
+- CI green on SHA `d797575` (branch).
+
+## v1.1.37 (2026-06-16)
+
+- **Feat(executor):** Replay-on-restart cursor — persist `last_bar_ts` in `exec_runs` table and skip already-processed bars on restart (ZTB-2503). On restart, `_restore_last_bar_ts()` queries the most recent completed run's cursor for (strategy, symbol, timeframe). If found and at or past warmup, the historical loop starts at `cursor_pos + 1` instead of `warmup`. Maintains warmup guarantee — falls back to full replay when cursor is missing or before warmup.
+- **Schema:** v11 — `ALTER TABLE exec_runs ADD COLUMN last_bar_ts TEXT NOT NULL DEFAULT ''`
+- **6 new seams:** (1) `update_exec_run_status()` signature extended with `last_bar_ts` param; (2) `_restore_last_bar_ts()` new Executor method; (3) `get_last_bar_ts()` new store function; (4) cursor skip in `run()` historical loop; (5) `_flush_bars_processed()` persists `last_bar_ts`; (6) end-of-run `update_exec_run_status` persists `last_bar_ts`.
+- **Tests:** 6 new contract-validating cases: skip processed bars, maintain warmup, no-prior-run backward compat, persist cursor, invalid cursor fallback, polling loop continuation. All 153/153 executor tests pass.
+- V&R contract co-sign: [ZTB-2511](/ZTB/issues/ZTB-2511) PASS
+- CI green on SHA `d5be5a7` (branch). Merged with conflict resolution (watchdog removal v1.1.36 vs replay cursor).
+- **Board directive:** Single authorized deploy during freeze — prerequisite for any CONFIRM (ZTB-2501 resolution).
+- **PR:** replay-on-restart cursor on `feat/ztb-2503-replay-cursor`
+- **Merge commit:** `31f597a` — merge into main
+- **Tag:** v1.1.37
+
 ## v1.1.36 (2026-06-16)
 
 - **Fix(executor):** Remove broken data-load watchdog (ZTB-2358) — `ThreadPoolExecutor` watchdog threads caused the main data-load loop to stall, preventing bar processing entirely (ZTB-2521). Reverts `_fetch_and_load_data` to synchronous main-thread data load with direct `try/finally` cleanup. Removes `data_load_timeout_seconds` from `ExecRunConfig`, `ThreadPoolExecutor` usage, `BybitPublicREST.close()`, and 4 watchdog-specific test cases.

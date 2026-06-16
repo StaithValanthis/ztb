@@ -126,6 +126,26 @@ class Executor:
         )
         self._idempotency = IdempotencyLedger(self._store_conn)
 
+    def _restore_last_bar_ts(self) -> None:
+        assert self.state is not None
+        from ztb.store.exec_io import get_last_bar_ts
+
+        last_ts = get_last_bar_ts(
+            self._store_conn,
+            self.state.strategy_name,
+            self.state.symbol,
+            self.state.timeframe,
+        )
+        if last_ts:
+            self.state.last_bar_ts = last_ts
+            logger.info(
+                "Restored last_bar_ts=%s for %s %s %s",
+                last_ts,
+                self.state.strategy_name,
+                self.state.symbol,
+                self.state.timeframe,
+            )
+
     def _save_position_snapshot(self) -> None:
         from ztb.store.exec_io import save_position_snapshot
 
@@ -1015,6 +1035,7 @@ class Executor:
     ) -> ExecRunState:
         self._init_run()
         self._init_store(db_path)
+        self._restore_last_bar_ts()
 
         if self._idempotency is not None:
             self._idempotency.clear_stale(ttl_hours=24)
@@ -1089,6 +1110,22 @@ class Executor:
         if len(data) < warmup:
             data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
 
+        start_idx = warmup
+        if self.state.last_bar_ts:
+            try:
+                cursor_pos: int = data.index.get_loc(self.state.last_bar_ts)  # type: ignore[assignment]
+                if cursor_pos >= warmup:
+                    start_idx = cursor_pos + 1
+                else:
+                    logger.warning(
+                        "Cursor %s before warmup (pos=%d, warmup=%d) — no skip",
+                        self.state.last_bar_ts,
+                        cursor_pos,
+                        warmup,
+                    )
+            except KeyError:
+                logger.warning("Cursor %s not in data — no skip", self.state.last_bar_ts)
+
         if not self.config.dry_run and self.client is not None and len(data) > warmup:
             try:
                 warmup_data = data.iloc[: warmup + 1] if len(data) > warmup + 1 else data
@@ -1116,7 +1153,7 @@ class Executor:
             if result.get("killswitch_tripped"):
                 self._save_kill_events()
         else:
-            for i in range(warmup, len(data)):
+            for i in range(start_idx, len(data)):
                 if self._check_killswitch():
                     self._save_kill_events()
                     break
@@ -1158,6 +1195,7 @@ class Executor:
             self.state.exec_run_id,
             self.state.status,
             self.state.bars_processed,
+            self.state.last_bar_ts,
         )
 
         self._restore_sigterm()
@@ -1177,6 +1215,7 @@ class Executor:
                 self.state.exec_run_id,
                 self.state.status,
                 self.state.bars_processed,
+                self.state.last_bar_ts,
             )
 
     def _run_polling_loop(
