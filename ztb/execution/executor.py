@@ -350,9 +350,6 @@ class Executor:
         order_id: str,
         order_link_id: str,
     ) -> list[dict[str, Any]]:
-        if self.config.mode == Mode.DEMO:
-            logger.info("Skipping fill polling in DEMO mode — using synthetic fills")
-            return []
         assert self.state is not None
         assert self.client is not None
         max_attempts = self.config.poll_fill_max_attempts

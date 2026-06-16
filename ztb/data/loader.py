@@ -73,7 +73,10 @@ def load(
                 result = cached.loc[mask]
                 return validate_schema(result)
         elif start_ts is not None:
-            if cached.index[0] <= start_ts:
+            _now_ms = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
+            _cache_end_ms = int(cached.index[-1].timestamp() * 1000)
+            _cache_fresh = (_now_ms - _cache_end_ms) <= (2 * interval_ms)
+            if cached.index[0] <= start_ts and _cache_fresh:
                 result = cached.loc[cached.index >= start_ts]
                 return validate_schema(result)
         elif end_ts is not None and cached.index[-1] >= end_ts:
