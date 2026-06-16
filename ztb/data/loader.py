@@ -44,6 +44,7 @@ def load(
     3. Result is always schema-valid, ascending, unique, no gaps.
     4. Determinism: cold == warm.
     """
+    created_client = client is None
     if client is None:
         client = _default_client()
     if cache_base is None:
@@ -102,25 +103,31 @@ def load(
     if not raw:
         raise FetchError(f"No data returned for {symbol} {timeframe} [{start_ms}, {end_ms}]")
 
-    df = _raw_to_dataframe(raw)
-    df = validate_schema(df)
+    try:
+        df = _raw_to_dataframe(raw)
+        df = validate_schema(df)
 
-    if cached is not None and not cached.empty:
-        df = merge_incremental(cached, df)
+        if cached is not None and not cached.empty:
+            df = merge_incremental(cached, df)
 
-    if start_ts is not None:
-        df = df.loc[df.index >= start_ts]
-    if end_ts is not None:
-        df = df.loc[df.index <= end_ts]
+        if start_ts is not None:
+            df = df.loc[df.index >= start_ts]
+        if end_ts is not None:
+            df = df.loc[df.index <= end_ts]
 
-    report = check_integrity(df, interval_ms)
-    if report.has_gaps or report.has_dupes or not report.is_monotonic:
-        raise IntegrityError(
-            f"Data integrity check failed for {symbol} {timeframe}: "
-            f"gaps={report.gap_count}, dupes={report.dupe_count}, monotonic={report.is_monotonic}"
-        )
+        report = check_integrity(df, interval_ms)
+        if report.has_gaps or report.has_dupes or not report.is_monotonic:
+            raise IntegrityError(
+                f"Data integrity check failed for {symbol} {timeframe}:"
+                f" gaps={report.gap_count}, dupes={report.dupe_count},"
+                f" monotonic={report.is_monotonic}"
+            )
 
-    write_cache(df, category, symbol, timeframe, base=cache_base)
+        write_cache(df, category, symbol, timeframe, base=cache_base)
+    finally:
+        if created_client:
+            client.close()
+
     return df
 
 

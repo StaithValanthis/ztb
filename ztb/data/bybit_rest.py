@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time as _time
 from typing import Any
 
 import httpx
@@ -12,6 +14,10 @@ __all__ = [
     "BackoffStrategy",
     "TokenBucket",
 ]
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_MAX_RETRIES = 3
 
 
 class BybitPublicREST:
@@ -36,6 +42,9 @@ class BybitPublicREST:
         self._base_url = base_url
         self._client = httpx.Client(timeout=httpx.Timeout(timeout))
 
+    def close(self) -> None:
+        self._client.close()
+
     def _request(
         self, method: str, path: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -44,23 +53,53 @@ class BybitPublicREST:
         while True:
             if not self._rate_limiter.consume():
                 wait = self._rate_limiter.wait_time()
-                import time as _time
-
-                sleep_time = max(wait, 0.01)
-                _time.sleep(sleep_time)
+                _time.sleep(max(wait, 0.01))
                 continue
+
+            t0 = _time.monotonic()
+            logger.debug("HTTP request #%d: %s %s params=%s", attempt + 1, method, path, params)
 
             try:
                 resp = self._client.request(method, url, params=params)
             except httpx.TimeoutException as exc:
+                elapsed = (_time.monotonic() - t0) * 1000
+                logger.warning(
+                    "HTTP error #%d: %s after %.0fms",
+                    attempt + 1,
+                    exc,
+                    elapsed,
+                )
+                if attempt + 1 < _DEFAULT_MAX_RETRIES:
+                    delay = self._backoff.delay(attempt + 1)
+                    _time.sleep(delay)
+                    attempt += 1
+                    continue
                 raise FetchError(f"Request timed out: {path}") from exc
             except httpx.HTTPError as exc:
+                elapsed = (_time.monotonic() - t0) * 1000
+                logger.warning(
+                    "HTTP error #%d: %s after %.0fms",
+                    attempt + 1,
+                    exc,
+                    elapsed,
+                )
+                if attempt + 1 < _DEFAULT_MAX_RETRIES:
+                    delay = self._backoff.delay(attempt + 1)
+                    _time.sleep(delay)
+                    attempt += 1
+                    continue
                 raise FetchError(f"HTTP error: {exc}") from exc
+
+            elapsed = (_time.monotonic() - t0) * 1000
+            logger.debug(
+                "HTTP response #%d: %d in %.0fms",
+                attempt + 1,
+                resp.status_code,
+                elapsed,
+            )
 
             if resp.status_code == 429:
                 delay = self._backoff.delay(attempt)
-                import time as _time
-
                 _time.sleep(delay)
                 attempt += 1
                 continue
@@ -73,8 +112,6 @@ class BybitPublicREST:
             if ret_code != 0:
                 if ret_code in (10002, 10006, 10028):
                     delay = self._backoff.delay(attempt)
-                    import time as _time
-
                     _time.sleep(delay)
                     attempt += 1
                     continue
