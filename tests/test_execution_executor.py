@@ -2018,7 +2018,8 @@ def test_executor_startup_reconcile_adopts_exchange_position(
         ]
     }
     mock_client.place_order.return_value = {
-        "skipped": True, "reason": "No trade on startup reconcile"
+        "skipped": True,
+        "reason": "No trade on startup reconcile",
     }
     mock_bybit_cls.return_value = mock_client
 
@@ -2098,7 +2099,8 @@ def test_executor_startup_reconcile_adopts_short_position(
         ]
     }
     mock_client.place_order.return_value = {
-        "skipped": True, "reason": "No trade on startup reconcile"
+        "skipped": True,
+        "reason": "No trade on startup reconcile",
     }
     mock_bybit_cls.return_value = mock_client
 
