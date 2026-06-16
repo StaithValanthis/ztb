@@ -4,7 +4,10 @@
 
 - **Fix(executor):** Remove broken data-load watchdog (ZTB-2358) — `ThreadPoolExecutor` watchdog threads caused the main data-load loop to stall, preventing bar processing entirely (ZTB-2521). Reverts `_fetch_and_load_data` to synchronous main-thread data load with direct `try/finally` cleanup. Removes `data_load_timeout_seconds` from `ExecRunConfig`, `ThreadPoolExecutor` usage, `BybitPublicREST.close()`, and 4 watchdog-specific test cases.
 - **Fix(executor):** Restore main-thread data load — simplifies error handling, eliminates thread-join deadlock that blocked bars_processed > 0 on v1.1.35.
-- **Tests:** 4 watchdog-specific tests removed; remaining 1033/1033 passing. Ruff/mypy clean.
+- **Fix(executor):** Add poll-latency early return for DEMO mode (ZTB-2434) — `_poll_fills()` returns `[]` immediately when `mode == DEMO`, avoiding live exchange polling calls in demo mode.
+- **Fix(executor):** Killswitch check after sleep in polling loop (ZTB-2496) — `_run_polling_loop` now checks killswitch after `sleep()` and before `_fetch_new_bars()`, preventing bar processing when the killswitch was tripped during the sleep interval.
+- **Fix(idempotency):** Add `max_age_seconds` param to `clear_pending` (ZTB-2360) — prevents deletion of recent in-flight pending records, avoiding duplicate-order risk on concurrent runs.
+- **Tests:** 4 watchdog-specific tests removed; 3 new tests for DEMO-mode polling skip and killswitch-gap detection. 147 executor tests, 116 execution tests passing. Ruff/mypy clean.
 - V&R contract co-sign: [ZTB-2525](/ZTB/issues/ZTB-2525) PASS
 - V&R PASS on SHA `e3dcc163` ([ZTB-2527](/ZTB/issues/ZTB-2527))
 - **PR:** [#146](https://github.com/StaithValanthis/ztb/pull/146) — `feat/ztb-2504-cherry-pick-watchdog-removal`
