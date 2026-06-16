@@ -1124,6 +1124,7 @@ class Executor:
     def _flush_bars_processed(self) -> None:
         from ztb.store.exec_io import update_exec_run_status
 
+        assert self.state is not None
         with contextlib.suppress(sqlite3.OperationalError):
             update_exec_run_status(
                 self._store_conn,
