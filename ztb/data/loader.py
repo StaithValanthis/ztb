@@ -35,11 +35,12 @@ def load(
     end: str | pd.Timestamp | None = None,
     client: BybitPublicREST | None = None,
     cache_base: Path | None = None,
+    no_cache: bool = False,
 ) -> DataFrame:
     """Load OHLCV data — the canonical data entry point.
 
     Contract:
-    1. Check cache first.
+    1. Check cache first (unless no_cache=True).
     2. If cache is missing data or stale, fetch from Bybit, merge, return.
     3. Result is always schema-valid, ascending, unique, no gaps.
     4. Determinism: cold == warm.
@@ -64,7 +65,9 @@ def load(
         end_ts = pd.Timestamp(end, tz="UTC")
         end_ms = int(end_ts.timestamp() * 1000)
 
-    cached = read_cache(category, symbol, timeframe, base=cache_base)
+    cached = None
+    if not no_cache:
+        cached = read_cache(category, symbol, timeframe, base=cache_base)
 
     if cached is not None and not cached.empty:
         if start_ts is not None and end_ts is not None:

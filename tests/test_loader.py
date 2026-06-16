@@ -478,6 +478,37 @@ class TestLoadEdgeCases:
             )
             assert len(df) > 0
 
+    def test_load_no_cache_skips_cache(self) -> None:
+        """no_cache=True skips cache read, fetches fresh data from exchange."""
+        pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
+        client: Any = _MockClient(pages)
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            load(
+                "BTCUSDT",
+                "60",
+                category="linear",
+                start="2023-11-14T23:00:00",
+                end="2023-11-15T06:00:00",
+                client=client,
+                cache_base=base,
+            )
+            first_bar_ts = pd.Timestamp(1700000000000, unit="ms", tz="UTC")
+            later_start = (first_bar_ts + pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+            new_pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
+            new_client: Any = _MockClient(new_pages)
+            df = load(
+                "BTCUSDT",
+                "60",
+                category="linear",
+                start=later_start,
+                client=new_client,
+                cache_base=base,
+                no_cache=True,
+            )
+            assert len(df) > 0
+            assert new_client.call_count >= 1
+
     def test_cache_with_end_only(self) -> None:
         """Cover lines 78-81: cache covers end, no start."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)

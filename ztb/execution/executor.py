@@ -1028,6 +1028,7 @@ class Executor:
             category=category,
             start=last_ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
             end=None,
+            no_cache=True,
         )
         if new_data is None or new_data.empty:
             return data
