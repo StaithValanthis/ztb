@@ -245,3 +245,38 @@ def test_clear_pending_frees_link_for_reclaim(ledger_conn: sqlite3.Connection) -
 def test_clear_pending_zero_on_empty(ledger_conn: sqlite3.Connection) -> None:
     ledger = IdempotencyLedger(ledger_conn)
     assert ledger.clear_pending() == 0
+
+
+def test_clear_pending_with_max_age_preserves_recent(
+    ledger_conn: sqlite3.Connection,
+) -> None:
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("recent", "oid1")
+    ledger.try_claim("recent2", "oid2")
+
+    deleted = ledger.clear_pending(max_age_seconds=3600)
+    assert deleted == 0
+    assert ledger.get("recent") is not None
+    assert ledger.get("recent2") is not None
+
+
+def test_clear_pending_with_max_age_removes_old(
+    ledger_conn: sqlite3.Connection,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    ledger = IdempotencyLedger(ledger_conn)
+    ledger.try_claim("old_link", "oid1")
+    ledger.try_claim("recent_link", "oid2")
+
+    old_ts = (datetime.now(UTC) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ledger.conn.execute(
+        "UPDATE idempotency SET created_at = ? WHERE order_link_id = ?",
+        (old_ts, "old_link"),
+    )
+    ledger.conn.commit()
+
+    deleted = ledger.clear_pending(max_age_seconds=3600)
+    assert deleted == 1
+    assert ledger.get("old_link") is None
+    assert ledger.get("recent_link") is not None
