@@ -1064,6 +1064,7 @@ class Executor:
         else:
             data = _do_data_load()
 
+        assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
 
         if not self.config.dry_run and self.client is not None and len(data) > warmup:
