@@ -92,8 +92,16 @@ class IdempotencyLedger:
         return deleted.rowcount
 
     @retry_on_lock()
-    def clear_pending(self) -> int:
-        deleted = self.conn.execute("DELETE FROM idempotency WHERE status = 'pending'")
+    def clear_pending(self, max_age_seconds: int = 0) -> int:
+        if max_age_seconds > 0:
+            cutoff = datetime.now(UTC) - timedelta(seconds=max_age_seconds)
+            cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+            deleted = self.conn.execute(
+                "DELETE FROM idempotency WHERE status = 'pending' AND created_at < ?",
+                (cutoff_str,),
+            )
+        else:
+            deleted = self.conn.execute("DELETE FROM idempotency WHERE status = 'pending'")
         self.conn.commit()
         return deleted.rowcount
 
