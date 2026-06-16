@@ -503,7 +503,7 @@ class Executor:
         current_position = self._pnl.position
 
         equity = self._pnl.equity(close_price)
-        total_available_balance = 0.0
+        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -512,7 +512,9 @@ class Executor:
 
                 actual = compute_account_state([], wallet)
                 equity = actual.total_equity if actual.total_equity > 0 else equity
-                total_available_balance = actual.total_available_balance
+                available_balance = actual.available_balance
+                if available_balance == 0.0:
+                    available_balance = actual.total_available_balance
             except Exception:
                 error_msg = f"Wallet fetch failed for {symbol}"
                 logger.warning(error_msg)
@@ -557,9 +559,9 @@ class Executor:
             target_signal = 0.0
 
         asset_precision = self.config.asset_precision
-        if not self.config.dry_run and self.client is not None and total_available_balance > 0:
+        if not self.config.dry_run and self.client is not None and available_balance > 0:
             target_notional = target_signal * min(
-                equity, total_available_balance * self.config.max_leverage
+                equity, available_balance * self.config.max_leverage
             )
             target_qty = (
                 round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
@@ -754,15 +756,15 @@ class Executor:
                 self._signal_initialized = True
                 return result
 
-            if not reduce_only and total_available_balance > 0 and close_price > 0:
-                max_notional = total_available_balance * self.config.max_leverage
+            if not reduce_only and available_balance > 0 and close_price > 0:
+                max_notional = available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)
                 require_margin_qty = max(0.0, qty - abs(current_position)) if flip else qty
                 if require_margin_qty > max_qty + 1e-12:
                     capped_qty = round(qty - require_margin_qty + max_qty, asset_precision)
                     self.state.errors.append(
-                        f"Qty capped by total available balance: {qty} -> {capped_qty} "
-                        f"(total_available={total_available_balance:.2f}, "
+                        f"Qty capped by available balance: {qty} -> {capped_qty} "
+                        f"(available_balance={available_balance:.2f}, "
                         f"max_notional={max_notional:.2f})"
                     )
                     qty = capped_qty

@@ -327,7 +327,7 @@ class BybitClient:
             for account_info in wallet.get("list", []):
                 for coin_entry in account_info.get("coin", []):
                     if coin_entry.get("coin", "") == coin:
-                        credited = float(coin_entry.get("walletBalance", 0.0))
+                        credited = float(coin_entry.get("availableBalance", 0.0))
             logger.info("Demo account credited: %s %s (requested %s)", credited, coin, amount)
             return TopUpResult(
                 success=True,

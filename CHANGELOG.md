@@ -6,6 +6,9 @@
 - **Test(regression):** Source-regression locks for the real-fill root cause — test locks `get_executions` signature order to prevent recurrence (ZTB-2685, PR #159).
 - **PR:** [#157](https://github.com/StaithValanthis/ztb/pull/157), [#159](https://github.com/StaithValanthis/ztb/pull/159)
 - **Merge commit:** `4a9613e` — two-key merged
+- **Fix(executor):** Size demo orders against per-coin `availableBalance` instead of account-level `totalAvailableBalance` (ZTB-2607, ZTB-2683). UTA fallback when coin-level `availableBalance` is missing/0. `top_up_demo_account` reads `availableBalance` not `walletBalance`. Skip `_poll_fills` in DEMO — use synthetic fills directly.
+- **Tests:** All balance cap tests updated for `available_balance` rename.
+- **PR:** [#161](https://github.com/StaithValanthis/ztb/pull/161)
 - **Tag:** v1.1.41
 
 ## v1.1.40 (2026-06-16)
