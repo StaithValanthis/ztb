@@ -611,7 +611,6 @@ class Executor:
         )
 
         if signal_changed:
-            self._last_executed_signal = target_signal
             self._signal_initialized = True
 
         if abs(delta) > 1e-12 and signal_changed:
@@ -752,7 +751,6 @@ class Executor:
                     self._pnl.equity(close_price),
                     bar_ts,
                 )
-                self._last_executed_signal = target_signal
                 self._signal_initialized = True
                 return result
 
@@ -786,7 +784,6 @@ class Executor:
                             self._pnl.equity(close_price),
                             bar_ts,
                         )
-                        self._last_executed_signal = target_signal
                         self._signal_initialized = True
                         return result
 
@@ -822,6 +819,7 @@ class Executor:
                             self._pnl.equity(close_price),
                             bar_ts,
                         )
+                        self._last_executed_signal = target_signal
                         return result
                     self._idempotency.resolve(order_link_id, "failed")
                     logger.warning(
@@ -969,6 +967,9 @@ class Executor:
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
             self._reconcile(target_qty, close_price, bar_ts)
+            self._last_executed_signal = target_signal
+        elif signal_changed:
+            self._last_executed_signal = target_signal
 
         self.state.bars_processed += 1
         self.state.last_bar_ts = bar_ts
