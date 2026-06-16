@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.35 (2026-06-16)
+
+- **Feat(executor):** Configurable polling loop for `get_executions()` in `_step_impl` (ZTB-2447). New `_poll_fills()` method retries at `poll_fill_interval` (default 0.5s) up to `poll_fill_max_attempts` (default 5, total ~2.5s) before falling through to synthetic fill fallback. Real `execId` fills are recorded when they arrive during polling, enabling the `CONFIRM` gate for deploy (ZTB-2308). Added `poll_fill_max_attempts` and `poll_fill_interval` to `ExecRunConfig`.
+- **Tests:** 4 new test cases: fills on first attempt, retry-then-synthetic, real fill captured during polling, warning on exhaustion. 3 existing tests updated with `poll_fill_max_attempts=1` to preserve synthetic-fallback coverage. Full suite: 1035/1037 passing (2 pre-existing env/version-skew failures).
+- V&R contract co-sign: [ZTB-2486](/ZTB/issues/ZTB-2486) PASS
+- V&R PASS on SHA `50be122` ([ZTB-2488](/ZTB/issues/ZTB-2488)); re-validated on `e1d0b94` (update-branch + bridge)
+- **PR:** [#142](https://github.com/StaithValanthis/ztb/pull/142) — `feat/ztb-2447-exec-fill-polling`
+- **Merge commit:** `4e336bc` — two-key merged (CI green + V&R PASS on SHA `50be122`, re-validated on `e1d0b94`)
+- **Tag:** v1.1.35
+
 ## v1.1.34 (2026-06-16)
 
 - **Feat(data):** Data-load watchdog + HTTP diagnostics (ZTB-2358). Configurable timeout (`data_load_timeout_seconds`, default 600s) using `ThreadPoolExecutor` + `fut.result(timeout=...)` — raises `ExecutionError` if data load exceeds deadline. DEBUG-level logging for every Bybit REST request/response with monotonic timing; WARNING on transport errors; retry `httpx.TimeoutException`/`httpx.HTTPError` up to 3 times. Connection cleanup: `BybitPublicREST.close()` + `loader.load()` try/finally.
