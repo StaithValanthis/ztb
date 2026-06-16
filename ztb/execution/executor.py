@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import logging
 import signal
@@ -180,13 +181,14 @@ class Executor:
             persist = self._killswitch.to_persistable_state()
             from ztb.store.exec_io import save_killswitch_state
 
-            save_killswitch_state(
-                self._store_conn,
-                self.state.exec_run_id,
-                persist["tripped"],
-                persist["hwm_equity"],
-                persist["last_heartbeat"],
-            )
+            with contextlib.suppress(sqlite3.OperationalError):
+                save_killswitch_state(
+                    self._store_conn,
+                    self.state.exec_run_id,
+                    persist["tripped"],
+                    persist["hwm_equity"],
+                    persist["last_heartbeat"],
+                )
         return bool(tripped)
 
     def _save_kill_events(self) -> None:
@@ -400,7 +402,6 @@ class Executor:
 
         equity = self._pnl.equity(close_price)
         total_available_balance = 0.0
-        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -409,7 +410,6 @@ class Executor:
 
                 actual = compute_account_state([], wallet)
                 equity = actual.total_equity if actual.total_equity > 0 else equity
-                available_balance = actual.available_balance
                 total_available_balance = actual.total_available_balance
             except Exception:
                 error_msg = f"Wallet fetch failed for {symbol}"
@@ -455,9 +455,9 @@ class Executor:
             target_signal = 0.0
 
         asset_precision = self.config.asset_precision
-        if not self.config.dry_run and self.client is not None and available_balance > 0:
+        if not self.config.dry_run and self.client is not None and total_available_balance > 0:
             target_notional = target_signal * min(
-                equity, available_balance * self.config.max_leverage
+                equity, total_available_balance * self.config.max_leverage
             )
             target_qty = (
                 round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
@@ -1019,30 +1019,53 @@ class Executor:
             except Exception as exc:
                 self._save_error("DemoAccountTopUpError", str(exc))
 
-        data = load_data(
-            symbol=symbol,
-            timeframe=timeframe,
-            category=category,
-            start=start,
-            end=end,
-        )
+        def _do_data_load() -> DataFrame:
+            result = load_data(
+                symbol=symbol,
+                timeframe=timeframe,
+                category=category,
+                start=start,
+                end=end,
+            )
 
-        if data is None or data.empty:
-            raise ExecutionError(f"No data loaded for {symbol} {timeframe}")
+            if result is None or result.empty:
+                raise ExecutionError(f"No data loaded for {symbol} {timeframe}")
+
+            assert self.state is not None
+            w = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
+
+            eff = (
+                self.config.lookback_bars
+                if self.config.lookback_bars and self.config.lookback_bars > 0
+                else max(w * 2, 200)
+            )
+            if len(result) < eff:
+                result = self._ensure_warmup(result, eff, symbol, timeframe, category, start)
+
+            if len(result) < w:
+                result = self._ensure_warmup(result, w, symbol, timeframe, category, start)
+
+            return result
+
+        timeout_s = self.config.data_load_timeout_seconds
+        if timeout_s > 0:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_do_data_load)
+                try:
+                    data = fut.result(timeout=timeout_s)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(
+                        "Data load timed out after %ds — symbol=%s timeframe=%s",
+                        timeout_s,
+                        symbol,
+                        timeframe,
+                    )
+                    raise ExecutionError(f"Data load timed out after {timeout_s}s") from None
+        else:
+            data = _do_data_load()
 
         assert self.state is not None
         warmup = max(getattr(self.strategy, "warmup", 0), self.config.warmup_bars)
-
-        effective_lookback = (
-            self.config.lookback_bars
-            if self.config.lookback_bars and self.config.lookback_bars > 0
-            else max(warmup * 2, 200)
-        )
-        if len(data) < effective_lookback:
-            data = self._ensure_warmup(data, effective_lookback, symbol, timeframe, category, start)
-
-        if len(data) < warmup:
-            data = self._ensure_warmup(data, warmup, symbol, timeframe, category, start)
 
         if not self.config.dry_run and self.client is not None and len(data) > warmup:
             try:
@@ -1087,13 +1110,14 @@ class Executor:
                         persist = self._killswitch.to_persistable_state()
                         from ztb.store.exec_io import save_killswitch_state
 
-                        save_killswitch_state(
-                            self._store_conn,
-                            self.state.exec_run_id,
-                            persist["tripped"],
-                            persist["hwm_equity"],
-                            persist["last_heartbeat"],
-                        )
+                        with contextlib.suppress(sqlite3.OperationalError):
+                            save_killswitch_state(
+                                self._store_conn,
+                                self.state.exec_run_id,
+                                persist["tripped"],
+                                persist["hwm_equity"],
+                                persist["last_heartbeat"],
+                            )
 
         if self.config.loop and not self.config.once:
             try:
@@ -1162,16 +1186,34 @@ class Executor:
                     break
 
                 time_module.sleep(poll_interval)
+                old_len = len(data)
                 data = self._fetch_new_bars(data, symbol, timeframe, category)
-                result = self.step(data)
-                if result.get("client_error"):
-                    continue
-                if (
-                    self.config.loop_flush_interval > 0
-                    and self.state.bars_processed > 0
-                    and self.state.bars_processed % self.config.loop_flush_interval == 0
-                ):
-                    self._flush_bars_processed()
+                new_len = len(data)
+
+                if new_len > old_len:
+                    for i in range(old_len, new_len):
+                        chunk = data.iloc[: i + 1]
+                        result = self.step(chunk)
+                        if result.get("killswitch_tripped"):
+                            break
+                        if result.get("client_error"):
+                            continue
+                        if (
+                            self.config.loop_flush_interval > 0
+                            and self.state.bars_processed > 0
+                            and self.state.bars_processed % self.config.loop_flush_interval == 0
+                        ):
+                            self._flush_bars_processed()
+                else:
+                    result = self.step(data)
+                    if result.get("client_error"):
+                        continue
+                    if (
+                        self.config.loop_flush_interval > 0
+                        and self.state.bars_processed > 0
+                        and self.state.bars_processed % self.config.loop_flush_interval == 0
+                    ):
+                        self._flush_bars_processed()
                 consecutive_errors = 0
             except ClientError:
                 continue

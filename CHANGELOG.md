@@ -1,5 +1,56 @@
 # Changelog
 
+## v1.1.34 (2026-06-16)
+
+- **Feat(data):** Data-load watchdog + HTTP diagnostics (ZTB-2358). Configurable timeout (`data_load_timeout_seconds`, default 600s) using `ThreadPoolExecutor` + `fut.result(timeout=...)` — raises `ExecutionError` if data load exceeds deadline. DEBUG-level logging for every Bybit REST request/response with monotonic timing; WARNING on transport errors; retry `httpx.TimeoutException`/`httpx.HTTPError` up to 3 times. Connection cleanup: `BybitPublicREST.close()` + `loader.load()` try/finally.
+- **Fix(executor):** `_ensure_warmup` returns extended data directly instead of concatenation (bug from earlier refactor).
+- **Tests:** 7 new test cases: watchdog fires on timeout, no false positive, disabled; HTTP request logging, transport retry, transport retry exhausted, REST client close. Full suite: 1041/1041 passing.
+- V&R contract co-sign: [ZTB-2357](/ZTB/issues/ZTB-2357) PASS
+- V&R PASS on SHA `8827639` ([ZTB-2435](/ZTB/issues/ZTB-2435))
+- **PR:** [#137](https://github.com/StaithValanthis/ztb/pull/137) — `feat/data-load-watchdog`
+- **Merge commit:** `28e3f7b` — two-key merged (CI green + V&R PASS on SHA `8827639`)
+- **Tag:** v1.1.34
+
+## v1.1.33 (2026-06-16)
+
+- **Fix(executor):** Process each intermediate bar individually in `_run_polling_loop` during polling catch-up. When `_fetch_new_bars` returns multiple bars (e.g. after network interruption), the loop iterates through each bar via `range(old_len, new_len)` and calls `step()` with the correctly growing data slice — each bar triggers signal generation, signal-change detection, and killswitch check.
+- **Invariants:** (1) Each intermediate bar triggers signal on its own slice; (2) signal change detection works across bars; (3) idempotency via unique `orderLinkId` per `bar_ts`; (4) killswitch checked per bar, breaks early on trip; (5) `ClientError` on any bar logs and continues (does not skip remaining bars); (6) `consecutive_errors` reset after each batch.
+- **Tests:** 5 new test cases: multi-bar catchup with correct chunk sizes (201, 202, 203); killswitch break on bar 2; ClientError continues on bar 2 (bars 1+3 processed); zero-new-bar normal poll; single-bar normal path. Full suite: 1034/1034 passing.
+- V&R PASS on SHA `5634811` ([ZTB-2407](/ZTB/issues/ZTB-2407))
+- **PR:** [#133](https://github.com/StaithValanthis/ztb/pull/133) — `feat/ztb-2342-fetch-new-bars-catchup`
+- **Merge commit:** `e00a2ee` — two-key merged (CI green + V&R PASS on SHA `5634811`)
+- **Tag:** v1.1.33
+
+## v1.1.32 (2026-06-16)
+
+- **Fix(executor):** Use account-level `totalAvailableBalance` instead of per-coin `availableBalance` in `_step_impl` sizing. Bybit UTA demo accounts omit coin-level `availableBalance`, causing the sizing path to treat it as `0.0` and never place orders. Replaced `available_balance` with `total_available_balance` in the sizing condition and notional calculation; removed unused `available_balance` variable.
+- **Tests:** Updated existing test wallet fixtures to include `totalAvailableBalance` field. Added UTA regression test `test_executor_uta_no_coin_available_balance`. Full suite: 996/997 pass (1 pre-existing network test failure).
+- **Root cause:** Bybit V5 wallet API for UTA accounts does not include coin-level `availableBalance` key. Code at `executor.py:449` treated missing key as `0.0`, defeating the primary balance-based order sizing.
+- V&R PASS on SHA `897e478` ([ZTB-2248](/ZTB/issues/ZTB-2248))
+- **PR:** [#138](https://github.com/StaithValanthis/ztb/pull/138) — `feat/ztb-2225-available-balance-sizing`
+- **Merge commit:** `1bb1b93` — two-key merged (CI green + V&R PASS on SHA `897e478`; branch updated with main between validation and merge — fix code unchanged)
+- **Tag:** v1.1.32
+
+## v1.1.31 (2026-06-16)
+
+- **Fix(executor):** Bound `_ensure_warmup` data fetch to `[extended_start, current_start]` (was `end=None` → unbounded epoch→now pagination). Merge extended data with original via `pd.concat` + index dedup (`keep="last"`) + `sort_index()`. Defensive `max(wait, 0.01)` in TokenBucket spin-wait loop to reduce CPU.
+- **Root cause:** `_ensure_warmup` called `load_data(..., end=None)`, triggering `paginate_kline` from now back to extended_start — on cold cache, this paginated thousands of 1000-bar windows, producing 3+ minute stalls (rate-limited to ~10 req/s by TokenBucket). Second defect: `return extended` discarded original data, causing the second warmup check to re-fetch.
+- **Tests:** 6 new test cases: end-bound validation, merge preserves original data, overlap dedup (original wins), no-cascade on re-check, TokenBucket no-busy-spin, executor dry-run completes in <5s (1.40s wall). Full regression: 992/992 tests passing (pre-existing env/version-skew exclusions).
+- V&R contract co-sign: [ZTB-2321](/ZTB/issues/ZTB-2321) PASS
+- V&R PASS on SHA `6944fea` ([ZTB-2361](/ZTB/issues/ZTB-2361)); re-validated on `722240a` (vr-pass CI check)
+- **PR:** [#132](https://github.com/StaithValanthis/ztb/pull/132) — `fix/ztb-2276-warmup-rate-limit`
+- **Merge commit:** `ea836a8` — two-key merged (CI green + V&R PASS on same SHA)
+- **Tag:** v1.1.31
+
+## v1.1.30 (2026-06-16)
+
+- **Fix(executor):** Wrap `save_killswitch_state()` with `contextlib.suppress(sqlite3.OperationalError)` in `_check_killswitch()` and the per-bar heartbeat persist — when the DB is locked, the killswitch break signal (`return True`) now propagates even when the DB write fails. Previously, an `OperationalError` inside `_check_killswitch()` would silently lose the killswitch signal and crash via max_errors/PollingError instead of a graceful killswitch stop.
+- **Tests:** 2 new test cases verifying OperationalError does not crash `_check_killswitch()` or the heartbeat persist path. All tests pass.
+- V&R PASS on SHA `0aa0a85` (vr-pass CI check)
+- **PR:** [#130](https://github.com/StaithValanthis/ztb/pull/130) — `feat/ztb-2319-suppress-killswitch`
+- **Merge commit:** `6b2af83` — two-key merge (CI green + V&R PASS on SHA `0aa0a85`)
+- **Tag:** v1.1.30
+
 ## v1.1.29 (2026-06-15)
 
 - **Fix(executor):** Catch `sqlite3.OperationalError` in polling loop error path — the executor's `_run_polling_loop` now wraps the fill-poll query in a try/except for `OperationalError`. Before: a transient `database is locked` during polling crashed the entire loop. After: the error is logged and the loop retries on the next tick.

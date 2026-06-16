@@ -139,3 +139,46 @@ class TestBybitPublicREST:
         client._client.request.return_value = mock_retryable
         result = client.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=1)
         assert len(result) == 1
+
+    def test_http_request_logging(
+        self, client: BybitPublicREST, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level("DEBUG")
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"retCode": 0, "result": {"list": []}}
+        client._client = MagicMock()
+        client._client.request.return_value = mock_resp
+        client.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=1)
+        assert any("HTTP request #1:" in rec.message for rec in caplog.records)
+        assert any("HTTP response #1:" in rec.message for rec in caplog.records)
+
+    def test_http_transport_retry(self, client: BybitPublicREST) -> None:
+        success_resp = MagicMock(spec=httpx.Response)
+        success_resp.status_code = 200
+        success_resp.json.return_value = {
+            "retCode": 0,
+            "result": {
+                "list": [["1700000000000", "50000", "50100", "49900", "50050", "100", "5000000"]]
+            },
+        }
+        client._client = MagicMock()
+        client._client.request.side_effect = [
+            httpx.TimeoutException("attempt 1"),
+            httpx.TimeoutException("attempt 2"),
+            success_resp,
+        ]
+        result = client.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=1)
+        assert len(result) == 1
+        assert client._client.request.call_count == 3
+
+    def test_http_transport_retry_exhausted(self, client: BybitPublicREST) -> None:
+        client._client = MagicMock()
+        client._client.request.side_effect = httpx.TimeoutException("always fails")
+        with pytest.raises(FetchError, match="timed out"):
+            client.get_kline(category="linear", symbol="BTCUSDT", interval="60")
+
+    def test_bybit_rest_client_close(self, client: BybitPublicREST) -> None:
+        client._client = MagicMock()
+        client.close()
+        client._client.close.assert_called_once()

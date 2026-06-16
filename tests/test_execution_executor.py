@@ -1353,6 +1353,53 @@ def test_polling_loop_killswitch_stops(
     assert any("Killswitch" in e for e in exe.state.errors)
 
 
+@patch("ztb.store.exec_io.save_killswitch_state")
+def test_check_killswitch_operational_error_suppressed(
+    mock_save_ks: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """OperationalError from save_killswitch_state must NOT crash _check_killswitch()."""
+    import sqlite3
+
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_save_ks.side_effect = sqlite3.OperationalError("database is locked")
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    ks = LiveKillSwitch()
+    ks.manual_trip("test")
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+    result = exe._check_killswitch()
+    assert result is True
+    assert ks.is_tripped is True
+
+
+@patch("ztb.store.exec_io.save_killswitch_state")
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_heartbeat_save_killswitch_operational_error_suppressed(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    mock_save_ks: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """OperationalError from save_killswitch_state in heartbeat persist must NOT crash the loop."""
+    import sqlite3
+
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    mock_save_ks.side_effect = sqlite3.OperationalError("database is locked")
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=False)
+    ks = LiveKillSwitch(max_data_staleness_sec=1e12)
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe.run(symbol="BTCUSDT")
+    assert ks.is_tripped is False
+
+
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_error_retry_then_stop(
@@ -1380,6 +1427,252 @@ def test_polling_loop_error_retry_then_stop(
         exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     assert call_count == 3
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_processes_each_bar(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """3 new bars → 3 step() calls with correct chunk sizes."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+    step_close_vals: list[float] = []
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        step_close_vals.append(float(data["close"].iloc[-1]))
+        if len(step_data_lengths) >= 4:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: no new bars → 1 step call with full sample_data
+    # Round 2: 3 new bars → 3 step() calls inside the for loop
+    # Round 3: killswitch check → break
+    assert len(step_data_lengths) == 4
+    assert step_data_lengths[0] == len(sample_data)
+    assert step_data_lengths[1] == len(sample_data) + 1
+    assert step_close_vals[1] == 50150.0
+    assert step_data_lengths[2] == len(sample_data) + 2
+    assert step_close_vals[2] == 50250.0
+    assert step_data_lengths[3] == len(sample_data) + 3
+    assert step_close_vals[3] == 50350.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_killswitch_breaks_early(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Killswitch trip on bar 2 must break out of the catch-up loop."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        # Trip killswitch on bar 2 (3rd total step call, 1st is round 1 with no new bars)
+        if len(step_data_lengths) == 3:
+            ks.manual_trip("test")
+            return {"bar_ts": str(data.index[-1]), "killswitch_tripped": True}
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: 1 step (sample_data)
+    # Round 2 catch-up: 2 steps (bars 1 and 2, then break on bar 2)
+    assert len(step_data_lengths) == 3
+    assert step_data_lengths[0] == len(sample_data)
+    assert step_data_lengths[1] == len(sample_data) + 1
+    assert step_data_lengths[2] == len(sample_data) + 2  # bar 3 not processed
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_client_error_continues(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """ClientError on bar 2 must not skip bar 3 processing (step returns dict, not raises)."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
+    new_bars = pd.DataFrame(
+        {
+            "open": [50100.0, 50200.0, 50300.0],
+            "high": [50200.0, 50300.0, 50400.0],
+            "low": [50000.0, 50100.0, 50200.0],
+            "close": [50150.0, 50250.0, 50350.0],
+            "volume": [150.0, 200.0, 250.0],
+        },
+        index=new_idx,
+    )
+    new_bars.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, new_bars, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_data_lengths: list[int] = []
+    step_call_idx = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_data_lengths.append(len(data))
+        step_call_idx[0] += 1
+        # Bar 2 (3rd total: round1 + bar1) returns client_error (step's internal contract)
+        if step_call_idx[0] == 3:
+            return {"bar_ts": str(data.index[-1]), "client_error": True}
+        if step_call_idx[0] >= 4:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # Round 1: 1 step (sample_data)
+    # Round 2 catch-up: 3 steps (bar1, bar2 [client_error], bar3)
+    assert len(step_data_lengths) == 4
+    assert step_data_lengths[1] == len(sample_data) + 1  # bar 1
+    assert step_data_lengths[2] == len(sample_data) + 2  # bar 2 (client_error, skipped)
+    assert step_data_lengths[3] == len(sample_data) + 3  # bar 3 processed despite bar 2 error
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_zero_new_bars_normal_poll(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """No new bars → single step() call, normal path."""
+    mock_load.side_effect = [sample_data, pd.DataFrame(), pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_call_count = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_call_count[0] += 1
+        ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert step_call_count[0] == 1
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_catchup_one_new_bar_normal_path(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """1 new bar → single step() call via else branch."""
+    last_ts = sample_data.index[-1]
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC")
+    single_bar = pd.DataFrame(
+        {
+            "open": [50100.0],
+            "high": [50200.0],
+            "low": [50000.0],
+            "close": [50150.0],
+            "volume": [150.0],
+        },
+        index=new_idx,
+    )
+    single_bar.index.name = "timestamp"
+    mock_load.side_effect = [sample_data, single_bar, pd.DataFrame()]
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01)
+    from ztb.execution.killswitch import LiveKillSwitch
+
+    ks = LiveKillSwitch()
+    exe = Executor(fake_strategy, config=config, killswitch=ks)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    step_call_count = [0]
+
+    def tracking_step(data: pd.DataFrame) -> dict:
+        step_call_count[0] += 1
+        if step_call_count[0] >= 2:
+            ks.manual_trip("test")
+        return {"bar_ts": str(data.index[-1])}
+
+    exe.step = tracking_step  # type: ignore[assignment]
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    # 1 call for round 1 (no new bars), 1 call for round 2 (1 new bar)
+    assert step_call_count[0] == 2
 
 
 @patch("ztb.execution.executor.load_data")
@@ -2955,7 +3248,7 @@ def test_reduce_only_proceeds_when_exchange_has_position_short(
 
 
 # ---------------------------------------------------------------------------
-# ZTB-1465: Wallet balance fix — cap qty to available_balance
+# ZTB-1465: Wallet balance fix — cap qty to total_available_balance
 # ---------------------------------------------------------------------------
 
 
@@ -2966,7 +3259,7 @@ def test_balance_cap_caps_qty_when_insufficient_balance(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance is low, qty is capped to prevent 'ab not enough'."""
+    """When total_available_balance is low, qty is capped to prevent 'ab not enough'."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -3010,7 +3303,7 @@ def test_balance_cap_reduces_qty_when_balance_very_low(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance is very low, qty is capped below the signal target."""
+    """When total_available_balance is very low, qty is capped below the signal target."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid_capped"}
@@ -3056,7 +3349,7 @@ def test_balance_cap_skips_when_capped_qty_zero(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When available_balance*max_leverage rounds target qty to zero, no order is placed."""
+    """When total_available_balance*max_leverage rounds target qty to zero, no order is placed."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "oid"}
@@ -3240,17 +3533,18 @@ def test_executor_wallet_fetch_failure_skips_bar(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_executor_sizes_against_available_balance(
+def test_executor_sizes_against_total_available_balance(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """target_qty is capped by available_balance * max_leverage, not by initial_cash."""
+    """target_qty is capped by total_available_balance * max_leverage, not by initial_cash."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "500.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3258,7 +3552,7 @@ def test_executor_sizes_against_available_balance(
                         "walletBalance": "200000.0",
                         "availableBalance": "500.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3297,6 +3591,7 @@ def test_executor_ab_not_enough_backoff(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3304,7 +3599,7 @@ def test_executor_ab_not_enough_backoff(
                         "walletBalance": "100000.0",
                         "availableBalance": "100000.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -3338,6 +3633,7 @@ def test_executor_instrument_bounds_enforced(
     mock_client.get_wallet_balance.return_value = {
         "list": [
             {
+                "totalAvailableBalance": "100000.0",
                 "coin": [
                     {
                         "coin": "USDT",
@@ -3345,7 +3641,7 @@ def test_executor_instrument_bounds_enforced(
                         "walletBalance": "100000.0",
                         "availableBalance": "100000.0",
                     }
-                ]
+                ],
             }
         ]
     }
@@ -4263,3 +4559,66 @@ def test_executor_with_start_risk_decisions_produced(
     )
     assert result.status == "completed"
     assert result.bars_processed > 0
+
+
+@patch("ztb.execution.executor.load_data")
+def test_load_watchdog_fires_on_timeout(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    import time
+
+    def _slow_load(*args: object, **kwargs: object) -> object:
+        time.sleep(15)
+        return sample_data
+
+    mock_load.side_effect = _slow_load
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, data_load_timeout_seconds=1)
+    exe = Executor(fake_strategy, config=config)
+    with pytest.raises(ExecutionError, match="timed out"):
+        exe.run(
+            symbol="BTCUSDT",
+            timeframe="60",
+            start="2026-01-01",
+            end="2026-01-02",
+            db_path=":memory:",
+        )
+
+
+@patch("ztb.execution.executor.load_data")
+def test_load_watchdog_no_false_positive(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, data_load_timeout_seconds=600)
+    exe = Executor(fake_strategy, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-02",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
+
+
+@patch("ztb.execution.executor.load_data")
+def test_load_watchdog_disabled(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, data_load_timeout_seconds=0)
+    exe = Executor(fake_strategy, config=config)
+    result = exe.run(
+        symbol="BTCUSDT",
+        timeframe="60",
+        start="2026-01-01",
+        end="2026-01-02",
+        db_path=":memory:",
+    )
+    assert result.status == "completed"
