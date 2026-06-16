@@ -121,6 +121,35 @@ class TestBybitPublicREST:
         result = client.get_server_time()
         assert "timeSecond" in result
 
+    def test_consecutive_429_raises_fetch_error(self) -> None:
+        limiter = TokenBucket(capacity=100, refill_rate=100, refill_interval=1.0)
+        backoff = BackoffStrategy()
+        c = BybitPublicREST(
+            rate_limiter=limiter, backoff=backoff, timeout=5.0,
+            base_url="https://api-demo.bybit.com", max_retries=3,
+        )
+        mock_429 = MagicMock(spec=httpx.Response)
+        mock_429.status_code = 429
+        c._client = MagicMock()
+        c._client.request.return_value = mock_429
+        with pytest.raises(FetchError, match="rate limit retries exhausted"):
+            c.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=1)
+
+    def test_retryable_retcode_exhaustion_raises_fetch_error(self) -> None:
+        limiter = TokenBucket(capacity=100, refill_rate=100, refill_interval=1.0)
+        backoff = BackoffStrategy()
+        c = BybitPublicREST(
+            rate_limiter=limiter, backoff=backoff, timeout=5.0,
+            base_url="https://api-demo.bybit.com", max_retries=2,
+        )
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"retCode": 10002, "retMsg": "rate limit"}
+        c._client = MagicMock()
+        c._client.request.return_value = mock_resp
+        with pytest.raises(FetchError, match="rate limit retries exhausted"):
+            c.get_kline(category="linear", symbol="BTCUSDT", interval="60", limit=1)
+
     def test_retryable_retcode_retries(self, client: BybitPublicREST) -> None:
         mock_retryable = MagicMock(spec=httpx.Response)
         mock_retryable.status_code = 200
