@@ -107,6 +107,7 @@ def test_polling_loop_flushes_bars_processed(
     exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     from ztb.store.exec_io import get_exec_run
+
     run_info = get_exec_run(exe._store_conn, exe.state.exec_run_id)
     assert run_info is not None
     assert int(run_info.get("bars_processed", 0)) > 0
@@ -134,15 +135,18 @@ def test_polling_loop_flush_interval_respected(
     exe._init_store(":memory:")
 
     iterations: list[None] = []
+
     def side_effect(_: object) -> None:
         iterations.append(None)
         if len(iterations) >= 6:
             exe._sigterm_stop = True
+
     mock_sleep.side_effect = side_effect
 
     exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
 
     from ztb.store.exec_io import get_exec_run
+
     run_info = get_exec_run(exe._store_conn, exe.state.exec_run_id)
     assert run_info is not None
     bp = int(run_info.get("bars_processed", 0))
