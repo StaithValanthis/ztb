@@ -450,7 +450,7 @@ class TestLoadEdgeCases:
                 )
 
     def test_cache_with_start_only(self) -> None:
-        """Cover lines 74-77: cache covers start, no end."""
+        """Start-only load with a STALE cache refetches fresh data (freshness gate)."""
         pages = _make_raw_pages(start_ts=1700000000000, n_bars=10)
         client: Any = _MockClient(pages)
         with tempfile.TemporaryDirectory() as tmp:
@@ -467,7 +467,8 @@ class TestLoadEdgeCases:
             first_bar_ts = pd.Timestamp(1700000000000, unit="ms", tz="UTC")
             # Use a start that's AFTER the cache first bar to hit lines 74-77
             later_start = (first_bar_ts + pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
-            new_client: Any = _MockClient()
+            # Freshness gate: a stale open-ended cache must REFETCH, so give the client pages.
+            new_client: Any = _MockClient(pages)
             df = load(
                 "BTCUSDT",
                 "60",
