@@ -326,6 +326,74 @@ class Executor:
             logger.warning("reconcile_pending_order: query failed for %s", order_link_id)
         return None
 
+    def _poll_fills(
+        self,
+        order_id: str,
+        order_link_id: str,
+    ) -> list[dict[str, Any]]:
+        assert self.state is not None
+        assert self.client is not None
+        max_attempts = self.config.poll_fill_max_attempts
+        interval = self.config.poll_fill_interval
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                from ztb.execution.reconcile import parse_fills as _parse_fills
+
+                raw_fills = self.client.get_executions(order_id=order_id)
+                parsed = list(_parse_fills(raw_fills))
+                if parsed:
+                    logger.info(
+                        "Polled fills for %s on attempt %d/%d: %d fill(s)",
+                        order_link_id,
+                        attempt,
+                        max_attempts,
+                        len(parsed),
+                    )
+                    return [
+                        {
+                            "fill_id": f.exec_id,
+                            "order_link_id": order_link_id,
+                            "exec_run_id": self.state.exec_run_id,
+                            "order_id": f.order_id,
+                            "symbol": f.symbol,
+                            "side": f.side.value,
+                            "price": f.price,
+                            "qty": f.qty,
+                            "commission": f.commission,
+                            "realized_pnl": f.realized_pnl,
+                            "filled_at": f.timestamp,
+                            "sufficient_sample": 1,
+                            "code_version": __version__,
+                        }
+                        for f in parsed
+                    ]
+                if attempt < max_attempts:
+                    logger.debug(
+                        "No fills yet for %s (attempt %d/%d), retrying in %.1fs",
+                        order_link_id,
+                        attempt,
+                        max_attempts,
+                        interval,
+                    )
+                    time_module.sleep(interval)
+            except Exception:
+                logger.warning(
+                    "Poll fills attempt %d/%d failed for order %s",
+                    attempt,
+                    max_attempts,
+                    order_id,
+                )
+                if attempt < max_attempts:
+                    time_module.sleep(interval)
+
+        logger.warning(
+            "Fill polling exhausted for %s after %d attempts — returning empty",
+            order_link_id,
+            max_attempts,
+        )
+        return []
+
     def step(
         self,
         data: DataFrame,
@@ -759,37 +827,12 @@ class Executor:
             order_id = order_result.get("orderId", "")
             self._idempotency.resolve(order_link_id, "placed", order_id)
 
-            # Real fill pipeline: fetch actual fills from exchange
-            real_fills: list[dict[str, Any]] = []
-            from ztb.execution.reconcile import parse_fills as _parse_fills
-
-            try:
-                raw_fills = self.client.get_executions(order_id=order_id)
-                for f in _parse_fills(raw_fills):
-                    real_fills.append(
-                        {
-                            "fill_id": f.exec_id,
-                            "order_link_id": order_link_id,
-                            "exec_run_id": self.state.exec_run_id,
-                            "order_id": f.order_id,
-                            "symbol": f.symbol,
-                            "side": f.side.value,
-                            "price": f.price,
-                            "qty": f.qty,
-                            "commission": f.commission,
-                            "realized_pnl": f.realized_pnl,
-                            "filled_at": f.timestamp,
-                            "sufficient_sample": 1,
-                            "code_version": __version__,
-                        }
-                    )
-            except Exception:
-                logger.warning(
-                    "Failed to fetch fills for order %s, falling back to synthetic fill",
-                    order_id,
-                )
-                self._save_error("FillFetchError", f"Failed to fetch fills for order {order_id}")
-                real_fills = []
+            # Real fill pipeline: poll for fills from exchange
+            real_fills: list[dict[str, Any]] = self._poll_fills(
+                order_id=order_id, order_link_id=order_link_id
+            )
+            if not real_fills:
+                self._save_error("FillFetchError", f"No fills after polling for order {order_id}")
 
             if real_fills:
                 total_fill_qty = sum(f["qty"] for f in real_fills)
