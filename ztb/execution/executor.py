@@ -287,8 +287,16 @@ class Executor:
         if decision.action == RiskDecisionAction.halt:
             return 0.0, decision
         if decision.action == RiskDecisionAction.reduce:
-            sig_val = abs(target_signal) * equity
-            scale = decision.max_notional / sig_val if sig_val > 0 else 0.0
+            if decision.max_pos_size > 0:
+                pos_notional = decision.max_pos_size * price
+                scale = (
+                    pos_notional / abs(target_signal * equity)
+                    if abs(target_signal * equity) > 0
+                    else 0.0
+                )
+            else:
+                sig_val = abs(target_signal) * equity
+                scale = decision.max_notional / sig_val if sig_val > 0 else 0.0
             return target_signal * min(scale, 1.0), decision
         return target_signal, decision
 
@@ -740,6 +748,7 @@ class Executor:
                     f"(PnL had {current_position}, actual "
                     f"{reconcile_report.actual_position})"
                 )
+                self._save_error("OrderSkipped", result["skip_reason"])
                 self.state.errors.append(result["skip_reason"])
                 self.state.bars_processed += 1
                 self.state.last_bar_ts = bar_ts
@@ -773,6 +782,7 @@ class Executor:
                         result["skip_reason"] = (
                             f"Qty capped to {max_qty} by balance limit, below minimum"
                         )
+                        self._save_error("OrderSkipped", result["skip_reason"])
                         self.state.errors.append(result["skip_reason"])
                         self.state.bars_processed += 1
                         self.state.last_bar_ts = bar_ts
@@ -845,6 +855,7 @@ class Executor:
             if order_result.get("skipped"):
                 result["order_skipped"] = True
                 result["skip_reason"] = order_result.get("reason", "")
+                self._save_error("OrderSkipped", order_result.get("reason", ""))
                 self.state.errors.append(f"Order skipped: {order_result.get('reason', '')}")
                 self.state.bars_processed += 1
                 self.state.last_bar_ts = bar_ts

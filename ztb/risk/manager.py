@@ -120,6 +120,7 @@ class RiskManager:
                 clipped_pos = max_units if pos > 0 else -max_units
                 proposed_positions = proposed_positions.copy()
                 proposed_positions[sym] = clipped_pos
+                position_capped_notional = self.config.max_position_pct * equity
                 decision = RiskDecision(
                     action=RiskDecisionAction.reduce,
                     reason=(
@@ -128,7 +129,7 @@ class RiskManager:
                     ),
                     max_pos_size=max_units,
                     max_leverage=self.config.max_leverage,
-                    max_notional=max_notional,
+                    max_notional=position_capped_notional,
                     current_dd=self._compute_current_dd(current_equity),
                     current_heat=None,
                     hwm=self.kill_switch.hwm,
