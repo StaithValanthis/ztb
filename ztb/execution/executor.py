@@ -1015,7 +1015,7 @@ class Executor:
 
         if self._idempotency is not None:
             self._idempotency.clear_stale(ttl_hours=24)
-            self._idempotency.clear_pending()
+            self._idempotency.clear_pending(max_age_seconds=3600)
 
         if (
             self._killswitch is not None
