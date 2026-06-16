@@ -2366,7 +2366,238 @@ def test_signal_initialized_set_on_first_bar_even_if_order_skipped(
     result = exe.step(sample_data)
     assert result.get("order_skipped") is True
     assert exe._signal_initialized is True
+    assert exe._last_executed_signal == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_order_failure_retries_next_bar(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """ClientError on place_order does NOT consume signal — next bar retries."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.side_effect = [
+        ClientError("Insufficient balance"),
+        {"orderId": "oid_retry"},
+    ]
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    assert exe._last_executed_signal == 0.0
+
+    # Step 1: place_order raises ClientError — signal NOT consumed
+    result1 = exe.step(sample_data)
+    assert result1.get("client_error") is True
+    assert exe._last_executed_signal == 0.0
+
+    # Step 2: same signal, _last_executed_signal still 0.0 → signal_changed=True → order placed
+    mock_client.place_order.reset_mock()
+    mock_client.place_order.return_value = {"orderId": "oid_retry"}
+    result2 = exe.step(sample_data)
+    assert result2.get("order_placed") is True
     assert exe._last_executed_signal == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reduce_only_skip_does_not_consume_signal(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Reduce-only skip (exchange position=0) does NOT update _last_executed_signal."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    # Step 1: enter position (signal 0.5)
+    result1 = exe.step(sample_data)
+    assert result1.get("order_placed") is True
+    assert exe._last_executed_signal == 0.5
+
+    # Step 2: exchange reports position=0, signal=0 (FakeStrategy) — reduce-only skip fires
+    exe.strategy = FakeStrategy()  # signal 0 → close
+    result2 = exe.step(sample_data)
+    assert result2.get("order_skipped") is True
+    assert "Reduce-only skipped" in result2.get("skip_reason", "")
+    # Signal NOT consumed — _last_executed_signal still 0.5
+    assert exe._last_executed_signal == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_signal_change_no_delta_updates_state(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Signal changes but delta≈0 — elif signal_changed updates _last_executed_signal."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(FakeStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    # Pretend we had executed signal 0.5 (PnL position is already 0)
+    exe._last_executed_signal = 0.5
+    exe._signal_initialized = True
+
+    # Step 1: signal 0.0 (FakeStrategy), PnL position=0 → delta≈0, signal changed
+    # elif signal_changed: should fire
+    result1 = exe.step(sample_data)
+    assert result1.get("order_placed") is False
+    assert exe._last_executed_signal == 0.0
+
+    # Step 2: same signal — should NOT place order (unchanged)
+    result2 = exe.step(sample_data)
+    assert result2.get("order_placed") is False
+    assert exe._last_executed_signal == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_wallet_fetch_failure_does_not_consume_signal(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When wallet fetch fails, signal is NOT consumed — next bar retries."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = Exception("Connection error")
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    assert exe._signal_initialized is False
+    assert exe._last_executed_signal == 0.0
+
+    result = exe.step(sample_data)
+
+    assert result["wallet_fetch_failed"] is True
+    assert exe._last_executed_signal == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_wallet_fetch_failure_then_same_signal_triggers_order(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After wallet fetch failure (signal NOT consumed), same signal on next
+    bar still sees signal_changed and places the order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = [
+        Exception("Connection error"),
+        {"list": []},
+    ]
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    # Step 1: wallet fetch fails — signal NOT consumed (still 0.0)
+    result1 = exe.step(sample_data)
+    assert result1["wallet_fetch_failed"] is True
+    assert exe._last_executed_signal == 0.0
+
+    # Step 2: wallet succeeds, signal 0.5 — still sees signal_changed → places order
+    mock_client.place_order.return_value = {"orderId": "oid_retry"}
+    result2 = exe.step(sample_data)
+    assert result2.get("wallet_fetch_failed") is not True
+    assert result2["order_placed"] is True
+    assert exe._last_executed_signal == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_wallet_fetch_failure_then_different_signal_triggers_order(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """After wallet fetch failure, a different signal on the next bar triggers."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.side_effect = [
+        Exception("Connection error"),
+        {"list": []},
+    ]
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    class FlipAfterFail:
+        name = "flip_after_fail"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def __init__(self) -> None:
+            self._call_count = 0
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            self._call_count += 1
+            arr = np.zeros(len(data))
+            if self._call_count == 1:
+                arr[-1] = 0.5
+            elif self._call_count >= 2:
+                arr[-1] = 1.0
+            return pd.Series(arr, index=data.index)
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(FlipAfterFail(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    # Step 1: wallet fails, signal NOT consumed
+    result1 = exe.step(sample_data)
+    assert result1["wallet_fetch_failed"] is True
+    assert exe._last_executed_signal == 0.0
+
+    # Step 2: wallet works, signal 1.0 (changed) → places order
+    mock_client.place_order.return_value = {"orderId": "oid_change"}
+    result2 = exe.step(sample_data)
+    assert result2.get("wallet_fetch_failed") is not True
+    assert result2["order_placed"] is True
+    assert exe._last_executed_signal == 1.0
 
 
 @patch("ztb.execution.executor.load_data")
