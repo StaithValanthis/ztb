@@ -1534,6 +1534,20 @@ def test_fetch_new_bars_with_new_bar(
 
 
 @patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_passes_no_cache(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = pd.DataFrame()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+    _, kwargs = mock_load.call_args
+    assert kwargs.get("no_cache") is True
+
+
+@patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.time_module.sleep")
 def test_polling_loop_killswitch_stops(
     mock_sleep: MagicMock,
