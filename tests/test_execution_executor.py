@@ -1085,9 +1085,9 @@ def test_ensure_warmup_merge_overlap(
     exe._init_run()
     result = exe._ensure_warmup(small_data, 150, "BTCUSDT", "60", "linear", "2025-12-31T10:00:00Z")
     assert overlap_ts in result.index, "overlapping timestamp should exist in result"
-    assert (
-        result.loc[overlap_ts, "close"] == 55555.0
-    ), "original data should win on overlap (keep='last')"
+    assert result.loc[overlap_ts, "close"] == 55555.0, (
+        "original data should win on overlap (keep='last')"
+    )
 
 
 @patch("ztb.execution.executor.load_data")
@@ -1137,6 +1137,7 @@ def test_executor_with_start_dry_run_completes_quickly(
     fake_strategy: FakeStrategy,
 ) -> None:
     import time
+
     small_idx = pd.date_range("2026-06-14", periods=50, freq="h", tz="UTC")
     small_data = pd.DataFrame(
         {
@@ -1163,7 +1164,10 @@ def test_executor_with_start_dry_run_completes_quickly(
     ext_data.index.name = "timestamp"
     mock_load.side_effect = [small_data, ext_data]
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=True, warmup_bars=10, lookback_bars=0,
+        mode=Mode.DEMO,
+        dry_run=True,
+        warmup_bars=10,
+        lookback_bars=0,
     )
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
