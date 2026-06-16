@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.41 (2026-06-16)
+
+- **Fix(executor):** Remove `no_cache=True` from `_fetch_new_bars()` call to `load_data()` — restores cache-first polling and the ~50× performance regression introduced in v1.1.40 (ZTB-2638a, ZTB-2599). `load()` still accepts the `no_cache` parameter for callers that genuinely need it.
+- **Tests:** 1 new regression test `test_fetch_new_bars_does_not_pass_no_cache` verifying `no_cache` is never passed from `_fetch_new_bars`. 1 updated test `test_fetch_new_bars_passes_no_cache` flipped from `is True` to `is False`.
+- CI green on SHA `759f841` (branch).
+- **PR:** [#fix-no-cache](https://github.com/StaithValanthis/ztb/pull/...)
+- **Tag:** v1.1.41
+
 ## v1.1.40 (2026-06-16)
 
 - **Fix(data):** Add `no_cache` param to `load()` so the polling loop skips stale cached data (ZTB-2599). `_fetch_new_bars()` now passes `no_cache=True` to bypass cache reads — cache writes still happen so subsequent cold loads benefit. Existing cache short-circuit for bounded queries unchanged.

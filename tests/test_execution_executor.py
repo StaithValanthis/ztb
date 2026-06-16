@@ -1544,7 +1544,36 @@ def test_fetch_new_bars_passes_no_cache(
     exe = Executor(fake_strategy, config=config)
     exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
     _, kwargs = mock_load.call_args
-    assert kwargs.get("no_cache") is True
+    assert kwargs.get("no_cache", False) is False
+
+
+def test_fetch_new_bars_does_not_pass_no_cache(
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Regression: _fetch_new_bars must never pass no_cache=True to load_data,
+    which caused a ~50x perf regression in v1.1.40 (ZTB-2638a)."""
+    call_kwargs: dict[str, object] = {}
+
+    def capture_kwargs(
+        symbol: str,
+        timeframe: str,
+        **kwargs: object,
+    ) -> pd.DataFrame:
+        nonlocal call_kwargs
+        call_kwargs = kwargs
+        return sample_data
+
+    with patch("ztb.execution.executor.load_data", side_effect=capture_kwargs):
+        config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+        exe = Executor(fake_strategy, config=config)
+        exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+
+    assert "no_cache" not in call_kwargs, (
+        f"_fetch_new_bars passed no_cache={call_kwargs.get('no_cache')} to load_data. "
+        "Remove no_cache from the call — it forces an API fetch on every poll, "
+        "causing a ~50x perf regression."
+    )
 
 
 @patch("ztb.execution.executor.load_data")
