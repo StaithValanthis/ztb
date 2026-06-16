@@ -513,6 +513,8 @@ class Executor:
                 actual = compute_account_state([], wallet)
                 equity = actual.total_equity if actual.total_equity > 0 else equity
                 available_balance = actual.available_balance
+                if available_balance == 0.0:
+                    available_balance = actual.total_available_balance
             except Exception:
                 error_msg = f"Wallet fetch failed for {symbol}"
                 logger.warning(error_msg)

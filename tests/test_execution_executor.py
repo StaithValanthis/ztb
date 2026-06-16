@@ -3748,6 +3748,54 @@ def test_executor_wallet_fetch_failure_skips_bar(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
+def test_executor_uta_fallback_when_available_balance_missing(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When Bybit omits coin-level availableBalance, fall back to totalAvailableBalance."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "300.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "1000.0",
+                        "walletBalance": "1000.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client.place_order.return_value = {"orderId": "uta_fallback_oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=2.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+
+    assert result.get("order_skipped") is not True
+    assert result["order_placed"] is True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    placed_qty = call_kwargs["qty"]
+    close_price = float(sample_data["close"].iloc[-1])
+    max_qty = round(0.5 * min(1000.0, 300.0 * 2.0) / close_price, config.asset_precision)
+    assert placed_qty <= max_qty + 1e-12
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
 def test_executor_sizes_against_available_balance(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,

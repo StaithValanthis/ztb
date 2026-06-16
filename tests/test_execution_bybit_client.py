@@ -844,7 +844,7 @@ def test_top_up_demo_account_calls_api() -> None:
         assert mock_request.call_args_list[1][0] == ("GET", "/v5/account/wallet-balance")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 50000.0
+        assert result.credited_amount == 25000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
     client.close()
@@ -911,9 +911,36 @@ def test_top_up_demo_account_verifies_balance() -> None:
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 75000.0
+        assert result.credited_amount == 40000.0
         assert result.coin == "USDT"
         assert result.requested_amount == 100000.0
+    client.close()
+
+
+def test_top_up_verifies_available_balance_not_wallet_balance() -> None:
+    """top_up_demo_account reads availableBalance, not walletBalance."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        faucet_resp = {"result": "ok"}
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "100000.0",
+                            "walletBalance": "90000.0",
+                            "availableBalance": "60000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert result.credited_amount == 60000.0
+        assert result.credited_amount != 90000.0
     client.close()
 
 
@@ -940,7 +967,7 @@ def test_top_up_demo_account_faucet_cap() -> None:
         result = client.top_up_demo_account("USDT", "100000")
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 100.0
+        assert result.credited_amount == 50.0
         assert result.requested_amount == 100000.0
     client.close()
 
