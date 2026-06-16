@@ -90,7 +90,13 @@ def test_polling_loop_flushes_bars_processed(
     sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=1)
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+        loop_flush_interval=1,
+    )
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -116,7 +122,13 @@ def test_polling_loop_flush_interval_respected(
     sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=5)
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+        loop_flush_interval=5,
+    )
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -148,7 +160,13 @@ def test_polling_loop_flush_operational_error_suppressed(
     sample_data: pd.DataFrame,
 ) -> None:
     mock_load.return_value = sample_data
-    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=1)
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+        loop_flush_interval=1,
+    )
     exe = Executor(fake_strategy, config=config)
     exe._init_run()
     exe._init_store(":memory:")

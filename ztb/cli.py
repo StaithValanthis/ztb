@@ -513,7 +513,12 @@ def validate(
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
 @click.option("--expected-tag", default=None, help="Expected git tag for pinning")
 @click.option("--expected-version", default=None, help="Expected installed version")
-@click.option("--loop-flush-interval", default=1, type=int, help="Flush bars_processed to DB every N bars (0=disabled)")
+@click.option(
+    "--loop-flush-interval",
+    default=1,
+    type=int,
+    help="Flush bars_processed to DB every N bars (0=disabled)",
+)
 def run(
     strategy_name: str,
     symbol: str,
