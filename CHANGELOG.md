@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.41 (2026-06-16)
+
+- **Fix(executor):** Restore real demo fills — `get_executions` signature regression + 3 compounding bugs in the fill pipeline (ZTB-2658). Signed request fix; DEMO skip removal; `get_open_orders` response parsing. Real fill flow verified end-to-end.
+- **Test(regression):** Source-regression locks for the real-fill root cause — test locks `get_executions` signature order to prevent recurrence (ZTB-2685, PR #159).
+- **PR:** [#157](https://github.com/StaithValanthis/ztb/pull/157), [#159](https://github.com/StaithValanthis/ztb/pull/159)
+- **Merge commit:** `4a9613e` — two-key merged
+- **Tag:** v1.1.41
+
 ## v1.1.40 (2026-06-16)
 
 - **Fix(data):** Add `no_cache` param to `load()` so the polling loop skips stale cached data (ZTB-2599). `_fetch_new_bars()` now passes `no_cache=True` to bypass cache reads — cache writes still happen so subsequent cold loads benefit. Existing cache short-circuit for bounded queries unchanged.
