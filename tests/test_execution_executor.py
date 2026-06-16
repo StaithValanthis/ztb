@@ -2017,6 +2017,9 @@ def test_executor_startup_reconcile_adopts_exchange_position(
             }
         ]
     }
+    mock_client.place_order.return_value = {
+        "skipped": True, "reason": "No trade on startup reconcile"
+    }
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
@@ -2086,13 +2089,16 @@ def test_executor_startup_reconcile_adopts_short_position(
                 "coin": [
                     {
                         "coin": "USDT",
-                        "equity": "110000.0",
-                        "walletBalance": "100000.0",
-                        "unrealisedPnl": "10000.0",
+                        "equity": "175000.0",
+                        "walletBalance": "145000.0",
+                        "unrealisedPnl": "30000.0",
                     }
                 ]
             }
         ]
+    }
+    mock_client.place_order.return_value = {
+        "skipped": True, "reason": "No trade on startup reconcile"
     }
     mock_bybit_cls.return_value = mock_client
 
