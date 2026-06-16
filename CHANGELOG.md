@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.38 (2026-06-16)
+
+- **Fix(executor):** `_poll_fills` early return in DEMO mode — skips live polling cost when not needed (ZTB-2434).
+- **Fix(executor):** Killswitch gap after `sleep()` in `_run_polling_loop` — check killswitch before `_fetch_new_bars()` to stop faster (ZTB-2496).
+- **Tests:** 2 new DEMO-mode tests verifying zero polling in demo; 1 new killswitch-gap test. 4 existing poll_fills tests moved to Mode.LIVE.
+- CI green on SHA `d797575` (branch).
+
 ## v1.1.37 (2026-06-16)
 
 - **Feat(executor):** Replay-on-restart cursor — persist `last_bar_ts` in `exec_runs` table and skip already-processed bars on restart (ZTB-2503). On restart, `_restore_last_bar_ts()` queries the most recent completed run's cursor for (strategy, symbol, timeframe). If found and at or past warmup, the historical loop starts at `cursor_pos + 1` instead of `warmup`. Maintains warmup guarantee — falls back to full replay when cursor is missing or before warmup.
