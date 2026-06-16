@@ -1134,9 +1134,7 @@ def test_polling_catchup_processes_each_bar(
 ) -> None:
     """3 new bars → 3 step() calls with correct chunk sizes."""
     last_ts = sample_data.index[-1]
-    new_idx = pd.date_range(
-        start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC"
-    )
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
     new_bars = pd.DataFrame(
         {
             "open": [50100.0, 50200.0, 50300.0],
@@ -1194,9 +1192,7 @@ def test_polling_catchup_killswitch_breaks_early(
 ) -> None:
     """Killswitch trip on bar 2 must break out of the catch-up loop."""
     last_ts = sample_data.index[-1]
-    new_idx = pd.date_range(
-        start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC"
-    )
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
     new_bars = pd.DataFrame(
         {
             "open": [50100.0, 50200.0, 50300.0],
@@ -1249,9 +1245,7 @@ def test_polling_catchup_client_error_continues(
 ) -> None:
     """ClientError on bar 2 must not skip bar 3 processing (step returns dict, not raises)."""
     last_ts = sample_data.index[-1]
-    new_idx = pd.date_range(
-        start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC"
-    )
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=3, freq="h", tz="UTC")
     new_bars = pd.DataFrame(
         {
             "open": [50100.0, 50200.0, 50300.0],
@@ -1339,9 +1333,7 @@ def test_polling_catchup_one_new_bar_normal_path(
 ) -> None:
     """1 new bar → single step() call via else branch."""
     last_ts = sample_data.index[-1]
-    new_idx = pd.date_range(
-        start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC"
-    )
+    new_idx = pd.date_range(start=last_ts + pd.Timedelta(hours=1), periods=1, freq="h", tz="UTC")
     single_bar = pd.DataFrame(
         {
             "open": [50100.0],
