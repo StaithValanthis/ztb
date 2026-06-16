@@ -7,6 +7,9 @@
 - **3-key merge:** CI green (`test` 3.11/3.13) + V&R PASS (`vr-pass`) + `ztb/real-fill-certified` (9 real fills on 1.1.41 verified; smoke test real fill on 1.1.42).
 - **Regression test:** Source lock asserting `get_executions` called WITH `symbol`.
 - **PR:** [#169](https://github.com/StaithValanthis/ztb/pull/169)
+- **Fix(executor):** Remove `no_cache=True` from `_fetch_new_bars()` — restores cache-first polling. The ZTB-2599 flag caused every poll iteration to re-download the full data window from the exchange (~50× slowdown, rate-limit-induced silent `PollingError` exit at ~21 min). The cache-incremental pattern (`read_cache` + `write_cache` + `merge_incremental`) already handles fresh data correctly; `no_cache` is preserved on `load()` as an escape hatch for cold-start use.
+- **Tests:** Updated `test_fetch_new_bars_passes_no_cache` — now asserts `no_cache` defaults to `False` (was asserting `True`).
+- **PR:** [#167](https://github.com/StaithValanthis/ztb/pull/167)
 - **Tag:** v1.1.42
 
 ## v1.1.41 (2026-06-16)
