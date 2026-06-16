@@ -105,6 +105,7 @@ class ExecRunConfig:
     risk_enabled: bool = True
     max_position_pct: float = 0.50
     max_leverage: float = 3.0
+    loop_flush_interval: int = 1
 
     def __post_init__(self) -> None:
         if self.loop is None:

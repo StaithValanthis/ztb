@@ -73,12 +73,98 @@ def test_executor_dry_run(
     result = exe.run(
         symbol="BTCUSDT",
         timeframe="60",
-        start="2026-01-01",
-        end="2026-01-02",
+        start="2026-01-06T00:00:00Z",
+        end="2026-01-08T12:00:00Z",
         db_path=":memory:",
     )
     assert result.status == "completed"
     assert result.bars_processed > 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_flushes_bars_processed(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=1)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    calls = iter([None, None, lambda: setattr(exe, "_sigterm_stop", True)])
+    mock_sleep.side_effect = lambda _: next(calls)()
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    from ztb.store.exec_io import get_exec_run
+    run_info = get_exec_run(exe._store_conn, exe.state.exec_run_id)
+    assert run_info is not None
+    assert int(run_info.get("bars_processed", 0)) > 0
+    assert int(run_info.get("bars_processed", 0)) == exe.state.bars_processed
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_flush_interval_respected(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=5)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    iterations: list[None] = []
+    def side_effect(_: object) -> None:
+        iterations.append(None)
+        if len(iterations) >= 6:
+            exe._sigterm_stop = True
+    mock_sleep.side_effect = side_effect
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    from ztb.store.exec_io import get_exec_run
+    run_info = get_exec_run(exe._store_conn, exe.state.exec_run_id)
+    assert run_info is not None
+    bp = int(run_info.get("bars_processed", 0))
+    assert bp > 0
+    assert bp <= exe.state.bars_processed
+    assert bp % 5 == 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_flush_operational_error_suppressed(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = sample_data
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, loop=True, poll_interval_seconds=0.01, loop_flush_interval=1)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    import sqlite3
+
+    with patch("ztb.store.exec_io.update_exec_run_status") as mock_update:
+        mock_update.side_effect = sqlite3.OperationalError("database is locked")
+
+        calls = iter([None, None, lambda: setattr(exe, "_sigterm_stop", True)])
+        mock_sleep.side_effect = lambda _: next(calls)()
+
+        exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert exe.state.bars_processed > 0
+    assert not any("Max polling errors" in e for e in exe.state.errors)
 
 
 @patch("ztb.execution.executor.load_data")

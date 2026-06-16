@@ -1121,6 +1121,19 @@ class Executor:
 
         return self.state
 
+    def _flush_bars_processed(self) -> None:
+        from ztb.store.exec_io import update_exec_run_status
+
+        try:
+            update_exec_run_status(
+                self._store_conn,
+                self.state.exec_run_id,
+                self.state.status,
+                self.state.bars_processed,
+            )
+        except sqlite3.OperationalError:
+            pass
+
     def _run_polling_loop(
         self,
         data: DataFrame,
@@ -1154,6 +1167,8 @@ class Executor:
                 result = self.step(data)
                 if result.get("client_error"):
                     continue
+                if self.config.loop_flush_interval > 0 and self.state.bars_processed > 0 and self.state.bars_processed % self.config.loop_flush_interval == 0:
+                    self._flush_bars_processed()
                 consecutive_errors = 0
             except ClientError:
                 continue
