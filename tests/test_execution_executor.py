@@ -1068,7 +1068,7 @@ def test_check_killswitch_operational_error_suppressed(
     exe._init_store(":memory:")
     result = exe._check_killswitch()
     assert result is True
-    assert exe._killswitch.is_tripped is True
+    assert ks.is_tripped is True
 
 
 @patch("ztb.store.exec_io.save_killswitch_state")
@@ -1092,7 +1092,7 @@ def test_heartbeat_save_killswitch_operational_error_suppressed(
     ks = LiveKillSwitch(max_data_staleness_sec=1e12)
     exe = Executor(fake_strategy, config=config, killswitch=ks)
     exe.run(symbol="BTCUSDT")
-    assert exe._killswitch.is_tripped is False
+    assert ks.is_tripped is False
 
 
 @patch("ztb.execution.executor.load_data")
