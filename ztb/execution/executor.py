@@ -359,6 +359,9 @@ class Executor:
         interval = self.config.poll_fill_interval
 
         for attempt in range(1, max_attempts + 1):
+            if self._sigterm_stop:
+                logger.warning("SIGTERM received — aborting fill polling for %s", order_link_id)
+                break
             try:
                 from ztb.execution.reconcile import parse_fills as _parse_fills
 
@@ -399,6 +402,12 @@ class Executor:
                         interval,
                     )
                     time_module.sleep(interval)
+                    if self._sigterm_stop:
+                        logger.warning(
+                            "SIGTERM received — aborting fill polling for %s",
+                            order_link_id,
+                        )
+                        break
             except Exception:
                 logger.warning(
                     "Poll fills attempt %d/%d failed for order %s",
@@ -408,6 +417,12 @@ class Executor:
                 )
                 if attempt < max_attempts:
                     time_module.sleep(interval)
+                    if self._sigterm_stop:
+                        logger.warning(
+                            "SIGTERM received — aborting fill polling for %s",
+                            order_link_id,
+                        )
+                        break
 
         logger.warning(
             "Fill polling exhausted for %s after %d attempts — returning empty",

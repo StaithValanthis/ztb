@@ -4338,6 +4338,52 @@ def test_poll_fills_config_defaults(
     assert config.poll_fill_interval == 0.5
 
 
+@patch("ztb.execution.executor.time_module.sleep")
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_aborts_early_on_sigterm(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    mock_sleep: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_poll_fills breaks out of the retry loop when _sigterm_stop is set."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "poll_sigterm_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=10,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    calls = iter(
+        [
+            [],
+            lambda: setattr(exe, "_sigterm_stop", True) or [],
+        ]
+    )
+    mock_client.get_executions.side_effect = lambda *a, **kw: (
+        v() if callable(v := next(calls)) else v
+    )
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert exe._sigterm_stop is True
+    assert mock_client.get_executions.call_count == 2
+
+
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
 def test_poll_fills_skipped_in_demo_mode(
