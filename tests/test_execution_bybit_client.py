@@ -958,7 +958,6 @@ def test_top_up_demo_account_fails_gracefully() -> None:
     client.close()
 
 
-
 @patch("ztb.execution.bybit_client.httpx.Client")
 def test_get_executions_signs_query_in_sent_order(mock_client_cls: MagicMock) -> None:
     """Regression lock for the get_executions signature bug.
