@@ -401,7 +401,6 @@ class Executor:
 
         equity = self._pnl.equity(close_price)
         total_available_balance = 0.0
-        available_balance = 0.0
 
         if not self.config.dry_run and self.client is not None:
             try:
@@ -410,7 +409,6 @@ class Executor:
 
                 actual = compute_account_state([], wallet)
                 equity = actual.total_equity if actual.total_equity > 0 else equity
-                available_balance = actual.available_balance
                 total_available_balance = actual.total_available_balance
             except Exception:
                 error_msg = f"Wallet fetch failed for {symbol}"
@@ -456,9 +454,9 @@ class Executor:
             target_signal = 0.0
 
         asset_precision = self.config.asset_precision
-        if not self.config.dry_run and self.client is not None and available_balance > 0:
+        if not self.config.dry_run and self.client is not None and total_available_balance > 0:
             target_notional = target_signal * min(
-                equity, available_balance * self.config.max_leverage
+                equity, total_available_balance * self.config.max_leverage
             )
             target_qty = (
                 round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
