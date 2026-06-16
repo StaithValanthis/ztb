@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.34 (2026-06-16)
+
+- **Feat(data):** Data-load watchdog + HTTP diagnostics (ZTB-2358). Configurable timeout (`data_load_timeout_seconds`, default 600s) using `ThreadPoolExecutor` + `fut.result(timeout=...)` — raises `ExecutionError` if data load exceeds deadline. DEBUG-level logging for every Bybit REST request/response with monotonic timing; WARNING on transport errors; retry `httpx.TimeoutException`/`httpx.HTTPError` up to 3 times. Connection cleanup: `BybitPublicREST.close()` + `loader.load()` try/finally.
+- **Fix(executor):** `_ensure_warmup` returns extended data directly instead of concatenation (bug from earlier refactor).
+- **Tests:** 7 new test cases: watchdog fires on timeout, no false positive, disabled; HTTP request logging, transport retry, transport retry exhausted, REST client close. Full suite: 1041/1041 passing.
+- V&R contract co-sign: [ZTB-2357](/ZTB/issues/ZTB-2357) PASS
+- V&R PASS on SHA `8827639` ([ZTB-2435](/ZTB/issues/ZTB-2435))
+- **PR:** [#137](https://github.com/StaithValanthis/ztb/pull/137) — `feat/data-load-watchdog`
+- **Merge commit:** `28e3f7b` — two-key merged (CI green + V&R PASS on SHA `8827639`)
+- **Tag:** v1.1.34
+
 ## v1.1.33 (2026-06-16)
 
 - **Fix(executor):** Process each intermediate bar individually in `_run_polling_loop` during polling catch-up. When `_fetch_new_bars` returns multiple bars (e.g. after network interruption), the loop iterates through each bar via `range(old_len, new_len)` and calls `step()` with the correctly growing data slice — each bar triggers signal generation, signal-change detection, and killswitch check.
