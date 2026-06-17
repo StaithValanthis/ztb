@@ -92,6 +92,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.executescript(schema_path.read_text())
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (5)")
+
+    # Schema v12: add sl_price, tp_price, exit_reason to trades table
+    for col in ("sl_price", "tp_price", "exit_reason"):
+        with suppress(sqlite3.OperationalError):
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {col}")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (12)")
     conn.commit()
 
 
@@ -157,8 +164,9 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
         for trade in result.trades:
             conn.execute(
                 """INSERT INTO trades
-                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage,
+                    sl_price, tp_price, exit_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     str(trade.get("timestamp", "")),
@@ -168,6 +176,9 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                     trade.get("pnl", 0.0),
                     trade.get("commission", 0.0),
                     trade.get("slippage", 0.0),
+                    trade.get("sl_price"),
+                    trade.get("tp_price"),
+                    trade.get("exit_reason"),
                 ),
             )
 
@@ -278,8 +289,9 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
         for trade in result.trades:
             conn.execute(
                 """INSERT INTO trades
-                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage,
+                    sl_price, tp_price, exit_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     str(trade.get("timestamp", "")),
@@ -289,6 +301,9 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                     trade.get("pnl", 0.0),
                     trade.get("commission", 0.0),
                     trade.get("slippage", 0.0),
+                    trade.get("sl_price"),
+                    trade.get("tp_price"),
+                    trade.get("exit_reason"),
                 ),
             )
 

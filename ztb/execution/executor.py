@@ -64,6 +64,7 @@ class Executor:
         self._sigterm_stop: bool = False
         self._last_executed_signal: float = 0.0
         self._signal_initialized: bool = False
+        self._active_sl_tp: dict[str, dict[str, float | None]] = {}
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -145,6 +146,55 @@ class Executor:
                 self.state.symbol,
                 self.state.timeframe,
             )
+
+    def _apply_sl_tp(self, symbol: str, side: OrderSide) -> None:
+        if self.client is None or self.config.dry_run:
+            return
+        sl_pct = self.config.sl_pct
+        tp_pct = self.config.tp_pct
+        if sl_pct <= 0.0 and tp_pct <= 0.0:
+            return
+        assert self.state is not None
+        pos = self.state.current_position
+        if abs(pos) < 1e-12:
+            return
+        entry = self.state.avg_entry_price
+        if entry <= 0.0:
+            return
+        sl_price: float | None = None
+        tp_price: float | None = None
+        if pos > 0:
+            sl_price = entry * (1.0 - sl_pct) if sl_pct > 0.0 else None
+            tp_price = entry * (1.0 + tp_pct) if tp_pct > 0.0 else None
+        else:
+            sl_price = entry * (1.0 + sl_pct) if sl_pct > 0.0 else None
+            tp_price = entry * (1.0 - tp_pct) if tp_pct > 0.0 else None
+        try:
+            self.client.set_trading_stop(
+                symbol=symbol,
+                side=side,
+                stop_loss=sl_price,
+                take_profit=tp_price,
+            )
+            self._active_sl_tp[symbol] = {"sl_price": sl_price, "tp_price": tp_price}
+        except Exception:
+            logger.warning("set_trading_stop failed for %s — continuing", symbol)
+
+    def _clear_sl_tp(self, symbol: str) -> None:
+        if self.client is None or self.config.dry_run:
+            return
+        if symbol not in self._active_sl_tp:
+            return
+        try:
+            self.client.set_trading_stop(
+                symbol=symbol,
+                side=OrderSide.BUY,
+                stop_loss=None,
+                take_profit=None,
+            )
+        except Exception:
+            logger.warning("clear_sl_tp failed for %s — continuing", symbol)
+        self._active_sl_tp.pop(symbol, None)
 
     def _save_position_snapshot(self) -> None:
         from ztb.store.exec_io import save_position_snapshot
@@ -797,6 +847,10 @@ class Executor:
                         self._signal_initialized = True
                         return result
 
+            positions_close = abs(delta) > 1e-12 and abs(target_qty) < 1e-12
+            if flip or positions_close:
+                self._clear_sl_tp(symbol)
+
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,
@@ -976,6 +1030,9 @@ class Executor:
 
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
+
+            pos_side = OrderSide.BUY if self._pnl.position > 0 else OrderSide.SELL
+            self._apply_sl_tp(symbol, pos_side)
 
             self._reconcile(target_qty, close_price, bar_ts)
             self._last_executed_signal = target_signal
