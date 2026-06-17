@@ -192,6 +192,25 @@ class BybitClient:
             )
         return result
 
+    def set_trading_stop(
+        self,
+        symbol: str,
+        side: OrderSide,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+            "side": side.value,
+        }
+        if stop_loss is not None:
+            body["stopLoss"] = str(stop_loss)
+        if take_profit is not None:
+            body["takeProfit"] = str(take_profit)
+        return self._request("POST", "/v5/position/trading-stop", body=body)
+
     def cancel_order(
         self,
         symbol: str,

@@ -44,6 +44,8 @@ class BacktestConfig:
     min_trades: int = 30
     risk_enabled: bool = False
     risk_config: RiskConfig | None = None
+    sl_pct: float = 0.0
+    tp_pct: float = 0.0
 
 
 def run_backtest(
@@ -148,9 +150,13 @@ def run_backtest(
     portfolio = single_symbol_portfolio(
         signals=shifted,
         close=close,
+        high=data["high"],
+        low=data["low"],
         initial_cash=config.initial_cash,
         commission=config.commission,
         slippage=config.slippage,
+        sl_pct=config.sl_pct,
+        tp_pct=config.tp_pct,
     )
 
     equity_series = Series(portfolio.equity, index=portfolio.timestamps)

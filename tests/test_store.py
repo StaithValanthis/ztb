@@ -222,6 +222,25 @@ def test_get_trades(conn: sqlite3.Connection, sample_result: BacktestResult) -> 
     assert trades[0]["side"] == "buy"
 
 
+def test_trades_sl_tp_columns_exist(
+    conn: sqlite3.Connection, sample_result: BacktestResult
+) -> None:
+    cols = [c[1] for c in conn.execute("PRAGMA table_info(trades)").fetchall()]
+    assert "sl_price" in cols
+    assert "tp_price" in cols
+    assert "exit_reason" in cols
+
+
+def test_trades_sl_tp_columns_nullable(
+    conn: sqlite3.Connection, sample_result: BacktestResult
+) -> None:
+    run_id = save_run(conn, sample_result)
+    trades = get_trades(conn, run_id)
+    assert trades[0]["sl_price"] is None
+    assert trades[0]["tp_price"] is None
+    assert trades[0]["exit_reason"] is None
+
+
 def test_get_equity_curve(conn: sqlite3.Connection, sample_result: BacktestResult) -> None:
     run_id = save_run(conn, sample_result)
     eq = get_equity_curve(conn, run_id)
