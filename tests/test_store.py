@@ -262,6 +262,92 @@ def test_best_runs_invalid_args(conn: sqlite3.Connection, sample_result: Backtes
     assert "metric_value" in result[0]
 
 
+# ST-14: demo mode default path
+def test_connect_demo_default(monkeypatch, tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    monkeypatch.delenv("ZTB_STORE_PATH", raising=False)
+    monkeypatch.delenv("ZTB_DEMO_STORE_PATH", raising=False)
+    result = _resolve_db_path(mode="demo")
+    expected = Path.home() / ".ztb" / "results.db"
+    assert result == expected
+
+
+# ST-15: live mode default path
+def test_connect_live_default(monkeypatch, tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    monkeypatch.delenv("ZTB_STORE_PATH", raising=False)
+    monkeypatch.delenv("ZTB_LIVE_STORE_PATH", raising=False)
+    result = _resolve_db_path(mode="live")
+    expected = Path.home() / ".ztb" / "live" / "results.db"
+    assert result == expected
+
+
+# ST-16: explicit db_path overrides mode
+def test_connect_explicit_path_override(tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    explicit = str(tmp_path / "explicit.db")
+    result = _resolve_db_path(mode="live", db_path=explicit)
+    assert result == Path(explicit)
+
+
+# ST-17: ZTB_STORE_PATH overrides mode defaults
+def test_connect_store_path_override_mode(monkeypatch, tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    store_path = str(tmp_path / "store_override.db")
+    monkeypatch.setenv("ZTB_STORE_PATH", store_path)
+    demo_result = _resolve_db_path(mode="demo")
+    live_result = _resolve_db_path(mode="live")
+    assert demo_result == Path(store_path)
+    assert live_result == Path(store_path)
+
+
+# ST-18: ZTB_DEMO_STORE_PATH env var
+def test_connect_demo_env_var(monkeypatch, tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    demo_path = str(tmp_path / "demo_test.db")
+    monkeypatch.delenv("ZTB_STORE_PATH", raising=False)
+    monkeypatch.setenv("ZTB_DEMO_STORE_PATH", demo_path)
+    result = _resolve_db_path(mode="demo")
+    assert result == Path(demo_path)
+    # live mode still uses live default
+    live_result = _resolve_db_path(mode="live")
+    assert live_result != Path(demo_path)
+
+
+# ST-19: ZTB_LIVE_STORE_PATH env var
+def test_connect_live_env_var(monkeypatch, tmp_path: Path) -> None:
+    from ztb.store.results import _resolve_db_path
+
+    live_path = str(tmp_path / "live_test.db")
+    monkeypatch.delenv("ZTB_STORE_PATH", raising=False)
+    monkeypatch.setenv("ZTB_LIVE_STORE_PATH", live_path)
+    result = _resolve_db_path(mode="live")
+    assert result == Path(live_path)
+    # demo mode still uses demo default
+    demo_result = _resolve_db_path(mode="demo")
+    assert demo_result != Path(live_path)
+
+
+# ST-20: connect with mode live resolves to live DB
+def test_connect_live_mode_creates_live_db(monkeypatch, tmp_path: Path) -> None:
+    import os
+
+    from ztb.store.results import connect, list_runs
+
+    live_path = str(tmp_path / "live_results.db")
+    monkeypatch.delenv("ZTB_STORE_PATH", raising=False)
+    monkeypatch.setenv("ZTB_LIVE_STORE_PATH", live_path)
+    conn = connect(mode="live")
+    assert list_runs(conn) == []
+    conn.close()
+    assert os.path.exists(live_path)
+
+
 # ST-13: save_run atomicity — rollback on failure
 def test_save_run_rollback(conn: sqlite3.Connection, sample_result: BacktestResult) -> None:
     from contextlib import suppress

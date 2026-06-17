@@ -109,7 +109,7 @@ class Executor:
             signal.signal(signal.SIGTERM, self._original_sigterm)
 
     def _init_store(self, db_path: str | None = None) -> None:
-        self._store_conn = store_connect(db_path)
+        self._store_conn = store_connect(db_path, mode=self.config.mode.value)
         from ztb.store.exec_io import create_exec_run, ensure_exec_tables
 
         ensure_exec_tables(self._store_conn)

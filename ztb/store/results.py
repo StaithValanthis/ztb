@@ -27,20 +27,37 @@ _METRIC_NAMES = frozenset(
     }
 )
 
-DEFAULT_DB_PATH = Path.home() / ".ztb" / "results.db"
+_DEMO_DB_PATH = Path.home() / ".ztb" / "results.db"
+_LIVE_DB_PATH = Path.home() / ".ztb" / "live" / "results.db"
 
 
-def _get_db_path(db_path: str | Path | None = None) -> Path:
+def _resolve_db_path(*, mode: str = "demo", db_path: str | Path | None = None) -> Path:
+    """Resolve database path with mode-aware defaults.
+
+    Priority:
+      1. Explicit ``db_path`` argument
+      2. ``ZTB_STORE_PATH`` env var (backward-compatible override for both modes)
+      3. Mode-specific env var (``ZTB_LIVE_STORE_PATH`` / ``ZTB_DEMO_STORE_PATH``)
+      4. Mode-specific default (``~/.ztb/live/results.db`` / ``~/.ztb/results.db``)
+    """
     if db_path is not None:
         return Path(db_path)
     env = __import__("os").environ.get("ZTB_STORE_PATH")
     if env:
         return Path(env)
-    return DEFAULT_DB_PATH
+    if mode == "live":
+        live_env = __import__("os").environ.get("ZTB_LIVE_STORE_PATH")
+        if live_env:
+            return Path(live_env)
+        return _LIVE_DB_PATH
+    demo_env = __import__("os").environ.get("ZTB_DEMO_STORE_PATH")
+    if demo_env:
+        return Path(demo_env)
+    return _DEMO_DB_PATH
 
 
-def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = _get_db_path(db_path)
+def connect(db_path: str | Path | None = None, *, mode: str = "demo") -> sqlite3.Connection:
+    path = _resolve_db_path(mode=mode, db_path=db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
