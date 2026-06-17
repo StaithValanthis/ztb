@@ -153,6 +153,8 @@ class BybitClient:
         price: float | None = None,
         order_link_id: str = "",
         reduce_only: bool = False,
+        take_profit: float | None = None,
+        stop_loss: float | None = None,
         category: str = "linear",
     ) -> dict[str, Any]:
         validated = self._validate_qty(symbol, qty, category)
@@ -180,6 +182,10 @@ class BybitClient:
             body["reduceOnly"] = True
         if price is not None and order_type == OrderType.LIMIT:
             body["price"] = str(price)
+        if take_profit is not None:
+            body["takeProfit"] = str(take_profit)
+        if stop_loss is not None:
+            body["stopLoss"] = str(stop_loss)
         result = self._request("POST", "/v5/order/create", body=body)
         if self._config.mode == Mode.DEMO:
             order_id = result.get("orderId", "N/A")
@@ -197,20 +203,56 @@ class BybitClient:
         self,
         symbol: str,
         side: OrderSide,
-        stop_loss: float | None = None,
-        take_profit: float | None = None,
+        position_size: float,
+        stop_loss: float = 0.0,
+        take_profit: float = 0.0,
+        sl_trigger_by: str = "LastPrice",
+        tp_trigger_by: str = "LastPrice",
         category: str = "linear",
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "category": category,
             "symbol": symbol,
             "side": side.value,
+            "positionIdx": 0,
         }
-        if stop_loss is not None:
+        if stop_loss > 0.0:
             body["stopLoss"] = str(stop_loss)
-        if take_profit is not None:
+        else:
+            body["stopLoss"] = ""
+        if take_profit > 0.0:
             body["takeProfit"] = str(take_profit)
+        else:
+            body["takeProfit"] = ""
+        if sl_trigger_by:
+            body["slTriggerBy"] = sl_trigger_by
+        if tp_trigger_by:
+            body["tpTriggerBy"] = tp_trigger_by
         return self._request("POST", "/v5/position/trading-stop", body=body)
+
+    def get_active_trading_stops(
+        self,
+        symbol: str = "",
+        category: str = "linear",
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        result = self._request("GET", "/v5/position/list", params=params)
+        items: list[dict[str, Any]] = result.get("list", [])
+        filtered: list[dict[str, Any]] = []
+        for pos in items:
+            sl = pos.get("stopLoss", "0")
+            tp = pos.get("takeProfit", "0")
+            try:
+                sl_val = float(sl) if sl else 0.0
+                tp_val = float(tp) if tp else 0.0
+            except (ValueError, TypeError):
+                sl_val = 0.0
+                tp_val = 0.0
+            if abs(sl_val) > 1e-12 or abs(tp_val) > 1e-12:
+                filtered.append(pos)
+        return filtered
 
     def cancel_order(
         self,

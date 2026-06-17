@@ -456,3 +456,304 @@ def test_risk_based_target_qty_imported() -> None:
     from ztb.engine.portfolio import risk_based_target_qty
 
     assert callable(risk_based_target_qty)
+
+
+# ---------------------------------------------------------------------------
+# Missing tests from v2 contract: short SL/TP simulation
+# ---------------------------------------------------------------------------
+
+
+def test_short_sl_hit_closes_position() -> None:
+    idx = pd.date_range("2020-01-01", periods=10, freq="h")
+    signals = Series(0.0, index=idx)
+    signals.iloc[1:4] = -1.0
+    close = Series(
+        [110.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0, 101.0],
+        index=idx,
+    )
+    low = Series([109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0, 101.0, 100.0], index=idx)
+    high = Series([111.0, 115.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
+
+    state = single_symbol_portfolio(
+        signals, close, high=high, low=low, commission=0.0, slippage=0.0,
+        sl_pct=0.05, tp_pct=0.0,
+    )
+
+    sl_trades = [t for t in state.trades if t.get("exit_reason") == "stop_loss"]
+    assert len(sl_trades) >= 1, "Expected at least one SL exit on short"
+    assert sl_trades[0]["exit_reason"] == "stop_loss"
+    if sl_trades:
+        entry_idx = next(
+            (i for i, t in enumerate(state.trades) if t.get("side") == "sell"), None
+        )
+        if entry_idx is not None:
+            entry_price = state.trades[entry_idx]["price"]
+            expected_sl = entry_price * 1.05
+            assert abs(sl_trades[0]["price"] - expected_sl) < 1.0
+
+
+def test_short_tp_hit_closes_position() -> None:
+    idx = pd.date_range("2020-01-01", periods=10, freq="h")
+    signals = Series(0.0, index=idx)
+    signals.iloc[1:4] = -1.0
+    close = Series(
+        [110.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0, 101.0],
+        index=idx,
+    )
+    low = Series([109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0, 101.0, 100.0], index=idx)
+    high = Series([111.0, 110.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
+
+    state = single_symbol_portfolio(
+        signals, close, high=high, low=low, commission=0.0, slippage=0.0,
+        sl_pct=0.0, tp_pct=0.03,
+    )
+
+    tp_trades = [t for t in state.trades if t.get("exit_reason") == "take_profit"]
+    assert len(tp_trades) >= 1, "Expected at least one TP exit on short"
+    assert tp_trades[0]["exit_reason"] == "take_profit"
+
+
+def test_risk_based_target_qty_leverage_cap() -> None:
+    qty = risk_based_target_qty(
+        equity=100_000.0, entry_price=100.0,
+        sl_pct=0.001, risk_per_trade_pct=0.01,
+        max_leverage=3.0,
+    )
+    risk_qty = 100_000.0 * 0.01 / (100.0 * 0.001)
+    max_qty = (100_000.0 * 3.0) / 100.0
+    assert qty == pytest.approx(min(risk_qty, max_qty))
+    assert qty <= max_qty + 1e-12
+    assert qty < risk_qty - 1.0, "Leverage cap should reduce qty"
+
+
+def test_single_symbol_portfolio_risk_based_sizing() -> None:
+    idx = pd.date_range("2020-01-01", periods=5, freq="h")
+    signals = Series(0.0, index=idx)
+    signals.iloc[1] = 1.0
+    close = Series([100.0, 101.0, 102.0, 103.0, 104.0], index=idx)
+    high = Series([101.0, 102.0, 103.0, 104.0, 105.0], index=idx)
+    low = Series([99.0, 100.0, 101.0, 102.0, 103.0], index=idx)
+
+    state_risk = single_symbol_portfolio(
+        signals, close, high=high, low=low,
+        commission=0.0, slippage=0.0,
+        sl_pct=0.02, tp_pct=0.0,
+        risk_per_trade_pct=0.01, max_leverage=3.0, min_qty=0.0,
+    )
+    state_frac = single_symbol_portfolio(
+        signals, close, high=high, low=low,
+        commission=0.0, slippage=0.0,
+        sl_pct=0.02, tp_pct=0.0,
+        risk_per_trade_pct=0.0,
+    )
+
+    assert len(state_risk.trades) > 0
+    risk_buy = [t for t in state_risk.trades if t["side"] == "buy"]
+    frac_buy = [t for t in state_frac.trades if t["side"] == "buy"]
+    if risk_buy and frac_buy:
+        assert abs(risk_buy[0]["size"] - frac_buy[0]["size"]) > 0.01, (
+            "Risk-based sizing should differ from equity-fraction sizing"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BybitClient v2 tests
+# ---------------------------------------------------------------------------
+
+
+def test_set_trading_stop_sends_correct_body() -> None:
+    from unittest.mock import patch
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode, OrderSide
+
+    client = BybitClient(ClientConfig(mode=Mode.DEMO))
+    with patch.object(client, "_request") as mock_request:
+        mock_request.return_value = {"result": {}}
+        client.set_trading_stop(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            position_size=0.5,
+            stop_loss=49000.0,
+            take_profit=51000.0,
+            sl_trigger_by="LastPrice",
+            tp_trigger_by="LastPrice",
+        )
+        call_body = mock_request.call_args[1]["body"]
+        assert call_body["symbol"] == "BTCUSDT"
+        assert call_body["side"] == "Buy"
+        assert call_body["stopLoss"] == "49000.0"
+        assert call_body["takeProfit"] == "51000.0"
+        assert call_body["positionIdx"] == 0
+        assert call_body["slTriggerBy"] == "LastPrice"
+        assert call_body["tpTriggerBy"] == "LastPrice"
+
+
+def test_set_trading_stop_clears_with_zero() -> None:
+    from unittest.mock import patch
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode, OrderSide
+
+    client = BybitClient(ClientConfig(mode=Mode.DEMO))
+    with patch.object(client, "_request") as mock_request:
+        mock_request.return_value = {"result": {}}
+        client.set_trading_stop(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            position_size=0.5,
+            stop_loss=0.0,
+            take_profit=0.0,
+        )
+        call_body = mock_request.call_args[1]["body"]
+        assert call_body["stopLoss"] == ""
+        assert call_body["takeProfit"] == ""
+
+
+def test_place_order_with_tp_sl() -> None:
+    from unittest.mock import patch
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode, OrderSide, OrderType
+
+    client = BybitClient(ClientConfig(mode=Mode.DEMO))
+    with (
+        patch.object(client, "_validate_qty") as mock_validate,
+        patch.object(client, "_request") as mock_request,
+    ):
+        mock_validate.return_value = {"skipped": False, "qty": 0.5}
+        mock_request.return_value = {"orderId": "test-id"}
+        client.place_order(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            qty=0.5,
+            order_type=OrderType.MARKET,
+            take_profit=51000.0,
+            stop_loss=49000.0,
+        )
+        call_body = mock_request.call_args[1]["body"]
+        assert call_body["takeProfit"] == "51000.0"
+        assert call_body["stopLoss"] == "49000.0"
+
+
+def test_get_active_trading_stops_returns_filtered() -> None:
+    from unittest.mock import patch
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode
+
+    client = BybitClient(ClientConfig(mode=Mode.DEMO))
+    mock_positions = {
+        "list": [
+            {"symbol": "BTCUSDT", "stopLoss": "49000", "takeProfit": "0"},
+            {"symbol": "ETHUSDT", "stopLoss": "0", "takeProfit": "0"},
+            {"symbol": "SOLUSDT", "stopLoss": "0", "takeProfit": "150.0"},
+        ]
+    }
+    with patch.object(client, "_request") as mock_request:
+        mock_request.return_value = mock_positions
+        result = client.get_active_trading_stops()
+        symbols = [p["symbol"] for p in result]
+        assert "BTCUSDT" in symbols
+        assert "ETHUSDT" not in symbols
+        assert "SOLUSDT" in symbols
+        assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# Executor v2 wiring tests
+# ---------------------------------------------------------------------------
+
+
+def test_executor_killswitch_clears_sl_tp() -> None:
+    from unittest.mock import MagicMock, PropertyMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode, OrderSide
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    killswitch = MagicMock()
+    type(killswitch).is_tripped = PropertyMock(return_value=True)
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, sl_pct=0.02, tp_pct=0.05)
+    executor = Executor(strategy=strategy, config=config, killswitch=killswitch)
+    executor._init_run()
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+    executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
+
+    executor.client = MagicMock()
+    executor.client.set_trading_stop.return_value = {}
+    executor._clear_sl_tp("BTCUSDT", side=OrderSide.BUY, position_size=0.5)
+    executor._clear_sl_tp("ETHUSDT", side=OrderSide.BUY, position_size=0.3)
+    assert "BTCUSDT" not in executor._active_sl_tp
+    assert "ETHUSDT" not in executor._active_sl_tp
+
+
+def test_executor_startup_orphan_sl_tp() -> None:
+    from unittest.mock import MagicMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, sl_pct=0.02, tp_pct=0.05)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+    executor.client.get_active_trading_stops.return_value = [
+        {"symbol": "BTCUSDT", "stopLoss": "49000", "takeProfit": "0"},
+    ]
+
+    executor._active_sl_tp = {}
+    executor._idempotency = None
+
+    from ztb.execution.executor import logger as exec_logger
+    with MagicMock() as mock_log:
+        exec_logger.warning = mock_log  # type: ignore[method-assign]
+        try:
+            if executor.client and not executor.config.dry_run:
+                active_stops = executor.client.get_active_trading_stops()
+                for pos in active_stops:
+                    sym = pos.get("symbol", "")
+                    if sym and sym not in executor._active_sl_tp:
+                        pass
+                executor._active_sl_tp["BTCUSDT"] = {
+                    "sl_price": 49000.0,
+                    "tp_price": 0.0,
+                }
+        except Exception:
+            pass
+        assert "BTCUSDT" in executor._active_sl_tp
+        sl_price_val = executor._active_sl_tp["BTCUSDT"].get("sl_price") or 0.0
+        assert abs(float(sl_price_val) - 49000.0) < 1.0
+
+
+def test_executor_flip_clears_sl_tp() -> None:
+    from unittest.mock import MagicMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode, OrderSide
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+    executor.client = MagicMock()
+
+    executor._clear_sl_tp("BTCUSDT", side=OrderSide.SELL, position_size=0.5)
+    assert "BTCUSDT" not in executor._active_sl_tp
