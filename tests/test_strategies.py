@@ -354,13 +354,13 @@ class TestBearFlagContinuationShort:
         cls = get("bear_flag_continuation_short")
         expected = {
             "adx_macro_min": 50,
-            "adx_trend_min": 25,
             "flag_lookback_bars": 20,
             "trail_atr_mult": 2.0,
             "target_atr_mult": 2.5,
             "max_hold_bars": 12,
         }
         assert cls.params == expected
+        assert "adx_trend_min" not in cls.params, "adx_trend_min must be removed per Revision 1"
 
     def test_generate_signals_len(self) -> None:
         df = self._bear_flag_breakdown_4h()
@@ -406,3 +406,19 @@ class TestBearFlagContinuationShort:
         first_entry = entry_indices[0]
         later_zeros = [idx for idx in exit_indices if idx > first_entry]
         assert len(later_zeros) > 0, "Should have exit after entry"
+
+    def test_no_adx_4h_filter(self) -> None:
+        """Revision 1: entry fires WITHOUT 4h ADX > 25 condition."""
+        df = self._bear_flag_breakdown_4h()
+        s = get("bear_flag_continuation_short")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).any(), "Entry should fire without 4h ADX > 25 gate per Revision 1"
+
+    def test_di_gate_fires(self) -> None:
+        """Signals fire with NDI > PDI directional confirmation."""
+        df = self._bear_flag_breakdown_4h()
+        s = get("bear_flag_continuation_short")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).any(), "Entry should fire with DI directional confirmation"

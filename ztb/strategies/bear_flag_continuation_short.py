@@ -15,7 +15,6 @@ class BearFlagContinuationShort(Strategy):
     timeframe: str = "240"
     params: dict[str, float | int | str] = {
         "adx_macro_min": 50,
-        "adx_trend_min": 25,
         "flag_lookback_bars": 20,
         "trail_atr_mult": 2.0,
         "target_atr_mult": 2.5,
@@ -61,17 +60,12 @@ class BearFlagContinuationShort(Strategy):
         d_ema200 = aligned["_ema200"]
         d_close = aligned["_close"]
 
-        adx_4h = adx(df["high"], df["low"], df["close"], 14)
         di_plus_4h = di_plus(df["high"], df["low"], df["close"], 14)
         di_minus_4h = di_minus(df["high"], df["low"], df["close"], 14)
         atr_4h = atr(df["high"], df["low"], df["close"], 14)
 
         lookback = int(self.params["flag_lookback_bars"])
-        flag_floor = (
-            df["low"].shift(1).rolling(
-                window=lookback, min_periods=lookback
-            ).min()
-        )
+        flag_floor = df["low"].shift(1).rolling(window=lookback, min_periods=lookback).min()
 
         signals = Series(0.0, index=df.index)
         active = False
@@ -84,22 +78,15 @@ class BearFlagContinuationShort(Strategy):
             if i < self.warmup:
                 continue
 
-            macro_bear = (
-                d_close.iloc[i] < d_ema200.iloc[i]
-                and d_adx.iloc[i] > float(self.params["adx_macro_min"])
+            macro_bear = d_close.iloc[i] < d_ema200.iloc[i] and d_adx.iloc[i] > float(
+                self.params["adx_macro_min"]
             )
 
             if active:
                 highest_high = max(highest_high, df["high"].iloc[i])
 
-                trail_stop = (
-                    highest_high
-                    - float(self.params["trail_atr_mult"]) * atr_4h.iloc[i]
-                )
-                target = (
-                    entry_price
-                    - float(self.params["target_atr_mult"]) * atr_at_entry
-                )
+                trail_stop = highest_high - float(self.params["trail_atr_mult"]) * atr_4h.iloc[i]
+                target = entry_price - float(self.params["target_atr_mult"]) * atr_at_entry
                 bars_held = i - entry_bar
                 floor_breach = df["close"].iloc[i] > flag_floor.iloc[i]
 
@@ -116,9 +103,7 @@ class BearFlagContinuationShort(Strategy):
             else:
                 if macro_bear:
                     entry_cond = (
-                        adx_4h.iloc[i]
-                        > float(self.params["adx_trend_min"])
-                        and di_minus_4h.iloc[i] > di_plus_4h.iloc[i]
+                        di_minus_4h.iloc[i] > di_plus_4h.iloc[i]
                         and df["close"].iloc[i] < flag_floor.iloc[i]
                     )
                     if entry_cond:
