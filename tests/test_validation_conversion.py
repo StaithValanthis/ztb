@@ -39,9 +39,16 @@ def _seed_store(
             """INSERT OR IGNORE INTO exec_runs
                (exec_run_id, run_id, strategy_name, symbol, timeframe, mode, started_at, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (r["exec_run_id"], r.get("run_id", ""), r.get("strategy_name", "sma_cross"),
-             r.get("symbol", "BTCUSDT"), r.get("timeframe", "60"),
-             r.get("mode", "demo"), r.get("started_at", ""), r.get("status", "completed")),
+            (
+                r["exec_run_id"],
+                r.get("run_id", ""),
+                r.get("strategy_name", "sma_cross"),
+                r.get("symbol", "BTCUSDT"),
+                r.get("timeframe", "60"),
+                r.get("mode", "demo"),
+                r.get("started_at", ""),
+                r.get("status", "completed"),
+            ),
         )
     for o in orders:
         conn.execute(
@@ -49,10 +56,18 @@ def _seed_store(
                (order_link_id, exec_run_id, order_id, symbol, side, order_type,
                 price, qty, status, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (o["order_link_id"], o["exec_run_id"], o.get("order_id", ""),
-             o.get("symbol", "BTCUSDT"), o.get("side", "Buy"), o.get("order_type", "Market"),
-             o.get("price", 0.0), o.get("qty", 0.0), o.get("status", "Filled"),
-             o.get("created_at", "")),
+            (
+                o["order_link_id"],
+                o["exec_run_id"],
+                o.get("order_id", ""),
+                o.get("symbol", "BTCUSDT"),
+                o.get("side", "Buy"),
+                o.get("order_type", "Market"),
+                o.get("price", 0.0),
+                o.get("qty", 0.0),
+                o.get("status", "Filled"),
+                o.get("created_at", ""),
+            ),
         )
     for f in fills:
         conn.execute(
@@ -60,10 +75,19 @@ def _seed_store(
                (fill_id, order_link_id, exec_run_id, order_id, symbol, side,
                 price, qty, commission, realized_pnl, filled_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (f["fill_id"], f.get("order_link_id", ""), f["exec_run_id"],
-             f.get("order_id", ""), f.get("symbol", "BTCUSDT"), f.get("side", "Buy"),
-             f.get("price", 0.0), f.get("qty", 0.0), f.get("commission", 0.0),
-             f.get("realized_pnl", 0.0), f.get("filled_at", "")),
+            (
+                f["fill_id"],
+                f.get("order_link_id", ""),
+                f["exec_run_id"],
+                f.get("order_id", ""),
+                f.get("symbol", "BTCUSDT"),
+                f.get("side", "Buy"),
+                f.get("price", 0.0),
+                f.get("qty", 0.0),
+                f.get("commission", 0.0),
+                f.get("realized_pnl", 0.0),
+                f.get("filled_at", ""),
+            ),
         )
     conn.commit()
 
@@ -76,8 +100,10 @@ def test_conversion_all_real_fills(tmp_path) -> None:
         conn,
         runs=[{"exec_run_id": rid, "strategy_name": "sma_cross"} for rid in run_ids],
         orders=[{"order_link_id": f"o{i}", "exec_run_id": rid} for i, rid in enumerate(run_ids)],
-        fills=[{"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
-               for i, rid in enumerate(run_ids)],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
     )
     conn.close()
     result = compute_signal_to_fill_conversion(str(db))
@@ -96,8 +122,10 @@ def test_conversion_mixed_fills(tmp_path) -> None:
         conn,
         runs=[{"exec_run_id": rid} for rid in run_ids],
         orders=[{"order_link_id": f"o{i}", "exec_run_id": rid} for i, rid in enumerate(run_ids)],
-        fills=[{"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
-               for i, rid in enumerate(real_run_ids)],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(real_run_ids)
+        ],
     )
     conn.close()
     result = compute_signal_to_fill_conversion(str(db))
@@ -144,8 +172,10 @@ def test_conversion_below_min_sample(tmp_path) -> None:
         conn,
         runs=[{"exec_run_id": rid} for rid in run_ids],
         orders=[{"order_link_id": f"o{i}", "exec_run_id": rid} for i, rid in enumerate(run_ids)],
-        fills=[{"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
-               for i, rid in enumerate(run_ids)],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
     )
     conn.close()
     result = compute_signal_to_fill_conversion(str(db))
@@ -177,8 +207,10 @@ def test_conversion_synthetic_fills_excluded(tmp_path) -> None:
         conn,
         runs=[{"exec_run_id": rid} for rid in run_ids],
         orders=[{"order_link_id": f"o{i}", "exec_run_id": rid} for i, rid in enumerate(run_ids)],
-        fills=[{"fill_id": f"synthetic-o{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
-               for i, rid in enumerate(run_ids)],
+        fills=[
+            {"fill_id": f"synthetic-o{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
     )
     conn.close()
     result = compute_signal_to_fill_conversion(str(db), min_signal_runs=3)
