@@ -1547,7 +1547,7 @@ def test_fetch_new_bars_with_new_bar(
 
 
 @patch("ztb.execution.executor.load_data")
-def test_fetch_new_bars_passes_no_cache(
+def test_fetch_new_bars_passes_end_param(
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
@@ -1557,7 +1557,10 @@ def test_fetch_new_bars_passes_no_cache(
     exe = Executor(fake_strategy, config=config)
     exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
     _, kwargs = mock_load.call_args
-    assert kwargs.get("no_cache", False) is False
+    assert "end" in kwargs
+    assert isinstance(kwargs["end"], str)
+    assert kwargs["end"].endswith("Z")
+    assert "no_cache" not in kwargs
 
 
 @patch("ztb.execution.executor.load_data")
@@ -5583,9 +5586,6 @@ def test_balance_cap_caps_qty_on_flip(
     exe.state.current_position = 0.0
 
     result = exe.step(sample_data)
-    # With total_available_balance=0.5 and max_leverage=1.0,
-    # max_notional=0.5, max_qty tiny - delta may round to 0
-    # Verify no crash in balance cap code path
     assert isinstance(result, dict)
 
 
@@ -5660,3 +5660,130 @@ def test_executor_apply_risk_leverage_still_works(
     assert decision is not None
     assert decision.action.value == "reduce"
     assert sig == 2.0, f"Expected 2.0 (leverage cap), got {sig}"
+
+
+# =========================================================================
+# _fetch_new_bars cursor advancement: 5-test suite (ZTB-2732 contract frozen)
+# =========================================================================
+
+
+@patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_appends_new_data(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    new_idx = sample_data.index[-1] + pd.Timedelta(hours=1)
+    new_bar = pd.DataFrame(
+        {
+            "open": [50100.0],
+            "high": [50200.0],
+            "low": [50000.0],
+            "close": [50150.0],
+            "volume": [120.0],
+        },
+        index=[new_idx],
+    )
+    new_bar.index.name = "timestamp"
+    mock_load.return_value = new_bar
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    result = exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+
+    assert len(result) == len(sample_data) + 1
+    assert result.index[-1] == new_idx
+    assert all(result.index[:200] == sample_data.index)
+
+
+@patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_preserves_existing_bars(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = None
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    result = exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+
+    assert len(result) == len(sample_data)
+    assert list(result.index) == list(sample_data.index)
+    assert all(result["close"] == sample_data["close"])
+
+
+@patch("ztb.execution.executor.load_data")
+def test_fetch_new_bars_no_new_bar(
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    mock_load.return_value = None
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    result = exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
+
+    assert result is sample_data
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.time_module.sleep")
+def test_polling_loop_advances_last_bar_ts(
+    mock_sleep: MagicMock,
+    mock_load: MagicMock,
+    fake_strategy: FakeStrategy,
+    sample_data: pd.DataFrame,
+) -> None:
+    new_idx = sample_data.index[-1] + pd.Timedelta(hours=1)
+    extended_idx = list(sample_data.index) + [new_idx]
+    extended_data = pd.DataFrame(
+        {
+            "open": [50000.0] * 201,
+            "high": [50100.0] * 201,
+            "low": [49900.0] * 201,
+            "close": [50000.0] * 201,
+            "volume": [100.0] * 201,
+        },
+        index=extended_idx,
+    )
+    extended_data.index.name = "timestamp"
+
+    call_count = 0
+
+    def load_side_effect(*args: object, **kwargs: object) -> pd.DataFrame:
+        nonlocal call_count
+        call_count += 1
+        return extended_data
+
+    mock_load.side_effect = load_side_effect
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=True,
+        loop=True,
+        poll_interval_seconds=0.01,
+    )
+    exe = Executor(fake_strategy, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+
+    def stop_loop(_: object) -> None:
+        exe._sigterm_stop = True
+
+    mock_sleep.side_effect = stop_loop
+
+    exe._run_polling_loop(sample_data, "BTCUSDT", "60", "linear")
+
+    assert exe.state.last_bar_ts is not None
+    assert str(sample_data.index[-1]) <= str(exe.state.last_bar_ts)
