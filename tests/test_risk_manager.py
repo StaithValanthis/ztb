@@ -78,6 +78,20 @@ def test_evaluate_position_pct_exceeded() -> None:
     assert "position" in decision.reason
 
 
+def test_evaluate_position_pct_sets_correct_max_notional() -> None:
+    config = RiskConfig(max_leverage=10.0, max_position_pct=0.50)
+    mgr = RiskManager(config=config)
+    mgr.update_portfolio_equity(100_000.0)
+    decision = mgr.evaluate(
+        portfolio_state={"cash": 100_000.0, "position": 0.0},
+        proposed_positions={"BTC": 10.0},
+        prices={"BTC": 50000.0},
+        current_equity=100_000.0,
+    )
+    assert decision.action == RiskDecisionAction.reduce
+    assert decision.max_notional == 100_000.0 * 0.50  # max_position_pct * equity
+
+
 def test_evaluate_heat_exceeded() -> None:
     config = RiskConfig(max_heat=0.3)
     mgr = RiskManager(config=config)

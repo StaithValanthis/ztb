@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.46 (2026-06-17)
+
+- **Fix(execution):** Demo wallet topup — faucet zero-credit retry ladder (ZTB-3024). When Bybit demo faucet returns 0.0 USDT (rate-limited), `top_up_demo_account` now retries with stepped-down amounts (300→200→100→50→25→10 USDT) before failing. Previously a single topup attempt at 300 USDT that returned 0.0 immediately exhausted the retry budget, leaving the wallet dry. The retry ladder works around Bybit demo faucet minimum-credit thresholds.
+- **Tests:** 54 bybit-client tests + 167 executor tests all green. 9 topup-specific tests cover: retry ladder, max-step cap, zero-credit handling, and normal topup unchanged path.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `dfa32529` + `ztb/real-fill-certified` SUCCESS via branch deploy.
+- **PR:** [#180](https://github.com/StaithValanthis/ztb/pull/180)
+- **Merge commit:** `bac1f34`
+- **Tag:** v1.1.46
+
 ## v1.1.44 (2026-06-16)
 
 - **Fix(executor):** Defer `_last_executed_signal` update until after `place_order` succeeds — prevents permanent signal consumption when `place_order` raises `ClientError` (ZTB-2765). The premature update at executor.py:614 caused `ClientError` to consume the signal permanently, producing zero orders forever. Now `_last_executed_signal` is updated only on successful order paths (duplicate-handled, order-placed+filled, signal-changed+delta≈0).

@@ -19,6 +19,7 @@ from ztb.execution.models import (
     OrderType,
     TopUpResult,
 )
+from ztb.utils.balance import extract_top_up_credited
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,16 @@ class BybitClient:
                     continue
                 data: dict[str, Any] = resp.json()
                 ret_code = data.get("retCode", -1)
+                ret_msg = data.get("retMsg", "")
+                result_preview = str(data.get("result", {}))[:200]
+                logger.debug(
+                    "%s %s \u2192 retCode=%s retMsg=%s result=%s",
+                    method,
+                    path,
+                    ret_code,
+                    ret_msg,
+                    result_preview,
+                )
                 if ret_code == 0:
                     result: dict[str, Any] = data.get("result", {})
                     if self._config.mode == Mode.LIVE:
@@ -146,6 +157,13 @@ class BybitClient:
     ) -> dict[str, Any]:
         validated = self._validate_qty(symbol, qty, category)
         if validated.get("skipped"):
+            if self._config.mode == Mode.DEMO:
+                logger.info(
+                    "place_order SKIPPED: symbol=%s side=%s reason=%s",
+                    symbol,
+                    side,
+                    validated.get("reason", ""),
+                )
             return validated
         qty = validated["qty"]
         body: dict[str, Any] = {
@@ -162,7 +180,18 @@ class BybitClient:
             body["reduceOnly"] = True
         if price is not None and order_type == OrderType.LIMIT:
             body["price"] = str(price)
-        return self._request("POST", "/v5/order/create", body=body)
+        result = self._request("POST", "/v5/order/create", body=body)
+        if self._config.mode == Mode.DEMO:
+            order_id = result.get("orderId", "N/A")
+            logger.info(
+                "place_order DEMO: symbol=%s side=%s qty=%s order_link_id=%s orderId=%s",
+                symbol,
+                side,
+                qty,
+                order_link_id,
+                order_id,
+            )
+        return result
 
     def cancel_order(
         self,
@@ -280,7 +309,15 @@ class BybitClient:
         min_qty = float(ls.get("minOrderQty", "0"))
         max_qty = float(ls.get("maxOrderQty", "0"))
 
+        orig_qty = qty
         qty = self.round_to_step(qty, qty_step)
+        if qty < 1e-12 and orig_qty > 1e-12:
+            logger.warning(
+                "_validate_qty: qty floored to 0 for %s (orig=%s, step=%s)",
+                symbol,
+                orig_qty,
+                qty_step,
+            )
 
         if qty < min_qty - 1e-12:
             return {
@@ -316,34 +353,62 @@ class BybitClient:
                 requested_amount=float(amount),
                 message="LIVE mode — no-op",
             )
+        requested = float(amount)
         try:
-            body = {
-                "adjustType": 0,
-                "utaDemoApplyMoney": [{"coin": coin, "amountStr": amount}],
-            }
-            self._request("POST", "/v5/account/demo-apply-money", body=body)
-            wallet = self.get_wallet_balance(coin=coin)
-            credited = 0.0
-            for account_info in wallet.get("list", []):
-                for coin_entry in account_info.get("coin", []):
-                    if coin_entry.get("coin", "") == coin:
-                        credited = float(coin_entry.get("availableBalance", 0.0))
-            logger.info("Demo account credited: %s %s (requested %s)", credited, coin, amount)
-            return TopUpResult(
-                success=True,
-                credited_amount=credited,
-                coin=coin,
-                requested_amount=float(amount),
-                message=f"Credited {credited} {coin}",
+            ladder = self._top_up_ladder(requested)
+            final: TopUpResult | None = None
+            for rung in ladder:
+                body = {
+                    "adjustType": 0,
+                    "utaDemoApplyMoney": [
+                        {"coin": coin, "amountStr": str(int(rung) if rung == int(rung) else rung)}
+                    ],
+                }
+                self._request("POST", "/v5/account/demo-apply-money", body=body)
+                wallet = self.get_wallet_balance(coin=coin)
+                credited = extract_top_up_credited(wallet, coin)
+                final = TopUpResult(
+                    success=True,
+                    credited_amount=credited,
+                    coin=coin,
+                    requested_amount=requested,
+                    message=f"Credited {credited} {coin}",
+                )
+                if credited > 0.0:
+                    logger.info(
+                        "Demo account credited: %s %s (requested %s, ladder rung %s)",
+                        credited,
+                        coin,
+                        amount,
+                        rung,
+                    )
+                    return final
+                logger.info(
+                    "Demo account top-up ladder rung %s returned 0 — retrying",
+                    rung,
+                )
+            assert final is not None
+            logger.warning(
+                "Demo account top-up all ladder steps returned 0 (requested %s)",
+                amount,
             )
+            return final
         except Exception as exc:
             return TopUpResult(
                 success=False,
                 credited_amount=0.0,
                 coin=coin,
-                requested_amount=float(amount),
+                requested_amount=requested,
                 message=str(exc),
             )
+
+    @staticmethod
+    def _top_up_ladder(requested: float) -> list[float]:
+        seen: list[float] = []
+        for r in [requested, 1000.0, 100.0, 10.0, 1.0]:
+            if r not in seen:
+                seen.append(r)
+        return seen
 
     def close(self) -> None:
         self._client.close()

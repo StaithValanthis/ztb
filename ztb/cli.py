@@ -673,8 +673,16 @@ def reconcile(exec_run_id: str | None, db: str | None) -> None:
     else:
         click.echo("No exec-run-id provided. Reconciling current account state only.")
 
+    import os
+
+    api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
+    api_secret = os.environ.get("ZTB_BYBIT_API_SECRET", "")
+    if not api_key or not api_secret:
+        click.echo("Error: ZTB_BYBIT_API_KEY and ZTB_BYBIT_API_SECRET must be set", err=True)
+        sys.exit(1)
+
     try:
-        cfg = ClientConfig(mode=ExecMode.DEMO)
+        cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=ExecMode.DEMO)
         client = BybitClient(cfg)
         positions_raw = client.get_positions()
         wallet_raw = client.get_wallet_balance()

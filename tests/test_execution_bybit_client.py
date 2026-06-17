@@ -985,6 +985,68 @@ def test_top_up_demo_account_fails_gracefully() -> None:
     client.close()
 
 
+def test_top_up_retries_smaller_on_zero_credit() -> None:
+    """Primary fix: when full_amount credits 0, retry ladder with smaller
+    amounts until one succeeds."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        # Ladder: [100000.0, 1000.0, 100.0, 10.0, 1.0]
+        # Rungs 100000 and 1000 return 0 credit; rung 10 returns 10.0
+        faucet_resp = {"result": "ok"}
+        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
+        wallet_ten = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "10.0"}]}]}
+        mock_request.side_effect = [
+            faucet_resp,
+            wallet_zero,  # rung 100000 — credit 0
+            faucet_resp,
+            wallet_zero,  # rung 1000 — credit 0
+            faucet_resp,
+            wallet_zero,  # rung 100 — credit 0
+            faucet_resp,
+            wallet_ten,  # rung 10 — credit 10.0
+        ]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 10.0
+        assert result.requested_amount == 100000.0
+        # Verify the 4th POST used amountStr=10 (the winning rung)
+        post_calls = [c for c in mock_request.call_args_list if c[0][0] == "POST"]
+        assert len(post_calls) == 4
+        last_post_body = post_calls[-1][1]["body"]
+        assert last_post_body["utaDemoApplyMoney"][0]["amountStr"] == "10"
+    client.close()
+
+
+def test_top_up_all_ladder_steps_zero() -> None:
+    """All ladder rungs return 0 — graceful degradation, no crash."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        faucet_resp = {"result": "ok"}
+        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
+        mock_request.side_effect = [
+            faucet_resp,
+            wallet_zero,  # 100000
+            faucet_resp,
+            wallet_zero,  # 1000
+            faucet_resp,
+            wallet_zero,  # 100
+            faucet_resp,
+            wallet_zero,  # 10
+            faucet_resp,
+            wallet_zero,  # 1
+        ]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True  # graceful, NOT failure
+        assert result.credited_amount == 0.0
+        assert result.requested_amount == 100000.0
+        assert "Credited 0.0 USDT" in result.message
+    client.close()
+
+
 @patch("ztb.execution.bybit_client.httpx.Client")
 def test_get_executions_signs_query_in_sent_order(mock_client_cls: MagicMock) -> None:
     """Regression lock for the get_executions signature bug.
@@ -1015,7 +1077,148 @@ def test_get_executions_signs_query_in_sent_order(mock_client_cls: MagicMock) ->
         client.get_executions(symbol="BTCUSDT", order_id="abc-123", category="linear")
 
     payload = captured["payload"]
-    # signed string must match what is SENT (insertion order: symbol before orderId)
     assert "symbol=BTCUSDT&orderId=abc-123" in payload, payload
-    # must NOT be alphabetically sorted (orderId before symbol) — that was the bug
     assert "orderId=abc-123&symbol=BTCUSDT" not in payload, payload
+
+
+# ---------------------------------------------------------------------------
+# Area 1: DEBUG logging in _request and place_order (ZTB-2628)
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_request_logs_response_body_debug(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid1"}}
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch("ztb.execution.bybit_client.logger") as mock_logger:
+        result = client._request("GET", "/v5/market/time")
+        assert result == {"orderId": "oid1"}
+        mock_logger.debug.assert_called_once()
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_place_order_logs_params_demo(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    info_resp = MagicMock()
+    info_resp.status_code = 200
+    info_resp.json.return_value = {
+        "retCode": 0,
+        "result": {
+            "list": [
+                {
+                    "symbol": "BTCUSDT",
+                    "lotSizeFilter": {
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
+                    },
+                },
+            ],
+        },
+    }
+    order_resp = MagicMock()
+    order_resp.status_code = 200
+    order_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid_demo_log"}}
+    mock_instance.request.side_effect = [info_resp, order_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch("ztb.execution.bybit_client.logger") as mock_logger:
+        result = client.place_order(
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            qty=0.002,
+            order_link_id="test_link",
+        )
+        assert result["orderId"] == "oid_demo_log"
+        mock_logger.info.assert_called()
+        info_args = [c[0][0] for c in mock_logger.info.call_args_list]
+        assert any("place_order DEMO" in a for a in info_args)
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_place_order_logs_skip_demo(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    info_resp = MagicMock()
+    info_resp.status_code = 200
+    info_resp.json.return_value = {
+        "retCode": 0,
+        "result": {
+            "list": [
+                {
+                    "symbol": "BTCUSDT",
+                    "lotSizeFilter": {
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.01",
+                        "maxOrderQty": "1000",
+                    },
+                },
+            ],
+        },
+    }
+    mock_instance.request.return_value = info_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch("ztb.execution.bybit_client.logger") as mock_logger:
+        result = client.place_order(symbol="BTCUSDT", side=OrderSide.BUY, qty=0.001)
+        assert result.get("skipped") is True
+        mock_logger.info.assert_called_once()
+        assert "SKIPPED" in mock_logger.info.call_args[0][0]
+    client.close()
+
+
+# ---------------------------------------------------------------------------
+# Area 3: _validate_qty floor-rounding warning (ZTB-2628)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_qty_floored_to_zero_warns() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with (
+        patch.object(client, "get_instrument_info") as mock_info,
+        patch("ztb.execution.bybit_client.logger") as mock_logger,
+    ):
+        mock_info.return_value = {
+            "lotSizeFilter": {
+                "qtyStep": "0.001",
+                "minOrderQty": "0.001",
+                "maxOrderQty": "1000",
+            },
+        }
+        result = client._validate_qty("BTCUSDT", 0.0005)
+        assert result["skipped"] is True
+        mock_logger.warning.assert_called_once()
+        assert "floored to 0" in mock_logger.warning.call_args[0][0]
+
+
+def test_validate_qty_normal_no_warning() -> None:
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with (
+        patch.object(client, "get_instrument_info") as mock_info,
+        patch("ztb.execution.bybit_client.logger") as mock_logger,
+    ):
+        mock_info.return_value = {
+            "lotSizeFilter": {
+                "qtyStep": "0.001",
+                "minOrderQty": "0.001",
+                "maxOrderQty": "1000",
+            },
+        }
+        result = client._validate_qty("BTCUSDT", 0.002)
+        assert result["skipped"] is False
+        assert result["qty"] == 0.002
+        mock_logger.warning.assert_not_called()
