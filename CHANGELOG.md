@@ -1,3 +1,11 @@
+## v1.1.50 (2026-06-17)
+- **Fix(executor):** Reconcile exchange position before delta, remove signal_changed re-entry gate (PR #190, ZTB-3253/3262).
+  - Reconcile exchange position in `_step_impl` before computing delta — external position close is now detected.
+  - Removed `signal_changed` gate — orders proceed whenever `abs(delta) > 1e-12`.
+  - 7 new test cases: external close re-entry, no-signal no-op, first-bar acceptance, etc.
+  - V&R co-signed frozen contract, CI green on SHA `40c3df2`, real-fill-certified on `d22ccbd`.
+
+
 ## v1.1.50
 - atomic-merge version bump for PR #190
 
