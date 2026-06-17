@@ -1,5 +1,9 @@
-## v1.1.50
-- atomic-merge version bump for PR #190
+## v1.1.51
+- **Fix(executor):** Conditional demo top-up — check `get_wallet_balance` before calling `top_up_demo_account`. Skip if wallet >= 10% of `initial_cash`. Eliminates ~7,045 `ClientError("ab not enough")` and ~16 `DemoAccountTopUpError` rate-limit hits per day from unconditional restart top-ups.
+- **Fix(executor):** Skip SL/TP query in DEMO mode — `get_active_trading_stops()` only called when `config.mode == Mode.LIVE`. Removes `"Startup active-trading-stops query failed"` warning on every demo restart.
+- **Tests:** 4 new tests — `test_startup_skips_topup_when_wallet_funded`, `test_startup_calls_topup_when_wallet_low`, `test_startup_skips_sltp_query_in_demo_mode`, `test_startup_calls_sltp_query_in_live_mode`.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `cd1b8625` + `ztb/real-fill-certified` via branch deploy.
+- **PR:** [#193](https://github.com/StaithValanthis/ztb/pull/193)
 
 # Changelog
 
