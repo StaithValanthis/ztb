@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.49 (2026-06-17)
+
+- **Fix(data):** Faucet 429 rate-limit handler — detect `resp.status_code == 429` in `BybitClient._request()` transport layer before `resp.json()`, retry with exponential backoff via `BackoffStrategy` up to `max_retries`, raise `ClientError(429, resp.text[:200])` on exhaustion. Fixes silent crashes when Bybit demo faucet returns 429 (non-JSON response). No changes to `top_up_demo_account`, `extract_top_up_credited`, or `balance.py`.
+- **Tests:** `test_request_429_retries_then_succeeds` — httpx mock, 429→backoff→200 success; `test_request_429_exhausts_retries` — all attempts 429, raises `ClientError(429)`. All existing tests green.
+- **Chore:** Bump version to v1.1.49.
+
 ## v1.1.48 (2026-06-17)
 
 - **Feat:** Per-trade SL/TP + trade management + position sizing (ZTB-2981). Replace pre-validation with step-alignment approach for position sizing (ZTB-3008). Step-aware `ceil_to_step`/`round_to_step` in `bybit_client.py`, `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` exposed, qty aligned to instrument step size (ceil for entry, floor for reduction/cap). V&R defect fixes — direction-aware triggers, close, and flip reset (ZTB-3173). VE-gap closure — 7 remaining gaps + 12 new tests (ZTB-3090). ALL 16 VE gaps closed.

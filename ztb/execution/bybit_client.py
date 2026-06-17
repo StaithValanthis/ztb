@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from ztb.data.rate_limit import BackoffStrategy
 from ztb.execution.errors import ClientAuthError, ClientError
 from ztb.execution.live_guard import LiveGuard
 from ztb.execution.models import (
@@ -61,6 +62,7 @@ class BybitClient:
         self._config = config
         self._base_url = _LIVE_BASE if config.mode == Mode.LIVE else _DEMO_BASE
         self._client = httpx.Client(timeout=config.timeout)
+        self._backoff_strategy = BackoffStrategy()
         self._time_synced = 0
         if config.mode == Mode.LIVE:
             try:
@@ -117,6 +119,12 @@ class BybitClient:
                     headers=headers,
                     content=body_str if body else None,
                 )
+                if resp.status_code == 429:
+                    if attempt < self._config.max_retries - 1:
+                        delay = self._backoff_strategy.delay(attempt + 1)
+                        time.sleep(delay)
+                        continue
+                    raise ClientError(429, resp.text[:200])
                 if resp.status_code >= 500 and attempt < self._config.max_retries - 1:
                     time.sleep(1.0 * (attempt + 1))
                     continue

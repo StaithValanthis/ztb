@@ -809,6 +809,43 @@ def test_http_status_error_503_retry_then_raise(mock_client_cls: MagicMock) -> N
     client.close()
 
 
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_request_429_retries_then_succeeds(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    rate_resp = MagicMock()
+    rate_resp.status_code = 429
+    rate_resp.text = "Too Many Requests"
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"retCode": 0, "result": {"ok": True}}
+    mock_instance.request.side_effect = [rate_resp, ok_resp]
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    result = client._request("GET", "/v5/market/time")
+    assert result == {"ok": True}
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_request_429_exhausts_retries(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    rate_resp = MagicMock()
+    rate_resp.status_code = 429
+    rate_resp.text = "Too Many Requests"
+    mock_instance.request.return_value = rate_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO, max_retries=2)
+    client = BybitClient(cfg)
+    with pytest.raises(ClientError, match="Too Many Requests"):
+        client._request("GET", "/v5/market/time")
+    assert mock_instance.request.call_count == 2
+    client.close()
+
+
 def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
     from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
