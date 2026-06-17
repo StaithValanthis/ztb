@@ -475,17 +475,21 @@ def test_short_sl_hit_closes_position() -> None:
     high = Series([111.0, 115.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
 
     state = single_symbol_portfolio(
-        signals, close, high=high, low=low, commission=0.0, slippage=0.0,
-        sl_pct=0.05, tp_pct=0.0,
+        signals,
+        close,
+        high=high,
+        low=low,
+        commission=0.0,
+        slippage=0.0,
+        sl_pct=0.05,
+        tp_pct=0.0,
     )
 
     sl_trades = [t for t in state.trades if t.get("exit_reason") == "stop_loss"]
     assert len(sl_trades) >= 1, "Expected at least one SL exit on short"
     assert sl_trades[0]["exit_reason"] == "stop_loss"
     if sl_trades:
-        entry_idx = next(
-            (i for i, t in enumerate(state.trades) if t.get("side") == "sell"), None
-        )
+        entry_idx = next((i for i, t in enumerate(state.trades) if t.get("side") == "sell"), None)
         if entry_idx is not None:
             entry_price = state.trades[entry_idx]["price"]
             expected_sl = entry_price * 1.05
@@ -504,8 +508,14 @@ def test_short_tp_hit_closes_position() -> None:
     high = Series([111.0, 110.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
 
     state = single_symbol_portfolio(
-        signals, close, high=high, low=low, commission=0.0, slippage=0.0,
-        sl_pct=0.0, tp_pct=0.03,
+        signals,
+        close,
+        high=high,
+        low=low,
+        commission=0.0,
+        slippage=0.0,
+        sl_pct=0.0,
+        tp_pct=0.03,
     )
 
     tp_trades = [t for t in state.trades if t.get("exit_reason") == "take_profit"]
@@ -515,8 +525,10 @@ def test_short_tp_hit_closes_position() -> None:
 
 def test_risk_based_target_qty_leverage_cap() -> None:
     qty = risk_based_target_qty(
-        equity=100_000.0, entry_price=100.0,
-        sl_pct=0.001, risk_per_trade_pct=0.01,
+        equity=100_000.0,
+        entry_price=100.0,
+        sl_pct=0.001,
+        risk_per_trade_pct=0.01,
         max_leverage=3.0,
     )
     risk_qty = 100_000.0 * 0.01 / (100.0 * 0.001)
@@ -535,15 +547,27 @@ def test_single_symbol_portfolio_risk_based_sizing() -> None:
     low = Series([99.0, 100.0, 101.0, 102.0, 103.0], index=idx)
 
     state_risk = single_symbol_portfolio(
-        signals, close, high=high, low=low,
-        commission=0.0, slippage=0.0,
-        sl_pct=0.02, tp_pct=0.0,
-        risk_per_trade_pct=0.01, max_leverage=3.0, min_qty=0.0,
+        signals,
+        close,
+        high=high,
+        low=low,
+        commission=0.0,
+        slippage=0.0,
+        sl_pct=0.02,
+        tp_pct=0.0,
+        risk_per_trade_pct=0.01,
+        max_leverage=3.0,
+        min_qty=0.0,
     )
     state_frac = single_symbol_portfolio(
-        signals, close, high=high, low=low,
-        commission=0.0, slippage=0.0,
-        sl_pct=0.02, tp_pct=0.0,
+        signals,
+        close,
+        high=high,
+        low=low,
+        commission=0.0,
+        slippage=0.0,
+        sl_pct=0.02,
+        tp_pct=0.0,
         risk_per_trade_pct=0.0,
     )
 
@@ -717,6 +741,7 @@ def test_executor_startup_orphan_sl_tp() -> None:
     executor._idempotency = None
 
     from ztb.execution.executor import logger as exec_logger
+
     with MagicMock() as mock_log:
         exec_logger.warning = mock_log  # type: ignore[method-assign]
         try:
@@ -898,7 +923,10 @@ def test_executor_fill_clear_then_apply_sl_tp() -> None:
     strategy.warmup = 0
 
     config = ExecRunConfig(
-        mode=Mode.DEMO, dry_run=False, sl_pct=0.02, tp_pct=0.05,
+        mode=Mode.DEMO,
+        dry_run=False,
+        sl_pct=0.02,
+        tp_pct=0.05,
         initial_cash=100_000.0,
     )
     executor = Executor(strategy=strategy, config=config)
@@ -909,24 +937,37 @@ def test_executor_fill_clear_then_apply_sl_tp() -> None:
     executor._killswitch = killswitch
 
     executor.client = MagicMock()
-    executor.client.get_wallet_balance.return_value = {"list": [
-        {"coin": [{"coin": "USDT", "availableBalance": "100000", "walletBalance": "100000"}]}
-    ]}
+    executor.client.get_wallet_balance.return_value = {
+        "list": [
+            {"coin": [{"coin": "USDT", "availableBalance": "100000", "walletBalance": "100000"}]}
+        ]
+    }
     executor.client.get_positions.return_value = []
     executor.client.get_order_history.return_value = []
     executor.client.get_open_orders.return_value = []
     executor.client.place_order.return_value = {"orderId": "test-order-1"}
-    executor.client.get_executions.return_value = {"list": [
-        {"execId": "fill-1", "orderId": "test-order-1", "symbol": "BTCUSDT",
-         "side": "Buy", "price": "101.0", "qty": "1.0", "commission": "0.05",
-         "realizedPnl": "0", "execTime": "2024-01-01T01:00:00Z"}
-    ]}
+    executor.client.get_executions.return_value = {
+        "list": [
+            {
+                "execId": "fill-1",
+                "orderId": "test-order-1",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "price": "101.0",
+                "qty": "1.0",
+                "commission": "0.05",
+                "realizedPnl": "0",
+                "execTime": "2024-01-01T01:00:00Z",
+            }
+        ]
+    }
     executor.client.get_instrument_info.return_value = {
         "lotSizeFilter": {"qtyStep": "0.001", "minOrderQty": "0.001", "maxOrderQty": "1000"}
     }
     executor.client.get_active_trading_stops.return_value = []
 
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
         executor._init_store(tmp.name)
         executor._idempotency = MagicMock()
@@ -934,13 +975,16 @@ def test_executor_fill_clear_then_apply_sl_tp() -> None:
         executor._idempotency.resolve.return_value = None
 
         idx = pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC")
-        df = DataFrame({
-            "open": [100.0, 101.0, 102.0],
-            "high": [101.0, 102.0, 103.0],
-            "low": [99.0, 100.0, 101.0],
-            "close": [100.0, 101.0, 102.0],
-            "volume": [1000.0, 1000.0, 1000.0],
-        }, index=idx)
+        df = DataFrame(
+            {
+                "open": [100.0, 101.0, 102.0],
+                "high": [101.0, 102.0, 103.0],
+                "low": [99.0, 100.0, 101.0],
+                "close": [100.0, 101.0, 102.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            },
+            index=idx,
+        )
 
         strategy.generate_signals.return_value = Series([0.0, 1.0, 1.0], index=idx)
 
@@ -989,11 +1033,16 @@ def test_executor_killswitch_step_clears_all_sl_tp() -> None:
         executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
 
         idx = pd.date_range("2024-01-01", periods=2, freq="h")
-        df = DataFrame({
-            "open": [100.0, 101.0], "high": [101.0, 102.0],
-            "low": [99.0, 100.0], "close": [100.0, 101.0],
-            "volume": [1000.0, 1000.0],
-        }, index=idx)
+        df = DataFrame(
+            {
+                "open": [100.0, 101.0],
+                "high": [101.0, 102.0],
+                "low": [99.0, 100.0],
+                "close": [100.0, 101.0],
+                "volume": [1000.0, 1000.0],
+            },
+            index=idx,
+        )
 
         result = executor.step(df)
         assert result.get("killswitch_tripped") is True
