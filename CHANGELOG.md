@@ -1,5 +1,13 @@
-## v1.1.48
-- SL/TP + trade management + position sizing (ZTB-2981) with V&R defect fixes (ZTB-3173: direction-aware triggers/close/flip-reset) + VE-gap closure (ZTB-3090).
+## v1.1.48 (2026-06-17)
+
+- **Feat:** Per-trade SL/TP + trade management + position sizing (ZTB-2981). Replace pre-validation with step-alignment approach for position sizing (ZTB-3008). Step-aware `ceil_to_step`/`round_to_step` in `bybit_client.py`, `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` exposed, qty aligned to instrument step size (ceil for entry, floor for reduction/cap). V&R defect fixes — direction-aware triggers, close, and flip reset (ZTB-3173). VE-gap closure — 7 remaining gaps + 12 new tests (ZTB-3090). ALL 16 VE gaps closed.
+- **Rebase:** `feat/sl-tp-trade-mgmt` rebased onto `main` (v1.1.47). Four-file conflict resolved — ZTB-2732 cursor advancement, ZTB-3008 step-alignment, ZTB-3173 defect fixes, and ZTB-3090 VE-gap tests all preserved.
+- **Tests:** 27 new tests cover: SL/TP trigger logic, step-alignment edge cases (small wallet, fetch failure, dry-run skip, capped-to-zero skip), trade-management lifecycle, and all VE-gap scenarios.
+- **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs. SL/TP trade management consolidated to a single branch (no fan-out).
+- **Three-key merge:** CI green (test 3.11/3.13 SUCCESS) + V&R PASS on SHA `3c5bd04` (ztb/vr-pass SUCCESS, linked ZTB-3274) + `ztb/real-fill-certified` SUCCESS. All three keys on the same SHA.
+- **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
+- **Merge commit:** `3c5bd04`
+- **Tag:** v1.1.48
 
 # Changelog
 
