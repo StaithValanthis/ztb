@@ -59,10 +59,12 @@ def load(
     end_ms: int | None = None
 
     if start is not None:
-        start_ts = pd.Timestamp(start, tz="UTC")
+        _s = pd.Timestamp(start)
+        start_ts = _s.tz_localize("UTC") if _s.tzinfo is None else _s.tz_convert("UTC")
         start_ms = int(start_ts.timestamp() * 1000)
     if end is not None:
-        end_ts = pd.Timestamp(end, tz="UTC")
+        _e = pd.Timestamp(end)
+        end_ts = _e.tz_localize("UTC") if _e.tzinfo is None else _e.tz_convert("UTC")
         end_ms = int(end_ts.timestamp() * 1000)
 
     cached = None

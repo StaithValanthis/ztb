@@ -7,12 +7,19 @@ from typing import Any
 
 from ztb.execution.arm_auth import load_arm_hash, verify_board_token
 from ztb.execution.errors import LiveArmFailedError, LiveDisarmedError
+from ztb.store.results import _get_live_db_path
 
 
 class LiveGuard:
     ENV_VAR = "ZTB_LIVE_ARMED"
     BOARD_TOKEN_VAR = "ZTB_BOARD_TOKEN"
     _default_store_path: str | Path | None = None
+
+    @classmethod
+    def _resolve_default_store(cls) -> str | Path | None:
+        if cls._default_store_path is not None:
+            return cls._default_store_path
+        return _get_live_db_path()
 
     @classmethod
     def set_default_store_path(cls, path: str | Path | None) -> None:
@@ -36,7 +43,7 @@ class LiveGuard:
         store_path: str | Path | None = None,
         hash_path: str | Path | None = None,
     ) -> dict[str, Any]:
-        effective_path = store_path or cls._default_store_path
+        effective_path = store_path or cls._resolve_default_store()
         if conn is not None:
             from ztb.store.exec_io import get_latest_unresolved_kill_event
 
@@ -48,10 +55,10 @@ class LiveGuard:
                 ensure_exec_tables,
                 get_latest_unresolved_kill_event,
             )
-            from ztb.store.results import connect
+            from ztb.store.results import connect_live
 
             try:
-                c = connect(str(effective_path))
+                c = connect_live(str(effective_path))
                 ensure_exec_tables(c)
                 event = get_latest_unresolved_kill_event(c)
                 c.close()
@@ -77,14 +84,14 @@ class LiveGuard:
 
     @classmethod
     def _write_audit(cls, store_path: str | Path | None, entry: dict[str, Any]) -> None:
-        path = store_path or cls._default_store_path
+        path = store_path or cls._resolve_default_store()
         if not path:
             return
         from ztb.store.exec_io import ensure_audit_table, log_audit_event
-        from ztb.store.results import connect
+        from ztb.store.results import connect_live
 
         try:
-            conn = connect(str(path))
+            conn = connect_live(str(path))
             ensure_audit_table(conn)
             log_audit_event(
                 conn,

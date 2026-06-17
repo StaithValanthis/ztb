@@ -36,6 +36,7 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
+from ztb.utils.balance import extract_available_balance
 
 logger = logging.getLogger(__name__)
 
@@ -1281,7 +1282,7 @@ class Executor:
         if self._killswitch is not None:
             self._killswitch.heartbeat()
 
-        if self.client is not None and not self.config.dry_run:
+        if self.client is not None and not self.config.dry_run and self.config.mode == Mode.LIVE:
             try:
                 active_stops = self.client.get_active_trading_stops()
                 for pos in active_stops:
@@ -1306,18 +1307,29 @@ class Executor:
 
         if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
             try:
-                top_up_result = self.client.top_up_demo_account(
-                    "USDT", str(self.config.initial_cash)
-                )
-                if not top_up_result.success:
-                    self._save_error("DemoAccountTopUpError", top_up_result.message)
-                elif top_up_result.credited_amount < self.config.initial_cash * 0.01:
-                    logger.warning(
-                        "Demo account top-up may be insufficient: credited=%s %s (requested=%s)",
-                        top_up_result.credited_amount,
-                        top_up_result.coin,
-                        top_up_result.requested_amount,
+                wallet_raw = self.client.get_wallet_balance(coin="USDT")
+                wallet_balance = extract_available_balance(wallet_raw, coin="USDT")
+                if wallet_balance >= self.config.initial_cash * 0.10:
+                    logger.info(
+                        "Demo wallet already funded: available=%.2f USDT "
+                        "(>=10%% of initial_cash=%.2f) — skipping top-up",
+                        wallet_balance,
+                        self.config.initial_cash,
                     )
+                else:
+                    top_up_result = self.client.top_up_demo_account(
+                        "USDT", str(self.config.initial_cash)
+                    )
+                    if not top_up_result.success:
+                        self._save_error("DemoAccountTopUpError", top_up_result.message)
+                    elif top_up_result.credited_amount < self.config.initial_cash * 0.01:
+                        logger.warning(
+                            "Demo account top-up may be insufficient: "
+                            "credited=%s %s (requested=%s)",
+                            top_up_result.credited_amount,
+                            top_up_result.coin,
+                            top_up_result.requested_amount,
+                        )
             except Exception as exc:
                 self._save_error("DemoAccountTopUpError", str(exc))
 

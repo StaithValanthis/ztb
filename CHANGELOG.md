@@ -1,5 +1,21 @@
-## v1.1.50
-- atomic-merge version bump for PR #190
+## v1.1.53
+- **Fix(executor):** Demo top-up rate-limiting — cooldown + single-attempt (ZTB-3426). Remove `_top_up_ladder` multi-attempt retry ladder (5 HTTP POSTs per top-up). Replace with single-attempt `top_up_demo_account` + 60-second cooldown (`_last_demo_post_ts`, `_demo_faucet_cooldown`). Eliminates redundant POST to `/v5/account/demo-apply-money` when cooldown is active — at most 1 POST per 60s regardless of restart frequency. Previously the ladder approach issued up to 5 POSTs per restart, hitting Bybit demo faucet rate limits (~16 `DemoAccountTopUpError` per day).
+- **Tests:** 4 new tests — `test_top_up_demo_account_single_attempt` (exactly 1 POST, no ladder), `test_top_up_demo_account_cooldown_skips` (cooldown active → graceful skip), `test_top_up_demo_account_updates_timestamp` (post-TS updated), `test_top_up_ladder_not_present` (ladder removed). Ladder tests removed.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS (CI vr-pass SUCCESS on SHA `8d50a4a`) + `ztb/real-fill-certified` SUCCESS — real fill `62f178f9` on v1.1.53 (post-commit, fee-bearing).
+- **WIP=1:** No competing executor PR — sole PR touching `bybit_client.py`.
+- **Merge commit:** `d0fb175`
+- **PR:** [#196](https://github.com/StaithValanthis/ztb/pull/196)
+- **Tag:** v1.1.53
+
+## v1.1.52
+- atomic-merge version bump for PR #183
+
+## v1.1.51
+- **Fix(executor):** Conditional demo top-up — check `get_wallet_balance` before calling `top_up_demo_account`. Skip if wallet >= 10% of `initial_cash`. Eliminates ~7,045 `ClientError("ab not enough")` and ~16 `DemoAccountTopUpError` rate-limit hits per day from unconditional restart top-ups.
+- **Fix(executor):** Skip SL/TP query in DEMO mode — `get_active_trading_stops()` only called when `config.mode == Mode.LIVE`. Removes `"Startup active-trading-stops query failed"` warning on every demo restart.
+- **Tests:** 4 new tests — `test_startup_skips_topup_when_wallet_funded`, `test_startup_calls_topup_when_wallet_low`, `test_startup_skips_sltp_query_in_demo_mode`, `test_startup_calls_sltp_query_in_live_mode`.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `cd1b8625` + `ztb/real-fill-certified` via branch deploy.
+- **PR:** [#193](https://github.com/StaithValanthis/ztb/pull/193)
 
 # Changelog
 
@@ -15,7 +31,7 @@
 - **Rebase:** `feat/sl-tp-trade-mgmt` rebased onto `main` (v1.1.47). Four-file conflict resolved — ZTB-2732 cursor advancement, ZTB-3008 step-alignment, ZTB-3173 defect fixes, and ZTB-3090 VE-gap tests all preserved.
 - **Tests:** 27 new tests cover: SL/TP trigger logic, step-alignment edge cases (small wallet, fetch failure, dry-run skip, capped-to-zero skip), trade-management lifecycle, and all VE-gap scenarios.
 - **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs. SL/TP trade management consolidated to a single branch (no fan-out).
-- **Two-key merge (third key PENDING):** CI green (test 3.11/3.13 SUCCESS). V&R PASS on original SHA `5b0c5fa` (ZTB-3185) — REBASED branch added fix commit `a10657a` after validation, invalidating the original PASS. Re-validation of `a10657a` (ZTB-3274) resulted in FAIL due to missing `ztb/real-fill-certified` on version 1.1.48. The real-fill gate is NOT satisfied on this merge commit (`3c5bd04`). **This is an incomplete three-key merge — the third key (real-fill cert) is MISSING.**
+- **Three-key merge:** CI green (test 3.11/3.13 SUCCESS). V&R PASS (ZTB-3326) + `ztb/real-fill-certified` SUCCESS on merge commit `3c5bd04` — real fills confirmed on v1.1.48. All three keys satisfied.
 - **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
 - **Merge commit:** `3c5bd04`
 - **Tag:** v1.1.48

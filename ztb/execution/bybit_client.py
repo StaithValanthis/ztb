@@ -70,6 +70,8 @@ class BybitClient:
             except Exception:
                 self._time_synced = 0
         self._instrument_cache: dict[str, dict[str, Any]] = {}
+        self._last_demo_post_ts: float = 0.0
+        self._demo_faucet_cooldown: float = 60.0
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
         payload = f"{timestamp}{self._config.api_key}{_RECV_WINDOW}{body}"
@@ -439,10 +441,10 @@ class BybitClient:
             return
         source = self._config.arm_source or "BybitClient"
         from ztb.store.exec_io import ensure_audit_table, log_audit_event
-        from ztb.store.results import connect
+        from ztb.store.results import connect_live
 
         try:
-            conn = connect(str(store_path))
+            conn = connect_live(str(store_path))
             ensure_audit_table(conn)
             log_audit_event(conn, event_type=event_type, source=source, detail=detail)
             conn.close()
@@ -458,46 +460,51 @@ class BybitClient:
                 requested_amount=float(amount),
                 message="LIVE mode — no-op",
             )
+        now = time.time()
+        elapsed = now - self._last_demo_post_ts
+        if elapsed < self._demo_faucet_cooldown:
+            remaining = self._demo_faucet_cooldown - elapsed
+            logger.info(
+                "Demo top-up skipped — cooldown active (%.1fs remaining)",
+                remaining,
+            )
+            return TopUpResult(
+                success=True,
+                credited_amount=0.0,
+                coin=coin,
+                requested_amount=float(amount),
+                message=f"Cooldown active — {remaining:.1f}s remaining",
+            )
         requested = float(amount)
         try:
-            ladder = self._top_up_ladder(requested)
-            final: TopUpResult | None = None
-            for rung in ladder:
-                body = {
-                    "adjustType": 0,
-                    "utaDemoApplyMoney": [
-                        {"coin": coin, "amountStr": str(int(rung) if rung == int(rung) else rung)}
-                    ],
-                }
-                self._request("POST", "/v5/account/demo-apply-money", body=body)
-                wallet = self.get_wallet_balance(coin=coin)
-                credited = extract_top_up_credited(wallet, coin)
-                final = TopUpResult(
-                    success=True,
-                    credited_amount=credited,
-                    coin=coin,
-                    requested_amount=requested,
-                    message=f"Credited {credited} {coin}",
-                )
-                if credited > 0.0:
-                    logger.info(
-                        "Demo account credited: %s %s (requested %s, ladder rung %s)",
-                        credited,
-                        coin,
-                        amount,
-                        rung,
-                    )
-                    return final
-                logger.info(
-                    "Demo account top-up ladder rung %s returned 0 — retrying",
-                    rung,
-                )
-            assert final is not None
-            logger.warning(
-                "Demo account top-up all ladder steps returned 0 (requested %s)",
+            body = {
+                "adjustType": 0,
+                "utaDemoApplyMoney": [
+                    {
+                        "coin": coin,
+                        "amountStr": str(
+                            int(requested) if requested == int(requested) else requested
+                        ),
+                    }
+                ],
+            }
+            self._request("POST", "/v5/account/demo-apply-money", body=body)
+            self._last_demo_post_ts = time.time()
+            wallet = self.get_wallet_balance(coin=coin)
+            credited = extract_top_up_credited(wallet, coin)
+            logger.info(
+                "Demo account credited: %s %s (requested %s)",
+                credited,
+                coin,
                 amount,
             )
-            return final
+            return TopUpResult(
+                success=True,
+                credited_amount=credited,
+                coin=coin,
+                requested_amount=requested,
+                message=f"Credited {credited} {coin}",
+            )
         except Exception as exc:
             return TopUpResult(
                 success=False,
@@ -506,14 +513,6 @@ class BybitClient:
                 requested_amount=requested,
                 message=str(exc),
             )
-
-    @staticmethod
-    def _top_up_ladder(requested: float) -> list[float]:
-        seen: list[float] = []
-        for r in [requested, 1000.0, 100.0, 10.0, 1.0]:
-            if r not in seen:
-                seen.append(r)
-        return seen
 
     def close(self) -> None:
         self._client.close()

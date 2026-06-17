@@ -1142,66 +1142,90 @@ def test_top_up_demo_account_fails_gracefully() -> None:
     client.close()
 
 
-def test_top_up_retries_smaller_on_zero_credit() -> None:
-    """Primary fix: when full_amount credits 0, retry ladder with smaller
-    amounts until one succeeds."""
+def test_top_up_demo_account_single_attempt() -> None:
+    """top_up_demo_account makes exactly one POST (no ladder)."""
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
+    client._last_demo_post_ts = 0.0
     with patch.object(client, "_request") as mock_request:
-        # Ladder: [100000.0, 1000.0, 100.0, 10.0, 1.0]
-        # Rungs 100000 and 1000 return 0 credit; rung 10 returns 10.0
         faucet_resp = {"result": "ok"}
-        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
-        wallet_ten = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "10.0"}]}]}
-        mock_request.side_effect = [
-            faucet_resp,
-            wallet_zero,  # rung 100000 — credit 0
-            faucet_resp,
-            wallet_zero,  # rung 1000 — credit 0
-            faucet_resp,
-            wallet_zero,  # rung 100 — credit 0
-            faucet_resp,
-            wallet_ten,  # rung 10 — credit 10.0
-        ]
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "50000.0",
+                            "walletBalance": "50000.0",
+                            "availableBalance": "25000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
         result = client.top_up_demo_account("USDT", "100000")
+        assert mock_request.call_count == 2
+        post_calls = [c for c in mock_request.call_args_list if c[0][0] == "POST"]
+        assert len(post_calls) == 1
+        assert post_calls[0][1]["body"]["utaDemoApplyMoney"][0]["amountStr"] == "100000"
         assert isinstance(result, TopUpResult)
         assert result.success is True
-        assert result.credited_amount == 10.0
+        assert result.credited_amount == 25000.0
         assert result.requested_amount == 100000.0
-        # Verify the 4th POST used amountStr=10 (the winning rung)
-        post_calls = [c for c in mock_request.call_args_list if c[0][0] == "POST"]
-        assert len(post_calls) == 4
-        last_post_body = post_calls[-1][1]["body"]
-        assert last_post_body["utaDemoApplyMoney"][0]["amountStr"] == "10"
     client.close()
 
 
-def test_top_up_all_ladder_steps_zero() -> None:
-    """All ladder rungs return 0 — graceful degradation, no crash."""
+def test_top_up_demo_account_cooldown_skips() -> None:
+    """Cooldown active skips the POST and returns graceful skip."""
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
+    client._last_demo_post_ts = time.time()
+    with patch.object(client, "_request") as mock_request:
+        result = client.top_up_demo_account("USDT", "100000")
+        mock_request.assert_not_called()
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 0.0
+        assert "Cooldown active" in result.message
+    client.close()
+
+
+def test_top_up_demo_account_updates_timestamp() -> None:
+    """After a successful POST, _last_demo_post_ts is updated."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    client._last_demo_post_ts = 0.0
     with patch.object(client, "_request") as mock_request:
         faucet_resp = {"result": "ok"}
-        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
-        mock_request.side_effect = [
-            faucet_resp,
-            wallet_zero,  # 100000
-            faucet_resp,
-            wallet_zero,  # 1000
-            faucet_resp,
-            wallet_zero,  # 100
-            faucet_resp,
-            wallet_zero,  # 10
-            faucet_resp,
-            wallet_zero,  # 1
-        ]
-        result = client.top_up_demo_account("USDT", "100000")
-        assert isinstance(result, TopUpResult)
-        assert result.success is True  # graceful, NOT failure
-        assert result.credited_amount == 0.0
-        assert result.requested_amount == 100000.0
-        assert "Credited 0.0 USDT" in result.message
+        wallet_resp = {
+            "list": [
+                {
+                    "coin": [
+                        {
+                            "coin": "USDT",
+                            "equity": "50000.0",
+                            "walletBalance": "50000.0",
+                            "availableBalance": "25000.0",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_request.side_effect = [faucet_resp, wallet_resp]
+        before = time.time()
+        client.top_up_demo_account("USDT", "100000")
+        after = time.time()
+        assert client._last_demo_post_ts >= before
+        assert client._last_demo_post_ts <= after + 0.1
     client.close()
+
+
+def test_top_up_ladder_not_present() -> None:
+    """_top_up_ladder static method has been removed."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    assert not hasattr(client, "_top_up_ladder")
 
 
 @patch("ztb.execution.bybit_client.httpx.Client")
