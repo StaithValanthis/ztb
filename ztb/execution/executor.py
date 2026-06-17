@@ -931,17 +931,14 @@ class Executor:
                     qty = validated_qty
                     delta = qty if delta > 0 else -qty
                     flip = (
-                        delta < 0
-                        and current_position > 0
-                        and abs(delta) > current_position + 1e-12
+                        delta < 0 and current_position > 0 and abs(delta) > current_position + 1e-12
                     ) or (
                         delta > 0
                         and current_position < 0
                         and abs(delta) > abs(current_position) + 1e-12
                     )
                     reduce_only = not flip and (
-                        (delta < 0 and current_position > 0)
-                        or (delta > 0 and current_position < 0)
+                        (delta < 0 and current_position > 0) or (delta > 0 and current_position < 0)
                     )
 
             positions_close = abs(delta) > 1e-12 and abs(target_qty) < 1e-12
