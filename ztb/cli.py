@@ -346,6 +346,7 @@ def forwardtest(
 @click.option("--train-ratio", default=0.7, type=float, help="Training ratio per window")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--persist", is_flag=True, help="Save result to the store")
+@click.option("--exec-db", default=None, help="Path to execution store DB for signal-to-fill conversion check")
 def validate(
     strategy_name: str,
     symbol: str,
@@ -360,6 +361,7 @@ def validate(
     train_ratio: float,
     db: str | None,
     persist: bool,
+    exec_db: str | None,
 ) -> None:
     """Run OOS validation gate for a strategy on a symbol."""
 
@@ -429,9 +431,16 @@ def validate(
         n_trials=n_trials,
     )
 
+    from ztb.validation.conversion import compute_signal_to_fill_conversion
     from ztb.validation.scoring import evaluate_acceptance_criteria
 
-    scorecard = evaluate_acceptance_criteria(wf_result, dsr_result, lookahead_result)
+    signal_to_fill = None
+    if exec_db is not None:
+        signal_to_fill = compute_signal_to_fill_conversion(exec_db, strategy_name=strategy_name)
+
+    scorecard = evaluate_acceptance_criteria(
+        wf_result, dsr_result, lookahead_result, signal_to_fill=signal_to_fill
+    )
 
     click.echo("")
     click.echo(f"{'':>20} {'Sharpe':>10} {'DSR':>10} {'MaxDD':>10} {'WinRate':>8} {'Trades':>8}")
