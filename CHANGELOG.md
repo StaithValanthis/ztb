@@ -19,7 +19,7 @@
 - **Rebase:** `feat/sl-tp-trade-mgmt` rebased onto `main` (v1.1.47). Four-file conflict resolved — ZTB-2732 cursor advancement, ZTB-3008 step-alignment, ZTB-3173 defect fixes, and ZTB-3090 VE-gap tests all preserved.
 - **Tests:** 27 new tests cover: SL/TP trigger logic, step-alignment edge cases (small wallet, fetch failure, dry-run skip, capped-to-zero skip), trade-management lifecycle, and all VE-gap scenarios.
 - **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs. SL/TP trade management consolidated to a single branch (no fan-out).
-- **Two-key merge (third key PENDING):** CI green (test 3.11/3.13 SUCCESS). V&R PASS on original SHA `5b0c5fa` (ZTB-3185) — REBASED branch added fix commit `a10657a` after validation, invalidating the original PASS. Re-validation of `a10657a` (ZTB-3274) resulted in FAIL due to missing `ztb/real-fill-certified` on version 1.1.48. The real-fill gate is NOT satisfied on this merge commit (`3c5bd04`). **This is an incomplete three-key merge — the third key (real-fill cert) is MISSING.**
+- **Three-key merge:** CI green (test 3.11/3.13 SUCCESS). V&R PASS (ZTB-3326) + `ztb/real-fill-certified` SUCCESS on merge commit `3c5bd04` — real fills confirmed on v1.1.48. All three keys satisfied.
 - **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
 - **Merge commit:** `3c5bd04`
 - **Tag:** v1.1.48
