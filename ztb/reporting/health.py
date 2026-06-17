@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from ztb.store.results import connect as store_connect
+from ztb.store.results import connect_live as store_connect
 
 
 @dataclass

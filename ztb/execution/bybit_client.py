@@ -439,10 +439,10 @@ class BybitClient:
             return
         source = self._config.arm_source or "BybitClient"
         from ztb.store.exec_io import ensure_audit_table, log_audit_event
-        from ztb.store.results import connect
+        from ztb.store.results import connect_live
 
         try:
-            conn = connect(str(store_path))
+            conn = connect_live(str(store_path))
             ensure_audit_table(conn)
             log_audit_event(conn, event_type=event_type, source=source, detail=detail)
             conn.close()
