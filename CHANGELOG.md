@@ -1,3 +1,6 @@
+## v1.1.48
+- SL/TP + trade management + position sizing (ZTB-2981) with V&R defect fixes (ZTB-3173: direction-aware triggers/close/flip-reset) + VE-gap closure (ZTB-3090).
+
 # Changelog
 
 ## v1.1.47 (2026-06-17)
