@@ -346,7 +346,7 @@ def forwardtest(
 @click.option("--train-ratio", default=0.7, type=float, help="Training ratio per window")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--persist", is_flag=True, help="Save result to the store")
-@click.option("--exec-db", default=None, help="Path to execution store DB for signal-to-fill conversion check")
+@click.option("--exec-db", default=None, help="Path to exec store for signal-to-fill check")
 def validate(
     strategy_name: str,
     symbol: str,

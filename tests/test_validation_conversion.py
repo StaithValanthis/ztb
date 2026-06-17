@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from ztb.validation.conversion import SignalToFillConversion, compute_signal_to_fill_conversion
+from ztb.validation.conversion import compute_signal_to_fill_conversion
 
 
 def _seed_store(
@@ -110,16 +110,7 @@ def test_conversion_mixed_fills(tmp_path) -> None:
 def test_conversion_no_runs(tmp_path) -> None:
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS exec_runs (exec_run_id TEXT PRIMARY KEY, run_id TEXT, strategy_name TEXT, symbol TEXT, timeframe TEXT, mode TEXT, started_at TEXT, status TEXT, bars_processed INTEGER DEFAULT 0, last_bar_ts TEXT DEFAULT '')"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS exec_orders (order_link_id TEXT PRIMARY KEY, exec_run_id TEXT, order_id TEXT, symbol TEXT, side TEXT, order_type TEXT, price REAL DEFAULT 0, qty REAL DEFAULT 0, status TEXT, created_at TEXT, cum_exec_qty REAL DEFAULT 0, cum_exec_value REAL DEFAULT 0, cum_exec_fee REAL DEFAULT 0)"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS exec_fills (fill_id TEXT PRIMARY KEY, order_link_id TEXT, exec_run_id TEXT, order_id TEXT, symbol TEXT, side TEXT, price REAL, qty REAL, commission REAL DEFAULT 0, realized_pnl REAL DEFAULT 0, filled_at TEXT)"
-    )
-    conn.commit()
+    _seed_store(conn, [], [], [])
     conn.close()
     result = compute_signal_to_fill_conversion(str(db))
     assert result.conversion_rate == 0.0
