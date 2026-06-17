@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from pandas import DataFrame
 
+from ztb.features.indicators import adx, atr, bb_width
 from ztb.strategies.base import Strategy
 from ztb.strategies.registry import all, get, list_names
 
@@ -281,7 +282,6 @@ class TestBearishResumption:
         assert len(df_4h) > 0
         assert df_4h.index[0] <= df.index[0] + pd.Timedelta(hours=4)
         assert "close" in df_4h.columns
-        from ztb.features.indicators import adx, atr
 
         adx_4h = adx(df_4h["high"], df_4h["low"], df_4h["close"], 14)
         atr_4h = atr(df_4h["high"], df_4h["low"], df_4h["close"], 14)
@@ -474,7 +474,6 @@ class TestBearVolContinuation:
 
     def test_no_entry_without_compression(self) -> None:
         df = self._wide_bb_4h()
-        from ztb.features.indicators import bb_width
 
         bbw = bb_width(df["close"], 20, 2)
         s = get("bear_vol_continuation")()
@@ -494,10 +493,9 @@ class TestBearVolContinuation:
 
     def test_4h_indicators_valid(self) -> None:
         df = self._bear_compressed_4h()
-        from ztb.features.indicators import atr, bb_width as bbw
 
         atr_4h = atr(df["high"], df["low"], df["close"], 14)
-        bb_w = bbw(df["close"], 20, 2)
+        bb_w = bb_width(df["close"], 20, 2)
         valid_atr = atr_4h.dropna()
         valid_bbw = bb_w.dropna()
         assert len(valid_atr) > 0
@@ -524,7 +522,6 @@ class TestBearVolContinuation:
         for t in only_valid.index:
             daily_idx = pd.Index(shifted.index)
             matched_daily = daily_idx[daily_idx <= t][-1]
-            matched_close = shifted.loc[matched_daily, "close"]
             src_day = (matched_daily - pd.Timedelta(days=1)).normalize()
             bar_day = t.normalize()
             assert src_day < bar_day, (
