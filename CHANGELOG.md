@@ -6,7 +6,7 @@
 - **Fix(engine):** Fix 3 V&R SL/TP defects — direction-aware triggers, close, and flip reset (ZTB-3173, PR #176). SL/TP triggers now respect position direction (long vs short), close orders use correct side, and flip reset clears SL/TP state.
 - **Chore:** Bump version to v1.1.48.
 - **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
-- **Merge commit:** `26411e3`
+- **Merge commit:** `49bb3a9`
 - **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `79e8f2c` (ZTB-3221) + `ztb/real-fill-certified` SUCCESS
 - **Tag:** v1.1.48
 
