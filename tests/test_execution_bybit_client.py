@@ -985,6 +985,68 @@ def test_top_up_demo_account_fails_gracefully() -> None:
     client.close()
 
 
+def test_top_up_retries_smaller_on_zero_credit() -> None:
+    """Primary fix: when full_amount credits 0, retry ladder with smaller
+    amounts until one succeeds."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        # Ladder: [100000.0, 1000.0, 100.0, 10.0, 1.0]
+        # Rungs 100000 and 1000 return 0 credit; rung 10 returns 10.0
+        faucet_resp = {"result": "ok"}
+        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
+        wallet_ten = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "10.0"}]}]}
+        mock_request.side_effect = [
+            faucet_resp,
+            wallet_zero,  # rung 100000 — credit 0
+            faucet_resp,
+            wallet_zero,  # rung 1000 — credit 0
+            faucet_resp,
+            wallet_zero,  # rung 100 — credit 0
+            faucet_resp,
+            wallet_ten,  # rung 10 — credit 10.0
+        ]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True
+        assert result.credited_amount == 10.0
+        assert result.requested_amount == 100000.0
+        # Verify the 4th POST used amountStr=10 (the winning rung)
+        post_calls = [c for c in mock_request.call_args_list if c[0][0] == "POST"]
+        assert len(post_calls) == 4
+        last_post_body = post_calls[-1][1]["body"]
+        assert last_post_body["utaDemoApplyMoney"][0]["amountStr"] == "10"
+    client.close()
+
+
+def test_top_up_all_ladder_steps_zero() -> None:
+    """All ladder rungs return 0 — graceful degradation, no crash."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "_request") as mock_request:
+        faucet_resp = {"result": "ok"}
+        wallet_zero = {"list": [{"coin": [{"coin": "USDT", "availableBalance": "0.0"}]}]}
+        mock_request.side_effect = [
+            faucet_resp,
+            wallet_zero,  # 100000
+            faucet_resp,
+            wallet_zero,  # 1000
+            faucet_resp,
+            wallet_zero,  # 100
+            faucet_resp,
+            wallet_zero,  # 10
+            faucet_resp,
+            wallet_zero,  # 1
+        ]
+        result = client.top_up_demo_account("USDT", "100000")
+        assert isinstance(result, TopUpResult)
+        assert result.success is True  # graceful, NOT failure
+        assert result.credited_amount == 0.0
+        assert result.requested_amount == 100000.0
+        assert "Credited 0.0 USDT" in result.message
+    client.close()
+
+
 @patch("ztb.execution.bybit_client.httpx.Client")
 def test_get_executions_signs_query_in_sent_order(mock_client_cls: MagicMock) -> None:
     """Regression lock for the get_executions signature bug.
