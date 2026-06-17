@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.46 (2026-06-17)
+
+- **Refactor(executor):** Replace pre-validation approach with step-alignment approach for position sizing (ZTB-3008, PR #176). Add `ceil_to_step`/`round_to_step` module-level functions to `bybit_client.py`, expose `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` methods, and align `target_qty`/`qty`/`max_qty`/`capped_qty` to instrument step size in executor (ceil for entry, floor for reduction/cap). Preserves all SL/TP code (`_apply_sl_tp`, `_clear_sl_tp`, `set_trading_stop`).
+- **Chore:** Bump version to v1.1.46.
+
 ## v1.1.45 (2026-06-17)
 
 - **Fix(cli):** Pass credentials from `ZTB_BYBIT_API_KEY`/`ZTB_BYBIT_API_SECRET` env vars to `ClientConfig` in `reconcile` command — unblocks wallet-state visibility (ZTB-3062). Previously `reconcile` built an unauthenticated `ClientConfig(mode=DEMO)` with no `api_key`/`api_secret`, causing `wallet.get_wallet_balance()` to fail with "Expecting value: line 1 column 1".
