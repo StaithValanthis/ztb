@@ -173,6 +173,8 @@ def instruments(category: str) -> None:
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
 @click.option("--risk-enabled", is_flag=True, help="Enable risk management")
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def backtest(
@@ -186,6 +188,8 @@ def backtest(
     commission: float,
     slippage: float,
     risk_enabled: bool,
+    sl_pct: float | None,
+    tp_pct: float | None,
     persist: bool,
     db: str | None,
 ) -> None:
@@ -211,6 +215,8 @@ def backtest(
         commission=commission,
         slippage=slippage,
         risk_enabled=risk_enabled,
+        sl_pct=sl_pct if sl_pct is not None else 0.0,
+        tp_pct=tp_pct if tp_pct is not None else 0.0,
     )
 
     result = run_backtest(strategy, df, cfg)
@@ -239,6 +245,8 @@ def backtest(
 @click.option(
     "--baseline-run-id", default=None, help="Run ID for baseline metrics (decay computation)"
 )
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def forwardtest(
@@ -254,6 +262,8 @@ def forwardtest(
     warmup: int,
     no_risk: bool,
     baseline_run_id: str | None,
+    sl_pct: float | None,
+    tp_pct: float | None,
     persist: bool,
     db: str | None,
 ) -> None:
@@ -280,6 +290,8 @@ def forwardtest(
         slippage=slippage,
         warmup_bars=warmup,
         risk_enabled=not no_risk,
+        sl_pct=sl_pct if sl_pct is not None else 0.0,
+        tp_pct=tp_pct if tp_pct is not None else 0.0,
     )
 
     need_store = persist or baseline_run_id is not None
@@ -518,6 +530,8 @@ def validate(
 @click.option("--poll-interval", default=60.0, type=float, help="Seconds between polls")
 @click.option("--lookback-bars", default=0, type=int, help="Minimum historical bars to load")
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
 @click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
@@ -544,6 +558,8 @@ def run(
     poll_interval: float,
     lookback_bars: int,
     no_risk: bool,
+    sl_pct: float | None,
+    tp_pct: float | None,
     asset_precision: int,
     db: str | None,
     preflight: bool,
@@ -596,6 +612,8 @@ def run(
         lookback_bars=lookback_bars,
         initial_cash=cash,
         risk_enabled=not no_risk,
+        sl_pct=sl_pct if sl_pct is not None else 0.0,
+        tp_pct=tp_pct if tp_pct is not None else 0.0,
         asset_precision=asset_precision,
         loop_flush_interval=loop_flush_interval,
     )

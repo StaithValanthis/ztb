@@ -1157,13 +1157,19 @@ class Executor:
             pos_size = self._pnl.position
             avg_entry = self._pnl.avg_entry_price
             self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
+            if isinstance(self.strategy.params, dict):
+                sl_pct = self.strategy.params.get("sl_pct", self.config.sl_pct)
+                tp_pct = self.strategy.params.get("tp_pct", self.config.tp_pct)
+            else:
+                sl_pct = self.config.sl_pct
+                tp_pct = self.config.tp_pct
             self._apply_sl_tp(
                 symbol,
                 pos_side,
                 pos_size,
                 avg_entry,
-                self.config.sl_pct,
-                self.config.tp_pct,
+                sl_pct,
+                tp_pct,
             )
 
             self._reconcile(target_qty, close_price, bar_ts)
