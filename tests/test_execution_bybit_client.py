@@ -1259,7 +1259,8 @@ def test_validate_qty_floored_to_zero_warns() -> None:
             },
         }
         result = client._validate_qty("BTCUSDT", 0.0005)
-        assert result["skipped"] is True
+        assert result["skipped"] is False
+        assert result["qty"] == 0.001
         mock_logger.warning.assert_called_once()
         assert "floored to 0" in mock_logger.warning.call_args[0][0]
 
