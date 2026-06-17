@@ -2250,7 +2250,9 @@ def test_signal_change_allows_order_when_signal_differs(
     exe.client = mock_client
 
     result1 = exe.step(sample_data)
-    assert result1["order_placed"] is True
+    assert result1["order_placed"] is False, (
+        "No order needed on step 1: exchange already has 1.0 BTC, target is also 1.0"
+    )
     assert result1["signal"] == 0.5
 
     mock_client.place_order.reset_mock()
