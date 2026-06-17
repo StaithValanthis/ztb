@@ -208,7 +208,6 @@ class Executor:
             self._active_sl_tp[symbol] = {"sl_price": sl_price, "tp_price": tp_price}
             if self.state.last_bar_ts and self._idempotency is not None:
                 from ztb.execution.idempotency import make_intent_hash, make_sl_tp_order_link_id
-
                 intent_hash = make_intent_hash(position_size, avg_entry)
                 sl_link_id = make_sl_tp_order_link_id(
                     self.state.strategy_name, symbol, self.state.last_bar_ts, intent_hash, "sl"
@@ -1132,12 +1131,8 @@ class Executor:
             avg_entry = self._pnl.avg_entry_price
             self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
             self._apply_sl_tp(
-                symbol,
-                pos_side,
-                pos_size,
-                avg_entry,
-                self.config.sl_pct,
-                self.config.tp_pct,
+                symbol, pos_side, pos_size, avg_entry,
+                self.config.sl_pct, self.config.tp_pct,
             )
 
             self._reconcile(target_qty, close_price, bar_ts)
