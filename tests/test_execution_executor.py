@@ -2250,7 +2250,9 @@ def test_signal_change_allows_order_when_signal_differs(
     exe.client = mock_client
 
     result1 = exe.step(sample_data)
-    assert result1["order_placed"] is True
+    assert result1["order_placed"] is False, (
+        "No order needed: exchange already has 1.0 BTC, target is also 1.0"
+    )
     assert result1["signal"] == 0.5
 
     mock_client.place_order.reset_mock()
@@ -2258,6 +2260,247 @@ def test_signal_change_allows_order_when_signal_differs(
     assert result2["order_placed"] is True
     assert result2["signal"] == 0.0
     mock_client.place_order.assert_called_once()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_no_exchange_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Order is placed when exchange has zero position and signal is non-zero."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["signal"] == 0.5
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_partial_position(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Delta accounts for existing exchange position after reconcile."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "0.3", "avgPrice": "49000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["signal"] == 0.5
+    assert result["current_position"] == 0.3
+    assert abs(result["target_position"] - 1.0) < 1e-6
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_same_position_no_order(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """No order when exchange position already matches target."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "1.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    class HalfSignal:
+        name = "half_strat"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            return pd.Series(0.5 * np.ones(len(data)), index=data.index)
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(HalfSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is False
+    assert abs(result["delta"]) < 1e-12
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_flip_to_zero(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Changing signal to 0.0 places reduce-only order based on exchange position."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "1.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    class FlipToZero:
+        name = "flip_zero"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            return pd.Series(np.zeros(len(data)), index=data.index)
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(FlipToZero(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert result["signal"] == 0.0
+    assert abs(result["delta"] - (-1.0)) < 1e-6
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_skip_in_dry_run(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Reconcile is skipped in dry_run mode — delta uses PnL position."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "1.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["current_position"] == 0.0
+    assert abs(result["target_position"] - 1.0) < 1e-6
+    assert abs(result["delta"] - 1.0) < 1e-6
+    mock_client.get_positions.assert_not_called()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_signal_initialized_reset(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """_signal_initialized reset after adopt_state — first step with same signal places order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+
+    class SameSignal:
+        name = "same_sig"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def __init__(self) -> None:
+            self._call_count = 0
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            self._call_count += 1
+            if self._call_count == 1:
+                return pd.Series(np.ones(len(data)), index=data.index)
+            return pd.Series(np.zeros(len(data)), index=data.index)
+
+    exe = Executor(SameSignal(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "2.0", "avgPrice": "50000.0"}
+    ]
+    result1 = exe.step(sample_data)
+    assert result1["order_placed"] is False
+    assert exe._signal_initialized is True
+
+    mock_client.get_positions.return_value = [
+        {"symbol": "BTCUSDT", "size": "2.0", "avgPrice": "50000.0"}
+    ]
+    mock_client.place_order.reset_mock()
+    result2 = exe.step(sample_data)
+    assert result2["order_placed"] is True
+    assert result2["signal"] == 0.0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_reconcile_before_delta_error_does_not_block(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Exchange fetch error in reconcile does not prevent order placement."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_1"}
+    mock_client.get_positions.side_effect = RuntimeError("Exchange unreachable")
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False)
+    exe = Executor(SignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
 
 
 @patch("ztb.execution.executor.load_data")

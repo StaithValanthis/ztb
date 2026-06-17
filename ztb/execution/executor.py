@@ -663,6 +663,32 @@ class Executor:
             if self.config.mode == Mode.DEMO:
                 equity = min(equity, self.config.initial_cash)
 
+        # --- reconcile exchange position (before delta computation) ---
+        if not self.config.dry_run and self.client is not None:
+            try:
+                actual_positions_raw = self.client.get_positions(symbol)
+                for p in actual_positions_raw:
+                    if p.get("symbol") == symbol:
+                        actual_position = float(p.get("size", 0.0))
+                        actual_avg_price = float(p.get("avgPrice", 0.0))
+                        if abs(actual_position - current_position) > 1e-8:
+                            self._pnl.adopt_state(
+                                position=actual_position,
+                                avg_entry_price=actual_avg_price,
+                            )
+                            current_position = self._pnl.position
+                            self._sync_pnl_state()
+                            self._signal_initialized = False
+                            logger.info(
+                                "Adopted exchange position %.4f for %s (PnL had %.4f)",
+                                actual_position,
+                                symbol,
+                                current_position,
+                            )
+                        break
+            except Exception:
+                logger.warning("Position reconciliation failed for %s", symbol, exc_info=True)
+
         if self._killswitch is not None:
             self._killswitch.check_account_dd(equity)
             if self._killswitch.check_data_staleness(bar_ts):
@@ -745,7 +771,7 @@ class Executor:
         if signal_changed:
             self._signal_initialized = True
 
-        if abs(delta) > 1e-12 and signal_changed:
+        if abs(delta) > 1e-12:
             intent_hash = make_intent_hash(target_qty, current_position)
             order_link_id = make_order_link_id(
                 self.state.strategy_name, symbol, bar_ts, intent_hash
@@ -873,6 +899,10 @@ class Executor:
                     current_position,
                     reconcile_report.actual_position,
                 )
+                # adopt_state without realized_pnl --- PnL from the external close
+                # (SL/TP, manual close) is NOT preserved in PnLCalculator.
+                # Acceptable because equity is refreshed from exchange wallet
+                # balance each bar via LiveExecutor._reconcile.
                 self._pnl.adopt_state(position=0.0, avg_entry_price=0.0)
                 self._sync_pnl_state()
                 result["order_skipped"] = True
@@ -1344,6 +1374,11 @@ class Executor:
                         if abs(report.actual_avg_price) > 1e-8
                         else close_price
                     )
+                    # adopt_state without realized_pnl --- the exchange
+                    # position endpoint does not expose the cumulative
+                    # realized PnL at startup in a single call.  Equity
+                    # is refreshed from wallet balance each bar, so the
+                    # missing realized_pnl is reconciled naturally.
                     self._pnl.adopt_state(
                         position=report.actual_position,
                         avg_entry_price=actual_avg,
