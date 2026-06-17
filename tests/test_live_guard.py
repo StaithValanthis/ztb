@@ -276,7 +276,7 @@ def test_arm_database_unavailable_raises(tmp_path: Path) -> None:
     sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
     with (
-        patch("ztb.store.results.connect", side_effect=sqlite3.OperationalError("mock")),
+        patch("ztb.store.results.connect_live", side_effect=sqlite3.OperationalError("mock")),
         pytest.raises(LiveDisarmedError, match="Cannot arm: database unavailable"),
     ):
         LiveGuard.arm(store_path=tmp_path / "dummy.db", hash_path=sp)
@@ -306,7 +306,7 @@ def test_arm_audit_write_fails_raises(tmp_path: Path) -> None:
     sp = _setup_arm(tmp_path)
     LiveGuard.disarm()
     with (
-        patch("ztb.store.results.connect", side_effect=_side),
+        patch("ztb.store.results.connect_live", side_effect=_side),
         pytest.raises(LiveDisarmedError, match="Audit log write failed"),
     ):
         LiveGuard.arm(store_path=clean_db, hash_path=sp)
