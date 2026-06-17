@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.45 (2026-06-17)
+
+- **Fix(cli):** Pass credentials from `ZTB_BYBIT_API_KEY`/`ZTB_BYBIT_API_SECRET` env vars to `ClientConfig` in `reconcile` command — unblocks wallet-state visibility (ZTB-3062). Previously `reconcile` built an unauthenticated `ClientConfig(mode=DEMO)` with no `api_key`/`api_secret`, causing `wallet.get_wallet_balance()` to fail with "Expecting value: line 1 column 1".
+- **Tests:** `test_reconcile_reads_credentials` verifies credential passthrough; `test_reconcile_missing_credentials_exits` verifies non-zero exit with error message when env vars are absent.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `3924277` + `ztb/real-fill-certified` (EXEMPTED per two-tier policy for prerequisite fixes).
+- **PR:** [#178](https://github.com/StaithValanthis/ztb/pull/178)
+- **Merge commit:** `c6f0869`
+- **Tag:** v1.1.45
+
 ## v1.1.44 (2026-06-16)
 
 - **Fix(executor):** Defer `_last_executed_signal` update until after `place_order` succeeds — prevents permanent signal consumption when `place_order` raises `ClientError` (ZTB-2765). The premature update at executor.py:614 caused `ClientError` to consume the signal permanently, producing zero orders forever. Now `_last_executed_signal` is updated only on successful order paths (duplicate-handled, order-placed+filled, signal-changed+delta≈0).
