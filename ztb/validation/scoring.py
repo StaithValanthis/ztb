@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ztb.validation.conversion import SignalToFillConversion
 from ztb.validation.deflated_sharpe import DeflatedSharpeResult
 from ztb.validation.lookahead import LookaheadResult
 from ztb.validation.walk_forward import WalkForwardResult
@@ -12,6 +13,7 @@ def evaluate_acceptance_criteria(
     dsr_result: DeflatedSharpeResult,
     lookahead_result: LookaheadResult,
     min_trades_total: int = 50,
+    signal_to_fill: SignalToFillConversion | None = None,
 ) -> dict[str, Any]:
     criteria: list[dict[str, Any]] = []
     agg = wf_result.aggregate
@@ -108,6 +110,18 @@ def evaluate_acceptance_criteria(
             "threshold": f">= {min_trades_total}",
         }
     )
+
+    if signal_to_fill is not None and signal_to_fill.sufficient_sample:
+        c9 = signal_to_fill.conversion_rate >= 0.80
+        criteria.append(
+            {
+                "id": 9,
+                "name": "Signal-to-fill conversion rate",
+                "pass": c9,
+                "value": signal_to_fill.conversion_rate,
+                "threshold": ">= 80%",
+            }
+        )
 
     overall_pass = all(c["pass"] for c in criteria)
     exit_code = 0 if overall_pass else 1

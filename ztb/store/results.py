@@ -28,6 +28,7 @@ _METRIC_NAMES = frozenset(
 )
 
 DEFAULT_DB_PATH = Path.home() / ".ztb" / "results.db"
+TEST_DB_PATH = Path.home() / ".ztb" / "test_results.db"
 
 
 def _get_db_path(db_path: str | Path | None = None) -> Path:
@@ -39,16 +40,75 @@ def _get_db_path(db_path: str | Path | None = None) -> Path:
     return DEFAULT_DB_PATH
 
 
+def _get_test_db_path(db_path: str | Path | None = None) -> Path:
+    if db_path is not None:
+        return Path(db_path)
+    env = __import__("os").environ.get("ZTB_TEST_STORE_PATH")
+    if env:
+        return Path(env)
+    legacy = __import__("os").environ.get("ZTB_STORE_PATH")
+    if legacy:
+        return Path(legacy)
+    return TEST_DB_PATH
+
+
+def _get_live_db_path(db_path: str | Path | None = None) -> Path:
+    if db_path is not None:
+        return Path(db_path)
+    env = __import__("os").environ.get("ZTB_LIVE_STORE_PATH")
+    if env:
+        return Path(env)
+    legacy = __import__("os").environ.get("ZTB_STORE_PATH")
+    if legacy:
+        return Path(legacy)
+    return DEFAULT_DB_PATH
+
+
+def _ensure_all_tables(conn: sqlite3.Connection) -> None:
+    _ensure_schema(conn)
+    _run_migrations(conn)
+    from ztb.store.exec_io import ensure_exec_tables
+
+    ensure_exec_tables(conn)
+
+
 def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = _get_db_path(db_path)
+    """Connect to the test/backtest result store.
+
+    Resolution order:
+        1. Explicit db_path argument
+        2. ZTB_TEST_STORE_PATH env var
+        3. ZTB_STORE_PATH env var (legacy fallback)
+        4. ~/.ztb/test_results.db
+    """
+    path = _get_test_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
-    _run_migrations(conn)
+    _ensure_all_tables(conn)
+    return conn
+
+
+def connect_live(db_path: str | Path | None = None) -> sqlite3.Connection:
+    """Connect to the live execution result store.
+
+    Resolution order:
+        1. Explicit db_path argument
+        2. ZTB_LIVE_STORE_PATH env var
+        3. ZTB_STORE_PATH env var (legacy fallback)
+        4. ~/.ztb/results.db
+    """
+    path = _get_live_db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.row_factory = sqlite3.Row
+    _ensure_all_tables(conn)
     return conn
 
 
@@ -92,6 +152,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.executescript(schema_path.read_text())
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (5)")
+
+    # Schema v12: add sl_price, tp_price, exit_reason to trades table
+    for col in ("sl_price", "tp_price", "exit_reason"):
+        with suppress(sqlite3.OperationalError):
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {col}")
+    with suppress(sqlite3.OperationalError):
+        conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (12)")
     conn.commit()
 
 
@@ -157,8 +224,9 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
         for trade in result.trades:
             conn.execute(
                 """INSERT INTO trades
-                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage,
+                    sl_price, tp_price, exit_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     str(trade.get("timestamp", "")),
@@ -168,6 +236,9 @@ def save_run(conn: sqlite3.Connection, result: BacktestResult) -> str:
                     trade.get("pnl", 0.0),
                     trade.get("commission", 0.0),
                     trade.get("slippage", 0.0),
+                    trade.get("sl_price"),
+                    trade.get("tp_price"),
+                    trade.get("exit_reason"),
                 ),
             )
 
@@ -278,8 +349,9 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
         for trade in result.trades:
             conn.execute(
                 """INSERT INTO trades
-                   (run_id, timestamp, side, price, size, pnl, commission, slippage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (run_id, timestamp, side, price, size, pnl, commission, slippage,
+                    sl_price, tp_price, exit_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     str(trade.get("timestamp", "")),
@@ -289,6 +361,9 @@ def save_forward_run(conn: sqlite3.Connection, result: ForwardtestResult) -> str
                     trade.get("pnl", 0.0),
                     trade.get("commission", 0.0),
                     trade.get("slippage", 0.0),
+                    trade.get("sl_price"),
+                    trade.get("tp_price"),
+                    trade.get("exit_reason"),
                 ),
             )
 

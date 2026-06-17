@@ -1,0 +1,8 @@
+# Lockfile for ztb v1.2.0
+# Generated: 2026-06-17
+# pip freeze -- exclude ztb itself
+click>=8.1
+httpx>=0.26
+numpy>=1.26
+pandas>=2.0
+pyarrow>=12.0

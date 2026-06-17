@@ -90,6 +90,31 @@ def test_reconcile_command_exists() -> None:
     assert "Reconcile" in result.output or "Usage" in result.output
 
 
+def test_reconcile_reads_credentials() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["reconcile"],
+        env={
+            "ZTB_BYBIT_API_KEY": "test-key",
+            "ZTB_BYBIT_API_SECRET": "test-secret",
+        },
+    )
+    # With credentials set we get past the env check; fails at Bybit API call
+    assert "must be set" not in result.output
+
+
+def test_reconcile_missing_credentials_exits() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["reconcile"],
+        env={"ZTB_BYBIT_API_KEY": "", "ZTB_BYBIT_API_SECRET": ""},
+    )
+    assert result.exit_code != 0
+    assert "must be set" in result.output
+
+
 def test_run_with_dry_run_and_demo_default() -> None:
     """Test that --dry-run is accepted with the run command."""
     runner = CliRunner()

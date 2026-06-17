@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from ztb.data.rate_limit import BackoffStrategy
 from ztb.execution.errors import ClientAuthError, ClientError
 from ztb.execution.live_guard import LiveGuard
 from ztb.execution.models import (
@@ -19,6 +20,7 @@ from ztb.execution.models import (
     OrderType,
     TopUpResult,
 )
+from ztb.utils.balance import extract_top_up_credited
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,20 @@ _DEMO_BASE = "https://api-demo.bybit.com"
 _LIVE_BASE = "https://api.bybit.com"
 _RECV_WINDOW = "5000"
 _DEFAULT_TIMEOUT = 30.0
+
+
+def round_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    floored = int(qty / qty_step) * qty_step
+    return round(floored, 8)
+
+
+def ceil_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    ceiled = -(-qty // qty_step) * qty_step
+    return round(float(ceiled), 8)
 
 
 @dataclass
@@ -46,6 +62,7 @@ class BybitClient:
         self._config = config
         self._base_url = _LIVE_BASE if config.mode == Mode.LIVE else _DEMO_BASE
         self._client = httpx.Client(timeout=config.timeout)
+        self._backoff_strategy = BackoffStrategy()
         self._time_synced = 0
         if config.mode == Mode.LIVE:
             try:
@@ -53,6 +70,8 @@ class BybitClient:
             except Exception:
                 self._time_synced = 0
         self._instrument_cache: dict[str, dict[str, Any]] = {}
+        self._last_demo_post_ts: float = 0.0
+        self._demo_faucet_cooldown: float = 60.0
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
         payload = f"{timestamp}{self._config.api_key}{_RECV_WINDOW}{body}"
@@ -102,11 +121,27 @@ class BybitClient:
                     headers=headers,
                     content=body_str if body else None,
                 )
+                if resp.status_code == 429:
+                    if attempt < self._config.max_retries - 1:
+                        delay = self._backoff_strategy.delay(attempt + 1)
+                        time.sleep(delay)
+                        continue
+                    raise ClientError(429, resp.text[:200])
                 if resp.status_code >= 500 and attempt < self._config.max_retries - 1:
                     time.sleep(1.0 * (attempt + 1))
                     continue
                 data: dict[str, Any] = resp.json()
                 ret_code = data.get("retCode", -1)
+                ret_msg = data.get("retMsg", "")
+                result_preview = str(data.get("result", {}))[:200]
+                logger.debug(
+                    "%s %s \u2192 retCode=%s retMsg=%s result=%s",
+                    method,
+                    path,
+                    ret_code,
+                    ret_msg,
+                    result_preview,
+                )
                 if ret_code == 0:
                     result: dict[str, Any] = data.get("result", {})
                     if self._config.mode == Mode.LIVE:
@@ -142,10 +177,19 @@ class BybitClient:
         price: float | None = None,
         order_link_id: str = "",
         reduce_only: bool = False,
+        take_profit: float | None = None,
+        stop_loss: float | None = None,
         category: str = "linear",
     ) -> dict[str, Any]:
         validated = self._validate_qty(symbol, qty, category)
         if validated.get("skipped"):
+            if self._config.mode == Mode.DEMO:
+                logger.info(
+                    "place_order SKIPPED: symbol=%s side=%s reason=%s",
+                    symbol,
+                    side,
+                    validated.get("reason", ""),
+                )
             return validated
         qty = validated["qty"]
         body: dict[str, Any] = {
@@ -162,7 +206,85 @@ class BybitClient:
             body["reduceOnly"] = True
         if price is not None and order_type == OrderType.LIMIT:
             body["price"] = str(price)
-        return self._request("POST", "/v5/order/create", body=body)
+        if take_profit is not None:
+            body["takeProfit"] = str(take_profit)
+        if stop_loss is not None:
+            body["stopLoss"] = str(stop_loss)
+        result = self._request("POST", "/v5/order/create", body=body)
+        if self._config.mode == Mode.DEMO:
+            order_id = result.get("orderId", "N/A")
+            logger.info(
+                "place_order DEMO: symbol=%s side=%s qty=%s order_link_id=%s orderId=%s",
+                symbol,
+                side,
+                qty,
+                order_link_id,
+                order_id,
+            )
+        return result
+
+    def set_trading_stop(
+        self,
+        symbol: str,
+        side: OrderSide,
+        position_size: float,
+        stop_loss: float = 0.0,
+        take_profit: float = 0.0,
+        sl_trigger_by: str = "LastPrice",
+        tp_trigger_by: str = "LastPrice",
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        """Set or clear SL/TP on an open position.
+
+        Delegates HTTP + retry/auth/rate-limit handling to ``_request``,
+        which raises ``ClientAuthError`` on auth failures (retCode 10002/10003/10004),
+        retries on rate-limit (10028) and 5xx, and raises ``ClientError`` for
+        all other API errors.  Callers should catch ``ClientError`` for graceful
+        degradation.
+        """
+        body: dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+            "side": side.value,
+            "positionIdx": 0,
+        }
+        if stop_loss > 0.0:
+            body["stopLoss"] = str(stop_loss)
+        else:
+            body["stopLoss"] = ""
+        if take_profit > 0.0:
+            body["takeProfit"] = str(take_profit)
+        else:
+            body["takeProfit"] = ""
+        if sl_trigger_by:
+            body["slTriggerBy"] = sl_trigger_by
+        if tp_trigger_by:
+            body["tpTriggerBy"] = tp_trigger_by
+        return self._request("POST", "/v5/position/trading-stop", body=body)
+
+    def get_active_trading_stops(
+        self,
+        symbol: str = "",
+        category: str = "linear",
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        result = self._request("GET", "/v5/position/list", params=params)
+        items: list[dict[str, Any]] = result.get("list", [])
+        filtered: list[dict[str, Any]] = []
+        for pos in items:
+            sl = pos.get("stopLoss", "0")
+            tp = pos.get("takeProfit", "0")
+            try:
+                sl_val = float(sl) if sl else 0.0
+                tp_val = float(tp) if tp else 0.0
+            except (ValueError, TypeError):
+                sl_val = 0.0
+                tp_val = 0.0
+            if abs(sl_val) > 1e-12 or abs(tp_val) > 1e-12:
+                filtered.append(pos)
+        return filtered
 
     def cancel_order(
         self,
@@ -268,10 +390,24 @@ class BybitClient:
 
     @staticmethod
     def round_to_step(qty: float, qty_step: float) -> float:
-        if qty_step <= 0:
-            return qty
-        floored = int(qty / qty_step) * qty_step
-        return round(floored, 8)
+        return round_to_step(qty, qty_step)
+
+    @staticmethod
+    def ceil_to_step(qty: float, qty_step: float) -> float:
+        return ceil_to_step(qty, qty_step)
+
+    def get_lot_size_filter(self, symbol: str, category: str = "linear") -> dict[str, Any]:
+        info = self.get_instrument_info(symbol, category)
+        ls: dict[str, Any] = info.get("lotSizeFilter", {})
+        return ls
+
+    def get_qty_step(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("qtyStep", "0.001"))
+
+    def get_min_order_qty(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("minOrderQty", "0"))
 
     def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)
@@ -280,7 +416,15 @@ class BybitClient:
         min_qty = float(ls.get("minOrderQty", "0"))
         max_qty = float(ls.get("maxOrderQty", "0"))
 
+        orig_qty = qty
         qty = self.round_to_step(qty, qty_step)
+        if qty < 1e-12 and orig_qty > 1e-12:
+            logger.warning(
+                "_validate_qty: qty floored to 0 for %s (orig=%s, step=%s)",
+                symbol,
+                orig_qty,
+                qty_step,
+            )
 
         if qty < min_qty - 1e-12:
             return {
@@ -297,10 +441,10 @@ class BybitClient:
             return
         source = self._config.arm_source or "BybitClient"
         from ztb.store.exec_io import ensure_audit_table, log_audit_event
-        from ztb.store.results import connect
+        from ztb.store.results import connect_live
 
         try:
-            conn = connect(str(store_path))
+            conn = connect_live(str(store_path))
             ensure_audit_table(conn)
             log_audit_event(conn, event_type=event_type, source=source, detail=detail)
             conn.close()
@@ -316,24 +460,49 @@ class BybitClient:
                 requested_amount=float(amount),
                 message="LIVE mode — no-op",
             )
+        now = time.time()
+        elapsed = now - self._last_demo_post_ts
+        if elapsed < self._demo_faucet_cooldown:
+            remaining = self._demo_faucet_cooldown - elapsed
+            logger.info(
+                "Demo top-up skipped — cooldown active (%.1fs remaining)",
+                remaining,
+            )
+            return TopUpResult(
+                success=True,
+                credited_amount=0.0,
+                coin=coin,
+                requested_amount=float(amount),
+                message=f"Cooldown active — {remaining:.1f}s remaining",
+            )
+        requested = float(amount)
         try:
             body = {
                 "adjustType": 0,
-                "utaDemoApplyMoney": [{"coin": coin, "amountStr": amount}],
+                "utaDemoApplyMoney": [
+                    {
+                        "coin": coin,
+                        "amountStr": str(
+                            int(requested) if requested == int(requested) else requested
+                        ),
+                    }
+                ],
             }
             self._request("POST", "/v5/account/demo-apply-money", body=body)
+            self._last_demo_post_ts = time.time()
             wallet = self.get_wallet_balance(coin=coin)
-            credited = 0.0
-            for account_info in wallet.get("list", []):
-                for coin_entry in account_info.get("coin", []):
-                    if coin_entry.get("coin", "") == coin:
-                        credited = float(coin_entry.get("availableBalance", 0.0))
-            logger.info("Demo account credited: %s %s (requested %s)", credited, coin, amount)
+            credited = extract_top_up_credited(wallet, coin)
+            logger.info(
+                "Demo account credited: %s %s (requested %s)",
+                credited,
+                coin,
+                amount,
+            )
             return TopUpResult(
                 success=True,
                 credited_amount=credited,
                 coin=coin,
-                requested_amount=float(amount),
+                requested_amount=requested,
                 message=f"Credited {credited} {coin}",
             )
         except Exception as exc:
@@ -341,7 +510,7 @@ class BybitClient:
                 success=False,
                 credited_amount=0.0,
                 coin=coin,
-                requested_amount=float(amount),
+                requested_amount=requested,
                 message=str(exc),
             )
 

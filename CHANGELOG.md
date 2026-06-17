@@ -1,4 +1,63 @@
+## v1.1.53
+- **Fix(executor):** Demo top-up rate-limiting — cooldown + single-attempt (ZTB-3426). Remove `_top_up_ladder` multi-attempt retry ladder (5 HTTP POSTs per top-up). Replace with single-attempt `top_up_demo_account` + 60-second cooldown (`_last_demo_post_ts`, `_demo_faucet_cooldown`). Eliminates redundant POST to `/v5/account/demo-apply-money` when cooldown is active — at most 1 POST per 60s regardless of restart frequency. Previously the ladder approach issued up to 5 POSTs per restart, hitting Bybit demo faucet rate limits (~16 `DemoAccountTopUpError` per day).
+- **Tests:** 4 new tests — `test_top_up_demo_account_single_attempt` (exactly 1 POST, no ladder), `test_top_up_demo_account_cooldown_skips` (cooldown active → graceful skip), `test_top_up_demo_account_updates_timestamp` (post-TS updated), `test_top_up_ladder_not_present` (ladder removed). Ladder tests removed.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS (CI vr-pass SUCCESS on SHA `8d50a4a`) + `ztb/real-fill-certified` SUCCESS — real fill `62f178f9` on v1.1.53 (post-commit, fee-bearing).
+- **WIP=1:** No competing executor PR — sole PR touching `bybit_client.py`.
+- **Merge commit:** `d0fb175`
+- **PR:** [#196](https://github.com/StaithValanthis/ztb/pull/196)
+- **Tag:** v1.1.53
+
+## v1.1.52
+- atomic-merge version bump for PR #183
+
+## v1.1.51
+- **Fix(executor):** Conditional demo top-up — check `get_wallet_balance` before calling `top_up_demo_account`. Skip if wallet >= 10% of `initial_cash`. Eliminates ~7,045 `ClientError("ab not enough")` and ~16 `DemoAccountTopUpError` rate-limit hits per day from unconditional restart top-ups.
+- **Fix(executor):** Skip SL/TP query in DEMO mode — `get_active_trading_stops()` only called when `config.mode == Mode.LIVE`. Removes `"Startup active-trading-stops query failed"` warning on every demo restart.
+- **Tests:** 4 new tests — `test_startup_skips_topup_when_wallet_funded`, `test_startup_calls_topup_when_wallet_low`, `test_startup_skips_sltp_query_in_demo_mode`, `test_startup_calls_sltp_query_in_live_mode`.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `cd1b8625` + `ztb/real-fill-certified` via branch deploy.
+- **PR:** [#193](https://github.com/StaithValanthis/ztb/pull/193)
+
 # Changelog
+
+## v1.1.49 (2026-06-17)
+
+- **Fix(data):** Faucet 429 rate-limit handler — detect `resp.status_code == 429` in `BybitClient._request()` transport layer before `resp.json()`, retry with exponential backoff via `BackoffStrategy` up to `max_retries`, raise `ClientError(429, resp.text[:200])` on exhaustion. Fixes silent crashes when Bybit demo faucet returns 429 (non-JSON response). No changes to `top_up_demo_account`, `extract_top_up_credited`, or `balance.py`.
+- **Tests:** `test_request_429_retries_then_succeeds` — httpx mock, 429→backoff→200 success; `test_request_429_exhausts_retries` — all attempts 429, raises `ClientError(429)`. All existing tests green.
+- **Chore:** Bump version to v1.1.49.
+
+## v1.1.48 (2026-06-17)
+
+- **Feat:** Per-trade SL/TP + trade management + position sizing (ZTB-2981). Replace pre-validation with step-alignment approach for position sizing (ZTB-3008). Step-aware `ceil_to_step`/`round_to_step` in `bybit_client.py`, `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` exposed, qty aligned to instrument step size (ceil for entry, floor for reduction/cap). V&R defect fixes — direction-aware triggers, close, and flip reset (ZTB-3173). VE-gap closure — 7 remaining gaps + 12 new tests (ZTB-3090). ALL 16 VE gaps closed.
+- **Rebase:** `feat/sl-tp-trade-mgmt` rebased onto `main` (v1.1.47). Four-file conflict resolved — ZTB-2732 cursor advancement, ZTB-3008 step-alignment, ZTB-3173 defect fixes, and ZTB-3090 VE-gap tests all preserved.
+- **Tests:** 27 new tests cover: SL/TP trigger logic, step-alignment edge cases (small wallet, fetch failure, dry-run skip, capped-to-zero skip), trade-management lifecycle, and all VE-gap scenarios.
+- **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs. SL/TP trade management consolidated to a single branch (no fan-out).
+- **Three-key merge:** CI green (test 3.11/3.13 SUCCESS). V&R PASS (ZTB-3326) + `ztb/real-fill-certified` SUCCESS on merge commit `3c5bd04` — real fills confirmed on v1.1.48. All three keys satisfied.
+- **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
+- **Merge commit:** `3c5bd04`
+- **Tag:** v1.1.48
+
+## v1.1.47 (2026-06-17)
+
+- **Fix(executor):** `_fetch_new_bars` cursor advancement — replace `no_cache=True` with `end=pd.Timestamp.now(tz="UTC")` (ZTB-2732, ZTB-3147). The `no_cache=True` flag caused every poll iteration to re-download the full data window, defeating the cache-incremental pattern. The `end` param bounds the query so incremental polling only fetches what's needed. This restores the cache-first polling behavior that was lost in the ZTB-2599 fix, avoiding ~50× slowdown and rate-limit-induced silent exits.
+- **Tests:** 5 new tests cover: new-data appending, existing-bar preservation, no-new-bar identity return, and polling-loop cursor advancement. 1 existing test renamed from `test_fetch_new_bars_passes_no_cache` to `test_fetch_new_bars_passes_end_param` with updated assertions.
+- **Rebase:** `feat/ztb-2732-cursor-fix` rebased onto `main` (v1.1.46). Three-file conflict resolved — both ZTB-2628 skip-reason tests and ZTB-2732 cursor tests preserved.
+- **PR:** [#175](https://github.com/StaithValanthis/ztb/pull/175)
+- **Merge commit:** `73d1a8b`
+- **Tag:** v1.1.47
+
+## v1.1.46 (2026-06-17)
+
+- **Refactor(executor):** Replace pre-validation approach with step-alignment approach for position sizing (ZTB-3008, PR #176). Add `ceil_to_step`/`round_to_step` module-level functions to `bybit_client.py`, expose `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` methods, and align `target_qty`/`qty`/`max_qty`/`capped_qty` to instrument step size in executor (ceil for entry, floor for reduction/cap). Preserves all SL/TP code (`_apply_sl_tp`, `_clear_sl_tp`, `set_trading_stop`).
+- **Chore:** Bump version to v1.1.46.
+
+## v1.1.45 (2026-06-17)
+
+- **Fix(execution):** Demo wallet topup — faucet zero-credit retry ladder (ZTB-3024). When Bybit demo faucet returns 0.0 USDT (rate-limited), `top_up_demo_account` now retries with stepped-down amounts (300→200→100→50→25→10 USDT) before failing. Previously a single topup attempt at 300 USDT that returned 0.0 immediately exhausted the retry budget, leaving the wallet dry. The retry ladder works around Bybit demo faucet minimum-credit thresholds.
+- **Tests:** 54 bybit-client tests + 167 executor tests all green. 9 topup-specific tests cover: retry ladder, max-step cap, zero-credit handling, and normal topup unchanged path.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `dfa32529` + `ztb/real-fill-certified` SUCCESS via branch deploy.
+- **PR:** [#180](https://github.com/StaithValanthis/ztb/pull/180)
+- **Merge commit:** `bac1f34`
+- **Tag:** v1.1.46
 
 ## v1.1.44 (2026-06-16)
 

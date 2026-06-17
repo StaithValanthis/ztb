@@ -19,6 +19,7 @@ from ztb.reporting.format import format_backtest_result, format_forwardtest_resu
 from ztb.reporting.scorecard import build_scorecard
 from ztb.store.results import (
     connect,
+    connect_live,
     get_equity_curve,
     get_metrics,
     get_run,
@@ -346,6 +347,7 @@ def forwardtest(
 @click.option("--train-ratio", default=0.7, type=float, help="Training ratio per window")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--persist", is_flag=True, help="Save result to the store")
+@click.option("--exec-db", default=None, help="Path to exec store for signal-to-fill check")
 def validate(
     strategy_name: str,
     symbol: str,
@@ -360,6 +362,7 @@ def validate(
     train_ratio: float,
     db: str | None,
     persist: bool,
+    exec_db: str | None,
 ) -> None:
     """Run OOS validation gate for a strategy on a symbol."""
 
@@ -429,9 +432,16 @@ def validate(
         n_trials=n_trials,
     )
 
+    from ztb.validation.conversion import compute_signal_to_fill_conversion
     from ztb.validation.scoring import evaluate_acceptance_criteria
 
-    scorecard = evaluate_acceptance_criteria(wf_result, dsr_result, lookahead_result)
+    signal_to_fill = None
+    if exec_db is not None:
+        signal_to_fill = compute_signal_to_fill_conversion(exec_db, strategy_name=strategy_name)
+
+    scorecard = evaluate_acceptance_criteria(
+        wf_result, dsr_result, lookahead_result, signal_to_fill=signal_to_fill
+    )
 
     click.echo("")
     click.echo(f"{'':>20} {'Sharpe':>10} {'DSR':>10} {'MaxDD':>10} {'WinRate':>8} {'Trades':>8}")
@@ -607,6 +617,9 @@ def run(
     else:
         client = None
 
+    from ztb.store.results import _get_live_db_path
+
+    effective_db = db if db is not None else str(_get_live_db_path())
     executor = Executor(strategy, config=config, killswitch=killswitch, client=client)
 
     try:
@@ -616,7 +629,7 @@ def run(
             category=category,
             start=start,
             end=end,
-            db_path=db,
+            db_path=effective_db,
         )
     except Exception as exc:
         click.echo(f"Execution error: {exc}", err=True)
@@ -643,9 +656,9 @@ def reconcile(exec_run_id: str | None, db: str | None) -> None:
     from ztb.execution.models import Mode as ExecMode
     from ztb.execution.reconcile import compute_account_state
     from ztb.store.exec_io import get_exec_run
-    from ztb.store.results import connect
+    from ztb.store.results import connect_live
 
-    conn = connect(db)
+    conn = connect_live(db)
     from ztb.store.exec_io import ensure_exec_tables
 
     ensure_exec_tables(conn)
@@ -664,8 +677,16 @@ def reconcile(exec_run_id: str | None, db: str | None) -> None:
     else:
         click.echo("No exec-run-id provided. Reconciling current account state only.")
 
+    import os
+
+    api_key = os.environ.get("ZTB_BYBIT_API_KEY", "")
+    api_secret = os.environ.get("ZTB_BYBIT_API_SECRET", "")
+    if not api_key or not api_secret:
+        click.echo("Error: ZTB_BYBIT_API_KEY and ZTB_BYBIT_API_SECRET must be set", err=True)
+        sys.exit(1)
+
     try:
-        cfg = ClientConfig(mode=ExecMode.DEMO)
+        cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=ExecMode.DEMO)
         client = BybitClient(cfg)
         positions_raw = client.get_positions()
         wallet_raw = client.get_wallet_balance()
@@ -731,14 +752,16 @@ def rollback(tag: str, dry_run: bool) -> None:
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--limit", default=10, type=int, help="Number of recent runs to show")
 @click.option("--scorecard", is_flag=True, help="Show scorecard for the run")
+@click.option("--live", is_flag=True, help="Query the live execution store instead of test store")
 def report(
     run_id: str | None,
     db: str | None,
     limit: int,
     scorecard: bool,
+    live: bool,
 ) -> None:
     """Show backtest results from the store."""
-    conn = connect(db)
+    conn = connect_live(db) if live else connect(db)
 
     if run_id:
         run_info = get_run(conn, run_id)
@@ -881,7 +904,6 @@ def smoke_test(
     import os
     import time as _time
     from datetime import UTC, datetime
-    from pathlib import Path
     from typing import Any
 
     from ztb.execution.bybit_client import BybitClient, ClientConfig
@@ -893,7 +915,8 @@ def smoke_test(
         save_exec_fill,
         save_exec_order,
     )
-    from ztb.store.results import connect as db_connect
+    from ztb.store.results import _get_live_db_path
+    from ztb.store.results import connect_live as db_connect
 
     click.echo(f"ztb smoke-test: {symbol} MARKET BUY via Bybit DEMO")
 
@@ -906,8 +929,7 @@ def smoke_test(
     cfg = ClientConfig(api_key=api_key, api_secret=api_secret, mode=Mode.DEMO)
     client = BybitClient(cfg)
 
-    default_path = os.environ.get("ZTB_STORE_PATH", str(Path.home() / ".ztb" / "results.db"))
-    db_path: str = db or default_path
+    db_path: str = db or str(_get_live_db_path())
     store_dir = os.path.dirname(db_path)
     if store_dir:
         os.makedirs(store_dir, exist_ok=True)

@@ -222,6 +222,25 @@ def test_get_trades(conn: sqlite3.Connection, sample_result: BacktestResult) -> 
     assert trades[0]["side"] == "buy"
 
 
+def test_trades_sl_tp_columns_exist(
+    conn: sqlite3.Connection, sample_result: BacktestResult
+) -> None:
+    cols = [c[1] for c in conn.execute("PRAGMA table_info(trades)").fetchall()]
+    assert "sl_price" in cols
+    assert "tp_price" in cols
+    assert "exit_reason" in cols
+
+
+def test_trades_sl_tp_columns_nullable(
+    conn: sqlite3.Connection, sample_result: BacktestResult
+) -> None:
+    run_id = save_run(conn, sample_result)
+    trades = get_trades(conn, run_id)
+    assert trades[0]["sl_price"] is None
+    assert trades[0]["tp_price"] is None
+    assert trades[0]["exit_reason"] is None
+
+
 def test_get_equity_curve(conn: sqlite3.Connection, sample_result: BacktestResult) -> None:
     run_id = save_run(conn, sample_result)
     eq = get_equity_curve(conn, run_id)
@@ -230,7 +249,7 @@ def test_get_equity_curve(conn: sqlite3.Connection, sample_result: BacktestResul
     assert eq[-1]["equity"] == 104000.0
 
 
-# ST-9: ZTB_STORE_PATH env var
+# ST-9: ZTB_STORE_PATH env var (legacy fallback)
 def test_store_path_env_var(monkeypatch, tmp_path) -> None:
     import os
 
@@ -240,6 +259,35 @@ def test_store_path_env_var(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ZTB_STORE_PATH", db_path)
     conn = connect()
     assert list_runs(conn) == []
+    conn.close()
+    assert os.path.exists(db_path)
+
+
+# ST-9b: ZTB_TEST_STORE_PATH env var
+def test_test_store_path_env_var(monkeypatch, tmp_path) -> None:
+    import os
+
+    from ztb.store.results import connect, list_runs
+
+    db_path = str(tmp_path / "test_env.db")
+    monkeypatch.setenv("ZTB_TEST_STORE_PATH", db_path)
+    conn = connect()
+    assert list_runs(conn) == []
+    conn.close()
+    assert os.path.exists(db_path)
+
+
+# ST-9c: ZTB_LIVE_STORE_PATH env var
+def test_live_store_path_env_var(monkeypatch, tmp_path) -> None:
+    import os
+
+    from ztb.store.exec_io import ensure_exec_tables
+    from ztb.store.results import connect_live
+
+    db_path = str(tmp_path / "live_env.db")
+    monkeypatch.setenv("ZTB_LIVE_STORE_PATH", db_path)
+    conn = connect_live()
+    ensure_exec_tables(conn)
     conn.close()
     assert os.path.exists(db_path)
 
