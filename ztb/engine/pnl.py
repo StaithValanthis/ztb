@@ -67,6 +67,24 @@ class PnLCalculator:
     def adopt_state(
         self, position: float, avg_entry_price: float, realized_pnl: float = 0.0
     ) -> None:
+        """Adopt position state from exchange reconciliation.
+
+        Sets position, avg_entry_price, and realized_pnl directly --- bypassing
+        fill-level accounting.  This is used when the exchange state (position,
+        average price) must be adopted without replaying individual fills.
+
+        Note on ``realized_pnl`` (default ``0.0``):
+        When adopting state from exchange after an external position close
+        (SL/TP, manual close), the realized PnL from that close is NOT
+        captured because the exchange does not report it through the
+        position endpoint at the instant of adoption.  Omitting ``realized_pnl``
+        means ``equity()`` will NOT preserve the PnL from the external close
+        through the PnLCalculator alone.  This is **acceptable** because
+        equity is refreshed from the exchange wallet balance each bar
+        (see ``LiveExecutor._reconcile``).  Callers that need equity
+        continuity across adoption SHOULD pass the known ``realized_pnl``
+        value when available from the exchange (e.g. cumRealisedPnl).
+        """
         self._position = position
         self._avg_entry_price = avg_entry_price
         self._realized_pnl = realized_pnl
