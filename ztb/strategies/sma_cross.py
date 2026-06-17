@@ -12,7 +12,12 @@ class SMACross(Strategy):
     name = "sma_cross"
     symbols: list[str] = []
     timeframe: str = "60"
-    params: dict[str, float | int | str] = {"fast": 5, "slow": 20}
+    params: dict[str, float | int | str] = {
+        "fast": 5,
+        "slow": 20,
+        "sl_pct": 0.05,
+        "tp_pct": 0.10,
+    }
     warmup: int = 20
 
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
