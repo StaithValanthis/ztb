@@ -797,6 +797,44 @@ class Executor:
                         self._signal_initialized = True
                         return result
 
+            # Pre-validate qty against exchange so PnL uses exchange-qty (ZTB-3008)
+            pre_validated = self.client._validate_qty(symbol, qty)
+            if isinstance(pre_validated, dict) and pre_validated.get("skipped"):
+                result["order_skipped"] = True
+                result["skip_reason"] = pre_validated.get("reason", "Qty validation failed")
+                self.state.errors.append(f"Order skipped: {pre_validated.get('reason', '')}")
+                self.state.bars_processed += 1
+                self.state.last_bar_ts = bar_ts
+                self._sync_pnl_state()
+                unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                equity = self._pnl.equity(close_price)
+                self._save_position_snapshot()
+                self._save_pnl(
+                    self._pnl.realized_pnl,
+                    unrealized_pnl,
+                    self._pnl.equity(close_price),
+                    bar_ts,
+                )
+                return result
+            if isinstance(pre_validated, dict) and "qty" in pre_validated:
+                validated_qty = pre_validated["qty"]
+                if abs(validated_qty - qty) > 1e-12:
+                    qty = validated_qty
+                    delta = qty if delta > 0 else -qty
+                    flip = (
+                        delta < 0
+                        and current_position > 0
+                        and abs(delta) > current_position + 1e-12
+                    ) or (
+                        delta > 0
+                        and current_position < 0
+                        and abs(delta) > abs(current_position) + 1e-12
+                    )
+                    reduce_only = not flip and (
+                        (delta < 0 and current_position > 0)
+                        or (delta > 0 and current_position < 0)
+                    )
+
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,

@@ -15,19 +15,6 @@ from ztb.execution.models import AccountState, Mode, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
-@pytest.fixture(autouse=True)
-def _no_poll_sleep() -> None:
-    """Eliminate fill-polling sleep so tests complete instantly.
-
-    The default poll_fill_max_attempts=15 with poll_fill_interval=2.0 makes
-    every test that places an order wait ~30 seconds.  Patching the sleep
-    inside the executor module keeps the full polling logic but removes only
-    the wall-clock delay.
-    """
-    with patch("ztb.execution.executor.time_module.sleep"):
-        yield
-
-
 @pytest.fixture
 def sample_data() -> pd.DataFrame:
     idx = pd.date_range("2026-01-01", periods=200, freq="h", tz="UTC")
@@ -2030,10 +2017,6 @@ def test_executor_startup_reconcile_adopts_exchange_position(
             }
         ]
     }
-    mock_client.place_order.return_value = {
-        "skipped": True,
-        "reason": "No trade on startup reconcile",
-    }
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
@@ -2103,17 +2086,13 @@ def test_executor_startup_reconcile_adopts_short_position(
                 "coin": [
                     {
                         "coin": "USDT",
-                        "equity": "175000.0",
-                        "walletBalance": "145000.0",
-                        "unrealisedPnl": "30000.0",
+                        "equity": "110000.0",
+                        "walletBalance": "100000.0",
+                        "unrealisedPnl": "10000.0",
                     }
                 ]
             }
         ]
-    }
-    mock_client.place_order.return_value = {
-        "skipped": True,
-        "reason": "No trade on startup reconcile",
     }
     mock_bybit_cls.return_value = mock_client
 
@@ -5477,6 +5456,194 @@ def test_executor_with_start_risk_decisions_produced(
     )
     assert result.status == "completed"
     assert result.bars_processed > 0
+
+
+# =========================================================================
+# ZTB-3008: ceil_to_step helper + _validate_qty floor fix + executor PnL alignment
+# =========================================================================
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_pre_validate_qty_adjusts_qty_and_delta(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Pre-validation adjusts qty before place_order; PnL uses validated qty."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "100000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client._validate_qty.return_value = {"skipped": False, "qty": 0.001}
+    mock_client.place_order.return_value = {"orderId": "test_oid_aligned"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    class SmallSignalStrategy:
+        name = "small_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.01
+            return pd.Series(arr, index=data.index)
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        initial_cash=100.0,
+        asset_precision=8,
+    )
+    exe = Executor(SmallSignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    assert placed_qty == pytest.approx(0.001)
+    assert exe.state is not None
+    assert exe.state.bars_processed > 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_pre_validate_qty_skips_when_validated_skipped(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Pre-validation skip returns early without calling place_order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "100000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client._validate_qty.return_value = {
+        "skipped": True,
+        "reason": "Qty below minOrderQty 0.001 for BTCUSDT",
+    }
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    class SmallSignalStrategy:
+        name = "small_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.01
+            return pd.Series(arr, index=data.index)
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        initial_cash=100.0,
+        asset_precision=8,
+    )
+    exe = Executor(SmallSignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert "below minOrderQty" in result.get("skip_reason", "")
+    assert mock_client.place_order.call_count == 0
+    assert exe.state is not None
+    assert exe.state.bars_processed > 0
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_executor_pre_validate_qty_preserves_flip_when_qty_unchanged(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """When validated qty == computed qty, flip/reduce_only logic is preserved."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "100000.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "100000.0",
+                        "walletBalance": "100000.0",
+                        "availableBalance": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_client._validate_qty.return_value = {"skipped": False, "qty": 0.001}
+    mock_client.place_order.return_value = {"orderId": "test_oid"}
+    mock_client.get_positions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    class SmallSignalStrategy:
+        name = "small_signal"
+        symbols = ["BTCUSDT"]
+        timeframe = "60"
+        params: dict = {}
+        warmup = 50
+
+        def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+            arr = np.zeros(len(data))
+            arr[-1] = 0.01
+            return pd.Series(arr, index=data.index)
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO,
+        dry_run=False,
+        risk_enabled=False,
+        initial_cash=100.0,
+        asset_precision=8,
+    )
+    exe = Executor(SmallSignalStrategy(), config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    placed_qty = mock_client.place_order.call_args[1]["qty"]
+    assert placed_qty == pytest.approx(0.001)
 
 
 # ---------------------------------------------------------------------------

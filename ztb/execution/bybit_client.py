@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -301,6 +302,13 @@ class BybitClient:
         floored = int(qty / qty_step) * qty_step
         return round(floored, 8)
 
+    @staticmethod
+    def ceil_to_step(qty: float, qty_step: float) -> float:
+        if qty_step <= 0:
+            return qty
+        ceiled = int(math.ceil(qty / qty_step)) * qty_step
+        return round(ceiled, 8)
+
     def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)
         ls = info.get("lotSizeFilter", {})
@@ -308,20 +316,25 @@ class BybitClient:
         min_qty = float(ls.get("minOrderQty", "0"))
         max_qty = float(ls.get("maxOrderQty", "0"))
 
-        orig_qty = qty
+        original_qty = qty
         qty = self.round_to_step(qty, qty_step)
-        if qty < 1e-12 and orig_qty > 1e-12:
+        if qty < 1e-12 and original_qty > 1e-12:
             logger.warning(
                 "_validate_qty: qty floored to 0 for %s (orig=%s, step=%s)",
                 symbol,
-                orig_qty,
+                original_qty,
                 qty_step,
             )
 
         if qty < min_qty - 1e-12:
+            ceil_qty = self.ceil_to_step(original_qty, qty_step)
+            if ceil_qty >= min_qty - 1e-12:
+                if max_qty > 0 and ceil_qty > max_qty + 1e-12:
+                    ceil_qty = self.round_to_step(max_qty, qty_step)
+                return {"skipped": False, "qty": ceil_qty}
             return {
                 "skipped": True,
-                "reason": f"Qty {qty} below minOrderQty {min_qty} for {symbol}",
+                "reason": f"Qty {ceil_qty} below minOrderQty {min_qty} for {symbol}",
             }
         if max_qty > 0 and qty > max_qty + 1e-12:
             qty = self.round_to_step(max_qty, qty_step)
