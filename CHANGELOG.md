@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.47 (2026-06-17)
+
+- **Fix(executor):** `_fetch_new_bars` cursor advancement — replace `no_cache=True` with `end=pd.Timestamp.now(tz="UTC")` (ZTB-2732, ZTB-3147). The `no_cache=True` flag caused every poll iteration to re-download the full data window, defeating the cache-incremental pattern. The `end` param bounds the query so incremental polling only fetches what's needed. This restores the cache-first polling behavior that was lost in the ZTB-2599 fix, avoiding ~50× slowdown and rate-limit-induced silent exits.
+- **Tests:** 5 new tests cover: new-data appending, existing-bar preservation, no-new-bar identity return, and polling-loop cursor advancement. 1 existing test renamed from `test_fetch_new_bars_passes_no_cache` to `test_fetch_new_bars_passes_end_param` with updated assertions.
+- **Rebase:** `feat/ztb-2732-cursor-fix` rebased onto `main` (v1.1.46). Three-file conflict resolved — both ZTB-2628 skip-reason tests and ZTB-2732 cursor tests preserved.
+- **PR:** TBD
+- **Merge commit:** TBD
+- **Tag:** v1.1.47
+
 ## v1.1.46 (2026-06-17)
 
 - **Fix(execution):** Demo wallet topup — faucet zero-credit retry ladder (ZTB-3024). When Bybit demo faucet returns 0.0 USDT (rate-limited), `top_up_demo_account` now retries with stepped-down amounts (300→200→100→50→25→10 USDT) before failing. Previously a single topup attempt at 300 USDT that returned 0.0 immediately exhausted the retry budget, leaving the wallet dry. The retry ladder works around Bybit demo faucet minimum-credit thresholds.
