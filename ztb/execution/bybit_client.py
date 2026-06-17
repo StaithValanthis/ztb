@@ -209,6 +209,14 @@ class BybitClient:
         tp_trigger_by: str = "LastPrice",
         category: str = "linear",
     ) -> dict[str, Any]:
+        """Set or clear SL/TP on an open position.
+
+        Delegates HTTP + retry/auth/rate-limit handling to ``_request``,
+        which raises ``ClientAuthError`` on auth failures (retCode 10002/10003/10004),
+        retries on rate-limit (10028) and 5xx, and raises ``ClientError`` for
+        all other API errors.  Callers should catch ``ClientError`` for graceful
+        degradation.
+        """
         body: dict[str, Any] = {
             "category": category,
             "symbol": symbol,

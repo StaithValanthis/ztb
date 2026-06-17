@@ -757,3 +757,244 @@ def test_executor_flip_clears_sl_tp() -> None:
 
     executor._clear_sl_tp("BTCUSDT", side=OrderSide.SELL, position_size=0.5)
     assert "BTCUSDT" not in executor._active_sl_tp
+
+
+# ---------------------------------------------------------------------------
+# BacktestConfig threshold validation
+# ---------------------------------------------------------------------------
+
+
+def test_backtest_config_sl_pct_too_low() -> None:
+    with pytest.raises(ValueError, match="sl_pct"):
+        BacktestConfig(sl_pct=0.0001)
+
+
+def test_backtest_config_sl_pct_too_high() -> None:
+    with pytest.raises(ValueError, match="sl_pct"):
+        BacktestConfig(sl_pct=0.6)
+
+
+def test_backtest_config_tp_pct_too_high() -> None:
+    with pytest.raises(ValueError, match="tp_pct"):
+        BacktestConfig(tp_pct=15.0)
+
+
+def test_backtest_config_risk_per_trade_pct_too_high() -> None:
+    with pytest.raises(ValueError, match="risk_per_trade_pct"):
+        BacktestConfig(risk_per_trade_pct=0.1)
+
+
+def test_backtest_config_valid_values_pass() -> None:
+    cfg = BacktestConfig(sl_pct=0.02, tp_pct=0.05, risk_per_trade_pct=0.01)
+    assert cfg.sl_pct == 0.02
+    assert cfg.tp_pct == 0.05
+    assert cfg.risk_per_trade_pct == 0.01
+
+
+def test_backtest_config_zero_values_pass() -> None:
+    cfg = BacktestConfig()  # all 0.0 by default
+    assert cfg.sl_pct == 0.0
+    assert cfg.tp_pct == 0.0
+    assert cfg.risk_per_trade_pct == 0.0
+
+
+# ---------------------------------------------------------------------------
+# ForwardtestConfig threshold validation
+# ---------------------------------------------------------------------------
+
+
+def test_forwardtest_config_sl_pct_too_low() -> None:
+    from ztb.engine.forwardtest import ForwardtestConfig
+
+    with pytest.raises(ValueError, match="sl_pct"):
+        ForwardtestConfig(sl_pct=0.0001)
+
+
+def test_forwardtest_config_tp_pct_too_high() -> None:
+    from ztb.engine.forwardtest import ForwardtestConfig
+
+    with pytest.raises(ValueError, match="tp_pct"):
+        ForwardtestConfig(tp_pct=15.0)
+
+
+def test_forwardtest_config_risk_per_trade_pct_too_high() -> None:
+    from ztb.engine.forwardtest import ForwardtestConfig
+
+    with pytest.raises(ValueError, match="risk_per_trade_pct"):
+        ForwardtestConfig(risk_per_trade_pct=0.1)
+
+
+def test_forwardtest_config_valid_values_pass() -> None:
+    from ztb.engine.forwardtest import ForwardtestConfig
+
+    cfg = ForwardtestConfig(sl_pct=0.02, tp_pct=0.05, risk_per_trade_pct=0.01)
+    assert cfg.sl_pct == 0.02
+    assert cfg.tp_pct == 0.05
+    assert cfg.risk_per_trade_pct == 0.01
+
+
+# ---------------------------------------------------------------------------
+# make_sl_tp_order_link_id idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_make_sl_tp_order_link_id_deterministic() -> None:
+    from ztb.execution.idempotency import make_sl_tp_order_link_id
+
+    a = make_sl_tp_order_link_id("strat", "BTCUSDT", "2024-01-01T00:00:00Z", "abc123", "sl")
+    b = make_sl_tp_order_link_id("strat", "BTCUSDT", "2024-01-01T00:00:00Z", "abc123", "sl")
+    assert a == b
+    assert len(a) == 36
+
+
+def test_make_sl_tp_order_link_id_differs_by_kind() -> None:
+    from ztb.execution.idempotency import make_sl_tp_order_link_id
+
+    sl_id = make_sl_tp_order_link_id("strat", "BTCUSDT", "2024-01-01T00:00:00Z", "abc123", "sl")
+    tp_id = make_sl_tp_order_link_id("strat", "BTCUSDT", "2024-01-01T00:00:00Z", "abc123", "tp")
+    assert sl_id != tp_id
+
+
+# ---------------------------------------------------------------------------
+# BybitClient set_trading_stop propagates errors via _request
+# ---------------------------------------------------------------------------
+
+
+def test_set_trading_stop_propagates_client_error() -> None:
+    from unittest.mock import patch
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.errors import ClientError
+    from ztb.execution.models import Mode, OrderSide
+
+    client = BybitClient(ClientConfig(mode=Mode.DEMO))
+    with patch.object(client, "_request") as mock_request:
+        mock_request.side_effect = ClientError(10028, "rate limit")
+        with pytest.raises(ClientError, match="rate limit"):
+            client.set_trading_stop(
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                position_size=0.5,
+                stop_loss=49000.0,
+                take_profit=51000.0,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Executor fill path clear-then-apply
+# ---------------------------------------------------------------------------
+
+
+def test_executor_fill_clear_then_apply_sl_tp() -> None:
+    from unittest.mock import MagicMock, PropertyMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(
+        mode=Mode.DEMO, dry_run=False, sl_pct=0.02, tp_pct=0.05,
+        initial_cash=100_000.0,
+    )
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+
+    killswitch = MagicMock()
+    type(killswitch).is_tripped = PropertyMock(return_value=False)
+    executor._killswitch = killswitch
+
+    executor.client = MagicMock()
+    executor.client.get_wallet_balance.return_value = {"list": [
+        {"coin": [{"coin": "USDT", "availableBalance": "100000", "walletBalance": "100000"}]}
+    ]}
+    executor.client.get_positions.return_value = []
+    executor.client.get_order_history.return_value = []
+    executor.client.get_open_orders.return_value = []
+    executor.client.place_order.return_value = {"orderId": "test-order-1"}
+    executor.client.get_executions.return_value = {"list": [
+        {"execId": "fill-1", "orderId": "test-order-1", "symbol": "BTCUSDT",
+         "side": "Buy", "price": "101.0", "qty": "1.0", "commission": "0.05",
+         "realizedPnl": "0", "execTime": "2024-01-01T01:00:00Z"}
+    ]}
+    executor.client.get_instrument_info.return_value = {
+        "lotSizeFilter": {"qtyStep": "0.001", "minOrderQty": "0.001", "maxOrderQty": "1000"}
+    }
+    executor.client.get_active_trading_stops.return_value = []
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+        executor._init_store(tmp.name)
+        executor._idempotency = MagicMock()
+        executor._idempotency.try_claim.return_value = True
+        executor._idempotency.resolve.return_value = None
+
+        idx = pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC")
+        df = DataFrame({
+            "open": [100.0, 101.0, 102.0],
+            "high": [101.0, 102.0, 103.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [100.0, 101.0, 102.0],
+            "volume": [1000.0, 1000.0, 1000.0],
+        }, index=idx)
+
+        strategy.generate_signals.return_value = Series([0.0, 1.0, 1.0], index=idx)
+
+        executor._active_sl_tp["BTCUSDT"] = {"sl_price": 98.0, "tp_price": 105.0}
+        executor.step(df)
+
+        assert executor._active_sl_tp.get("BTCUSDT") is not None
+        sl_val = executor._active_sl_tp["BTCUSDT"]["sl_price"]
+        assert sl_val is not None and float(sl_val) > 0
+
+
+# ---------------------------------------------------------------------------
+# Executor killswitch in step() clears all tracked SL/TP
+# ---------------------------------------------------------------------------
+
+
+def test_executor_killswitch_step_clears_all_sl_tp() -> None:
+    import tempfile
+    from unittest.mock import MagicMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.killswitch import LiveKillSwitch
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    killswitch = LiveKillSwitch(max_account_dd=0.25)
+    killswitch.manual_trip("test")
+    assert killswitch.is_tripped is True
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config, killswitch=killswitch)
+    executor._init_run()
+    executor.client = MagicMock()
+    executor.client.set_trading_stop.return_value = {}
+    executor.client.get_instrument_info.return_value = {
+        "lotSizeFilter": {"qtyStep": "0.001", "minOrderQty": "0.001", "maxOrderQty": "1000"}
+    }
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+        executor._init_store(tmp.name)
+        executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+        executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
+
+        idx = pd.date_range("2024-01-01", periods=2, freq="h")
+        df = DataFrame({
+            "open": [100.0, 101.0], "high": [101.0, 102.0],
+            "low": [99.0, 100.0], "close": [100.0, 101.0],
+            "volume": [1000.0, 1000.0],
+        }, index=idx)
+
+        result = executor.step(df)
+        assert result.get("killswitch_tripped") is True
+        assert len(executor._active_sl_tp) == 0

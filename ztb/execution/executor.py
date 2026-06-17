@@ -1095,6 +1095,7 @@ class Executor:
             pos_side = OrderSide.BUY if self._pnl.position > 0 else OrderSide.SELL
             pos_size = self._pnl.position
             avg_entry = self._pnl.avg_entry_price
+            self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
             self._apply_sl_tp(
                 symbol, pos_side, pos_size, avg_entry,
                 self.config.sl_pct, self.config.tp_pct,
