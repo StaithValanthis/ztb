@@ -49,6 +49,21 @@ class BacktestConfig:
     risk_per_trade_pct: float = 0.0
     min_qty: float = 0.0
 
+    def __post_init__(self) -> None:
+        if self.sl_pct > 0.0 and not (0.001 <= self.sl_pct <= 0.50):
+            raise ValueError(
+                f"sl_pct must be in [0.001, 0.50] or 0.0 (disabled), got {self.sl_pct}"
+            )
+        if self.tp_pct > 0.0 and not (0.001 <= self.tp_pct <= 10.0):
+            raise ValueError(
+                f"tp_pct must be in [0.001, 10.0] or 0.0 (disabled), got {self.tp_pct}"
+            )
+        if self.risk_per_trade_pct > 0.0 and not (0.001 <= self.risk_per_trade_pct <= 0.05):
+            raise ValueError(
+                f"risk_per_trade_pct must be in [0.001, 0.05] or 0.0 (disabled), "
+                f"got {self.risk_per_trade_pct}"
+            )
+
 
 def run_backtest(
     strategy: Strategy,
