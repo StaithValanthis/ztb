@@ -32,14 +32,20 @@ def extract_available_balance(wallet: dict[str, Any], coin: str = "USDT") -> flo
 
 
 def extract_top_up_credited(wallet: dict[str, Any], coin: str) -> float:
-    """Extract credited amount reading availableBalance (not walletBalance).
+    """Extract credited amount reading availableBalance or walletBalance.
 
-    Returns 0.0 if coin not found.
+    Checks availableBalance first; falls back to walletBalance for the brief
+    window where funds settle (availableBalance may be 0 right after a
+    demo-apply-money call). Returns 0.0 if coin not found.
     """
     if not wallet:
         return 0.0
     for account_info in wallet.get("list", []):
         for coin_entry in account_info.get("coin", []):
             if coin_entry.get("coin", "") == coin:
-                return float(coin_entry.get("availableBalance", 0.0))
+                available = float(coin_entry.get("availableBalance", 0.0))
+                if available > 0:
+                    return available
+                wallet_bal = float(coin_entry.get("walletBalance", 0.0))
+                return wallet_bal
     return 0.0
