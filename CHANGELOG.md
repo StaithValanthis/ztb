@@ -1,3 +1,12 @@
+## v1.1.53
+- **Fix(executor):** Demo top-up rate-limiting — cooldown + single-attempt (ZTB-3426). Remove `_top_up_ladder` multi-attempt retry ladder (5 HTTP POSTs per top-up). Replace with single-attempt `top_up_demo_account` + 60-second cooldown (`_last_demo_post_ts`, `_demo_faucet_cooldown`). Eliminates redundant POST to `/v5/account/demo-apply-money` when cooldown is active — at most 1 POST per 60s regardless of restart frequency. Previously the ladder approach issued up to 5 POSTs per restart, hitting Bybit demo faucet rate limits (~16 `DemoAccountTopUpError` per day).
+- **Tests:** 4 new tests — `test_top_up_demo_account_single_attempt` (exactly 1 POST, no ladder), `test_top_up_demo_account_cooldown_skips` (cooldown active → graceful skip), `test_top_up_demo_account_updates_timestamp` (post-TS updated), `test_top_up_ladder_not_present` (ladder removed). Ladder tests removed.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS (CI vr-pass SUCCESS on SHA `8d50a4a`) + `ztb/real-fill-certified` SUCCESS — real fill `62f178f9` on v1.1.53 (post-commit, fee-bearing).
+- **WIP=1:** No competing executor PR — sole PR touching `bybit_client.py`.
+- **Merge commit:** `d0fb175`
+- **PR:** [#196](https://github.com/StaithValanthis/ztb/pull/196)
+- **Tag:** v1.1.53
+
 ## v1.1.52
 - atomic-merge version bump for PR #183
 
