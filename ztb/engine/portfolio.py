@@ -58,7 +58,6 @@ def single_symbol_portfolio(
     timestamps: list[pd.Timestamp] = []
     open_trade_sl_price: float | None = None
     open_trade_tp_price: float | None = None
-    open_trade_qty: float = 0.0
 
     for i, idx in enumerate(signals.index):
         price = float(close.iloc[i])
@@ -85,17 +84,30 @@ def single_symbol_portfolio(
         if open_trade_sl_price is not None or open_trade_tp_price is not None:
             bar_high = float(high.iloc[i]) if high is not None else price
             bar_low = float(low.iloc[i]) if low is not None else price
-            if open_trade_sl_price is not None and bar_low <= open_trade_sl_price:
+            is_long = pnl.position > 0
+
+            if open_trade_sl_price is not None and (
+                (is_long and bar_low <= open_trade_sl_price)
+                or (not is_long and bar_high >= open_trade_sl_price)
+            ):
                 sl_hit = True
                 sl_tp_exit_reason = "stop_loss"
                 exit_price = open_trade_sl_price
-            elif open_trade_tp_price is not None and bar_high >= open_trade_tp_price:
+
+            if (
+                not sl_hit
+                and open_trade_tp_price is not None
+                and (
+                    (is_long and bar_high >= open_trade_tp_price)
+                    or (not is_long and bar_low <= open_trade_tp_price)
+                )
+            ):
                 tp_hit = True
                 sl_tp_exit_reason = "take_profit"
                 exit_price = open_trade_tp_price
 
             if sl_hit or tp_hit:
-                close_delta = -open_trade_qty
+                close_delta = -pnl.position
                 realized_before = pnl.realized_pnl
                 comm_cost = abs(close_delta) * exit_price * commission
                 slip_cost = abs(close_delta) * exit_price * slippage
@@ -104,7 +116,7 @@ def single_symbol_portfolio(
                 trades.append(
                     {
                         "timestamp": idx,
-                        "side": "sell" if open_trade_qty > 0 else "buy",
+                        "side": "sell" if close_delta < 0 else "buy",
                         "price": exit_price,
                         "size": abs(close_delta),
                         "pnl": trade_pnl,
@@ -117,10 +129,9 @@ def single_symbol_portfolio(
                 )
                 open_trade_sl_price = None
                 open_trade_tp_price = None
-                open_trade_qty = 0.0
                 target_qty = 0.0
                 target_frac = 0.0
-                delta = -pnl.position
+                delta = 0.0
 
         if abs(delta) > 1e-12:
             realized_before = pnl.realized_pnl
@@ -138,8 +149,16 @@ def single_symbol_portfolio(
                 "commission": comm_cost,
                 "slippage": slip_cost,
             }
-            if abs(old_pos) < 1e-12 and abs(delta) > 1e-12 and (sl_pct > 0.0 or tp_pct > 0.0):
-                if delta > 0:
+            new_pos = pnl.position
+            is_new_position = abs(old_pos) < 1e-12 and abs(new_pos) > 1e-12
+            is_flip = abs(new_pos) > 1e-12 and old_pos * new_pos < 0
+
+            if is_flip:
+                open_trade_sl_price = None
+                open_trade_tp_price = None
+
+            if (is_new_position or is_flip) and (sl_pct > 0.0 or tp_pct > 0.0):
+                if new_pos > 0:
                     trade_entry["sl_price"] = price * (1.0 - sl_pct) if sl_pct > 0.0 else None
                     trade_entry["tp_price"] = price * (1.0 + tp_pct) if tp_pct > 0.0 else None
                 else:
@@ -148,11 +167,9 @@ def single_symbol_portfolio(
                 trade_entry["exit_reason"] = "signal"
                 open_trade_sl_price = trade_entry["sl_price"]
                 open_trade_tp_price = trade_entry["tp_price"]
-                open_trade_qty = delta if delta > 0 else -delta
-            if abs(pnl.position) < 1e-12 and not sl_hit and not tp_hit:
+            if abs(new_pos) < 1e-12 and not sl_hit and not tp_hit:
                 open_trade_sl_price = None
                 open_trade_tp_price = None
-                open_trade_qty = 0.0
             trades.append(trade_entry)
 
         equity.append(pnl.equity(price))

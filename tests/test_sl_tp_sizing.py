@@ -472,7 +472,7 @@ def test_short_sl_hit_closes_position() -> None:
         index=idx,
     )
     low = Series([109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0, 101.0, 100.0], index=idx)
-    high = Series([111.0, 115.0, 109.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
+    high = Series([111.0, 110.0, 116.0, 108.0, 107.0, 106.0, 105.0, 104.0, 103.0, 102.0], index=idx)
 
     state = single_symbol_portfolio(
         signals,
