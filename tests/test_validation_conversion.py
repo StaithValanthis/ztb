@@ -190,7 +190,7 @@ def test_conversion_synthetic_fills_excluded(tmp_path) -> None:
                for i, rid in enumerate(run_ids)],
     )
     conn.close()
-    result = compute_signal_to_fill_conversion(str(db))
+    result = compute_signal_to_fill_conversion(str(db), min_signal_runs=3)
     assert result.conversion_rate == 0.0
     assert result.runs_with_real_fills == 0
     assert result.sufficient_sample is True
