@@ -1,3 +1,6 @@
+## v1.1.50
+- atomic-merge version bump for PR #190
+
 # Changelog
 
 ## v1.1.49 (2026-06-17)
