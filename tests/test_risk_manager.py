@@ -89,7 +89,7 @@ def test_evaluate_position_pct_sets_correct_max_notional() -> None:
         current_equity=100_000.0,
     )
     assert decision.action == RiskDecisionAction.reduce
-    assert decision.max_notional == 100_000.0 * 10.0  # equity * max_leverage
+    assert decision.max_notional == 100_000.0 * 0.50  # max_position_pct * equity
 
 
 def test_evaluate_heat_exceeded() -> None:
