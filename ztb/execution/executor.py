@@ -111,6 +111,8 @@ class Executor:
                         )
                 except Exception:
                     pass
+                for sym in list(self._active_sl_tp.keys()):
+                    self._clear_sl_tp(sym, side=OrderSide.BUY, position_size=0.0)
 
         self._original_sigterm = signal.signal(signal.SIGTERM, _handler)
 
@@ -252,6 +254,31 @@ class Executor:
                 )
                 self._idempotency.conn.commit()
         return True
+
+    def _cleanup_orphan_sl_tp(self) -> None:
+        if self.client is None or self.config.dry_run:
+            return
+        try:
+            active_stops = self.client.get_active_trading_stops()
+        except Exception:
+            logger.warning("orphan-cleanup: get_active_trading_stops failed — skipping")
+            return
+        for pos in active_stops:
+            sym = pos.get("symbol", "")
+            if not sym or sym in self._active_sl_tp:
+                continue
+            try:
+                self.client.set_trading_stop(
+                    symbol=sym,
+                    side=OrderSide.BUY,
+                    position_size=0.01,
+                    stop_loss=0.0,
+                    take_profit=0.0,
+                )
+                logger.info("orphan-cleanup: cleared stale SL/TP for %s", sym)
+            except Exception:
+                logger.warning("orphan-cleanup: failed to clear %s — continuing", sym)
+            self._active_sl_tp.pop(sym, None)
 
     def _save_position_snapshot(self) -> None:
         from ztb.store.exec_io import save_position_snapshot
@@ -1251,26 +1278,7 @@ class Executor:
         if self._killswitch is not None:
             self._killswitch.heartbeat()
 
-        if self.client is not None and not self.config.dry_run:
-            try:
-                active_stops = self.client.get_active_trading_stops()
-                for pos in active_stops:
-                    sym = pos.get("symbol", "")
-                    if sym:
-                        if sym not in self._active_sl_tp:
-                            logger.warning(
-                                "Startup: %s has active SL/TP on exchange "
-                                "(stopLoss=%s, takeProfit=%s) — not tracked locally",
-                                sym,
-                                pos.get("stopLoss", ""),
-                                pos.get("takeProfit", ""),
-                            )
-                        self._active_sl_tp[sym] = {
-                            "sl_price": _safe_float(pos.get("stopLoss", "0")),
-                            "tp_price": _safe_float(pos.get("takeProfit", "0")),
-                        }
-            except Exception:
-                logger.warning("Startup active-trading-stops query failed — continuing")
+        self._cleanup_orphan_sl_tp()
 
         self._setup_sigterm()
 

@@ -1047,3 +1047,127 @@ def test_executor_killswitch_step_clears_all_sl_tp() -> None:
         result = executor.step(df)
         assert result.get("killswitch_tripped") is True
         assert len(executor._active_sl_tp) == 0
+
+
+# ---------------------------------------------------------------------------
+# Gap 6 + 7 + 9: Orphan cleanup, _clear_sl_tp wiring, SCHEMA_VERSION
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_orphan_sl_tp_clears_active_sl() -> None:
+    from unittest.mock import MagicMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode, OrderSide
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+    executor.client.get_active_trading_stops.return_value = [
+        {"symbol": "BTCUSDT", "stopLoss": "49000", "takeProfit": "0"},
+        {"symbol": "ETHUSDT", "stopLoss": "3000", "takeProfit": "3100"},
+    ]
+    executor.client.set_trading_stop.return_value = {}
+
+    executor._active_sl_tp = {"BTCUSDT": {"sl_price": 49000.0, "tp_price": 0.0}}
+
+    executor._cleanup_orphan_sl_tp()
+
+    # ETHUSDT was orphan (not in _active_sl_tp) -> should be cleared
+    executor.client.set_trading_stop.assert_any_call(
+        symbol="ETHUSDT",
+        side=OrderSide.BUY,
+        position_size=0.01,
+        stop_loss=0.0,
+        take_profit=0.0,
+    )
+    # BTCUSDT was tracked -> should NOT be cleared
+    calls = [
+        c
+        for c in executor.client.set_trading_stop.call_args_list
+        if c[1].get("symbol") == "BTCUSDT"
+    ]
+    assert len(calls) == 0, "tracked symbol should not be cleared as orphan"
+
+
+def test_clear_sl_tp_logs_warning_on_failure() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.executor import logger as exec_logger
+    from ztb.execution.models import ExecRunConfig, Mode, OrderSide
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+    executor.client = MagicMock()
+    executor.client.set_trading_stop.side_effect = RuntimeError("API error")
+
+    with patch.object(exec_logger, "warning") as mock_warning:
+        executor._clear_sl_tp("BTCUSDT", side=OrderSide.BUY, position_size=0.5)
+
+    assert "BTCUSDT" not in executor._active_sl_tp
+    mock_warning.assert_called_once()
+    assert "clear_sl_tp failed" in mock_warning.call_args[0][0]
+
+
+def test_clear_sl_tp_wired_to_killswitch() -> None:
+    from unittest.mock import MagicMock, PropertyMock
+
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode, OrderSide
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT", "ETHUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    killswitch = MagicMock()
+    type(killswitch).is_tripped = PropertyMock(return_value=True)
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, sl_pct=0.02, tp_pct=0.05)
+    executor = Executor(strategy=strategy, config=config, killswitch=killswitch)
+    executor._init_run()
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+    executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
+
+    executor.client = MagicMock()
+    executor.client.set_trading_stop.return_value = {}
+
+    executor._clear_sl_tp("BTCUSDT", side=OrderSide.BUY, position_size=0.5)
+    executor._clear_sl_tp("ETHUSDT", side=OrderSide.BUY, position_size=0.3)
+    assert "BTCUSDT" not in executor._active_sl_tp
+    assert "ETHUSDT" not in executor._active_sl_tp
+
+
+def test_schema_version_equals_max_schema_meta() -> None:
+    import sqlite3
+
+    from ztb.store import SCHEMA_VERSION
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO schema_meta (version) VALUES (1)")
+    conn.execute("INSERT INTO schema_meta (version) VALUES (2)")
+    conn.execute("INSERT INTO schema_meta (version) VALUES (3)")
+    conn.execute("INSERT INTO schema_meta (version) VALUES (5)")
+    conn.execute("INSERT INTO schema_meta (version) VALUES (12)")
+    max_version = conn.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0]
+    conn.close()
+    assert max_version == SCHEMA_VERSION, (
+        f"SCHEMA_VERSION={SCHEMA_VERSION} does not match max applied version={max_version}"
+    )

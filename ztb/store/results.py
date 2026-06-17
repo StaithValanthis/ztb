@@ -10,6 +10,7 @@ from typing import Any
 from ztb import __version__
 from ztb.engine.backtest import BacktestResult
 from ztb.engine.forwardtest import ForwardtestResult
+from ztb.store import SCHEMA_VERSION
 from ztb.store.retry import retry_on_lock
 
 _METRIC_NAMES = frozenset(
@@ -99,6 +100,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE trades ADD COLUMN {col}")
     with suppress(sqlite3.OperationalError):
         conn.execute("INSERT OR IGNORE INTO schema_meta (version) VALUES (12)")
+    _max_applied = conn.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0] or 0
+    assert _max_applied == SCHEMA_VERSION, (
+        f"schema version mismatch: applied={_max_applied}, expected={SCHEMA_VERSION}"
+    )
     conn.commit()
 
 
