@@ -1,3 +1,6 @@
+## v1.1.48
+- SL/TP + trade management + position sizing (ZTB-2981) with V&R defect fixes (ZTB-3173: direction-aware triggers/close/flip-reset) + VE-gap closure (ZTB-3090).
+
 # Changelog
 
 ## v1.1.47 (2026-06-17)
@@ -10,6 +13,11 @@
 - **Tag:** v1.1.47
 
 ## v1.1.46 (2026-06-17)
+
+- **Refactor(executor):** Replace pre-validation approach with step-alignment approach for position sizing (ZTB-3008, PR #176). Add `ceil_to_step`/`round_to_step` module-level functions to `bybit_client.py`, expose `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` methods, and align `target_qty`/`qty`/`max_qty`/`capped_qty` to instrument step size in executor (ceil for entry, floor for reduction/cap). Preserves all SL/TP code (`_apply_sl_tp`, `_clear_sl_tp`, `set_trading_stop`).
+- **Chore:** Bump version to v1.1.46.
+
+## v1.1.45 (2026-06-17)
 
 - **Fix(execution):** Demo wallet topup — faucet zero-credit retry ladder (ZTB-3024). When Bybit demo faucet returns 0.0 USDT (rate-limited), `top_up_demo_account` now retries with stepped-down amounts (300→200→100→50→25→10 USDT) before failing. Previously a single topup attempt at 300 USDT that returned 0.0 immediately exhausted the retry budget, leaving the wallet dry. The retry ladder works around Bybit demo faucet minimum-credit thresholds.
 - **Tests:** 54 bybit-client tests + 167 executor tests all green. 9 topup-specific tests cover: retry ladder, max-step cap, zero-credit handling, and normal topup unchanged path.
