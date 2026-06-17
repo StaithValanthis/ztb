@@ -15,7 +15,7 @@ from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.data.timeframes import interval_to_ms
 from ztb.engine.pnl import PnLCalculator
-from ztb.execution.bybit_client import BybitClient
+from ztb.execution.bybit_client import BybitClient, ceil_to_step, round_to_step
 from ztb.execution.errors import (
     ClientError,
     ExecutionError,
@@ -38,6 +38,15 @@ from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(val: str | float | None, default: float = 0.0) -> float:
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 
 class Executor:
@@ -64,6 +73,7 @@ class Executor:
         self._sigterm_stop: bool = False
         self._last_executed_signal: float = 0.0
         self._signal_initialized: bool = False
+        self._active_sl_tp: dict[str, dict[str, float | None]] = {}
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -145,6 +155,103 @@ class Executor:
                 self.state.symbol,
                 self.state.timeframe,
             )
+
+    def _apply_sl_tp(
+        self,
+        symbol: str,
+        side: OrderSide,
+        position_size: float,
+        avg_entry: float,
+        sl_pct: float,
+        tp_pct: float,
+    ) -> bool:
+        if self.client is None or self.config.dry_run:
+            return False
+        if sl_pct <= 0.0 and tp_pct <= 0.0:
+            return False
+        if abs(position_size) < 1e-12 or avg_entry <= 0.0:
+            return False
+        assert self.state is not None
+        is_long = position_size > 0
+        sl_price: float = 0.0
+        tp_price: float = 0.0
+        if sl_pct > 0.0:
+            sl_price = avg_entry * (1.0 - sl_pct) if is_long else avg_entry * (1.0 + sl_pct)
+        if tp_pct > 0.0:
+            tp_price = avg_entry * (1.0 + tp_pct) if is_long else avg_entry * (1.0 - tp_pct)
+        if sl_price > 0.0 and is_long and sl_price >= avg_entry:
+            raise ValueError(
+                f"SL price {sl_price} must be below entry {avg_entry} for long position"
+            )
+        if sl_price > 0.0 and not is_long and sl_price <= avg_entry:
+            raise ValueError(
+                f"SL price {sl_price} must be above entry {avg_entry} for short position"
+            )
+        if tp_price > 0.0 and is_long and tp_price <= avg_entry:
+            raise ValueError(
+                f"TP price {tp_price} must be above entry {avg_entry} for long position"
+            )
+        if tp_price > 0.0 and not is_long and tp_price >= avg_entry:
+            raise ValueError(
+                f"TP price {tp_price} must be below entry {avg_entry} for short position"
+            )
+        try:
+            self.client.set_trading_stop(
+                symbol=symbol,
+                side=side,
+                position_size=abs(position_size),
+                stop_loss=sl_price,
+                take_profit=tp_price,
+                sl_trigger_by="LastPrice",
+                tp_trigger_by="LastPrice",
+            )
+            self._active_sl_tp[symbol] = {"sl_price": sl_price, "tp_price": tp_price}
+            if self.state.last_bar_ts and self._idempotency is not None:
+                from ztb.execution.idempotency import make_intent_hash, make_sl_tp_order_link_id
+
+                intent_hash = make_intent_hash(position_size, avg_entry)
+                sl_link_id = make_sl_tp_order_link_id(
+                    self.state.strategy_name, symbol, self.state.last_bar_ts, intent_hash, "sl"
+                )
+                self._idempotency.try_claim(sl_link_id)
+                self._idempotency.resolve(sl_link_id, "placed")
+                if tp_price > 0.0:
+                    tp_link_id = make_sl_tp_order_link_id(
+                        self.state.strategy_name, symbol, self.state.last_bar_ts, intent_hash, "tp"
+                    )
+                    self._idempotency.try_claim(tp_link_id)
+                    self._idempotency.resolve(tp_link_id, "placed")
+            return True
+        except Exception:
+            logger.warning("set_trading_stop failed for %s — continuing", symbol)
+            return False
+
+    def _clear_sl_tp(
+        self, symbol: str, side: OrderSide = OrderSide.BUY, position_size: float = 0.0
+    ) -> bool:
+        if self.client is None or self.config.dry_run:
+            return False
+        if symbol not in self._active_sl_tp:
+            return False
+        try:
+            self.client.set_trading_stop(
+                symbol=symbol,
+                side=side,
+                position_size=abs(position_size) if abs(position_size) > 1e-12 else 0.01,
+                stop_loss=0.0,
+                take_profit=0.0,
+            )
+        except Exception:
+            logger.warning("clear_sl_tp failed for %s — continuing", symbol)
+        self._active_sl_tp.pop(symbol, None)
+        if self._idempotency is not None and self.state is not None:
+            with contextlib.suppress(Exception):
+                self._idempotency.conn.execute(
+                    "DELETE FROM idempotency WHERE order_link_id LIKE ?",
+                    (f"%:{symbol}:%",),
+                )
+                self._idempotency.conn.commit()
+        return True
 
     def _save_position_snapshot(self) -> None:
         from ztb.store.exec_io import save_position_snapshot
@@ -445,6 +552,8 @@ class Executor:
         assert self._idempotency is not None
 
         if self._check_killswitch():
+            for sym in list(self._active_sl_tp.keys()):
+                self._clear_sl_tp(sym, side=OrderSide.BUY, position_size=0.0)
             return {
                 "killswitch_tripped": True,
                 "bar_ts": str(data.index[-1] if len(data) > 0 else ""),
@@ -580,6 +689,21 @@ class Executor:
                 if close_price > 0
                 else 0.0
             )
+
+        # Align target_qty to instrument step size (round away from zero)
+        # to avoid flooring small wallets to zero when step > precision
+        instrument_qty_step = 0.0
+        if not self.config.dry_run and self.client is not None:
+            try:
+                instrument_qty_step = self.client.get_qty_step(symbol)
+            except Exception:
+                logger.warning(
+                    "Failed to fetch qty_step for %s, skipping step alignment",
+                    symbol,
+                )
+        if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+            target_qty = ceil_to_step(target_qty, instrument_qty_step)
+
         delta = target_qty - current_position
 
         result: dict[str, Any] = {
@@ -710,6 +834,8 @@ class Executor:
             if self._killswitch is not None:
                 self._killswitch.check_reconcile_drift(reconcile_report.position_drift)
                 if self._killswitch.is_tripped:
+                    for sym in list(self._active_sl_tp.keys()):
+                        self._clear_sl_tp(sym, side=OrderSide.BUY, position_size=0.0)
                     self._save_kill_events()
                     result["killswitch_tripped"] = True
                     self.state.bars_processed += 1
@@ -718,6 +844,14 @@ class Executor:
 
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
+
+            # Align order qty to instrument step size so it passes
+            # _validate_qty without being floored to zero or silently adjusted
+            if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                if delta > 0:
+                    qty = ceil_to_step(qty, instrument_qty_step)
+                else:
+                    qty = round_to_step(qty, instrument_qty_step)
 
             flip = (
                 delta < 0 and current_position > 0 and abs(delta) > current_position + 1e-12
@@ -739,6 +873,10 @@ class Executor:
                     current_position,
                     reconcile_report.actual_position,
                 )
+                # adopt_state without realized_pnl — PnL from the external close
+                # (SL/TP, manual close) is NOT preserved in PnLCalculator.
+                # Acceptable because equity is refreshed from exchange wallet
+                # balance each bar via LiveExecutor._reconcile.
                 self._pnl.adopt_state(position=0.0, avg_entry_price=0.0)
                 self._sync_pnl_state()
                 result["order_skipped"] = True
@@ -766,9 +904,15 @@ class Executor:
             if not reduce_only and available_balance > 0 and close_price > 0:
                 max_notional = available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)
+                if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                    max_qty = round_to_step(max_qty, instrument_qty_step)
                 require_margin_qty = max(0.0, qty - abs(current_position)) if flip else qty
                 if require_margin_qty > max_qty + 1e-12:
                     capped_qty = round(qty - require_margin_qty + max_qty, asset_precision)
+                    # Align capped qty to step size (toward zero / floor) to
+                    # avoid exceeding the balance limit after step-rounding
+                    if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                        capped_qty = round_to_step(capped_qty, instrument_qty_step)
                     self.state.errors.append(
                         f"Qty capped by available balance: {qty} -> {capped_qty} "
                         f"(available_balance={available_balance:.2f}, "
@@ -796,6 +940,11 @@ class Executor:
                         )
                         self._signal_initialized = True
                         return result
+
+            positions_close = abs(delta) > 1e-12 and abs(target_qty) < 1e-12
+            if flip or positions_close:
+                clear_side = OrderSide.BUY if current_position > 0 else OrderSide.SELL
+                self._clear_sl_tp(symbol, side=clear_side, position_size=abs(current_position))
 
             try:
                 order_result = self.client.place_order(
@@ -977,6 +1126,19 @@ class Executor:
             result["order_placed"] = True
             result["order"] = {"order_id": order_id, "order_link_id": order_link_id}
 
+            pos_side = OrderSide.BUY if self._pnl.position > 0 else OrderSide.SELL
+            pos_size = self._pnl.position
+            avg_entry = self._pnl.avg_entry_price
+            self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
+            self._apply_sl_tp(
+                symbol,
+                pos_side,
+                pos_size,
+                avg_entry,
+                self.config.sl_pct,
+                self.config.tp_pct,
+            )
+
             self._reconcile(target_qty, close_price, bar_ts)
             self._last_executed_signal = target_signal
         elif signal_changed:
@@ -1092,6 +1254,28 @@ class Executor:
 
         if self._killswitch is not None:
             self._killswitch.heartbeat()
+
+        if self.client is not None and not self.config.dry_run:
+            try:
+                active_stops = self.client.get_active_trading_stops()
+                for pos in active_stops:
+                    sym = pos.get("symbol", "")
+                    if sym:
+                        if sym not in self._active_sl_tp:
+                            logger.warning(
+                                "Startup: %s has active SL/TP on exchange "
+                                "(stopLoss=%s, takeProfit=%s) — not tracked locally",
+                                sym,
+                                pos.get("stopLoss", ""),
+                                pos.get("takeProfit", ""),
+                            )
+                        self._active_sl_tp[sym] = {
+                            "sl_price": _safe_float(pos.get("stopLoss", "0")),
+                            "tp_price": _safe_float(pos.get("takeProfit", "0")),
+                        }
+            except Exception:
+                logger.warning("Startup active-trading-stops query failed — continuing")
+
         self._setup_sigterm()
 
         if self.config.mode == Mode.DEMO and not self.config.dry_run and self.client is not None:
@@ -1164,6 +1348,11 @@ class Executor:
                         if abs(report.actual_avg_price) > 1e-8
                         else close_price
                     )
+                    # adopt_state without realized_pnl — the exchange
+                    # position endpoint does not expose the cumulative
+                    # realized PnL at startup in a single call.  Equity
+                    # is refreshed from wallet balance each bar, so the
+                    # missing realized_pnl is reconciled naturally.
                     self._pnl.adopt_state(
                         position=report.actual_position,
                         avg_entry_price=actual_avg,

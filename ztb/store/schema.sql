@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS trades (
     size REAL NOT NULL,
     pnl REAL NOT NULL,
     commission REAL NOT NULL,
-    slippage REAL NOT NULL DEFAULT 0.0
+    slippage REAL NOT NULL DEFAULT 0.0,
+    sl_price REAL,
+    tp_price REAL,
+    exit_reason TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_run ON trades(run_id);

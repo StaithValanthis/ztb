@@ -108,6 +108,10 @@ class ExecRunConfig:
     loop_flush_interval: int = 1
     poll_fill_max_attempts: int = 15
     poll_fill_interval: float = 2.0
+    sl_pct: float = 0.0
+    tp_pct: float = 0.0
+    risk_per_trade_pct: float = 0.0
+    min_qty: float = 0.0
 
     def __post_init__(self) -> None:
         if self.loop is None:
@@ -116,6 +120,19 @@ class ExecRunConfig:
             self.poll_interval_seconds = 60
         if self.lookback_bars is None:
             self.lookback_bars = 0
+        if self.sl_pct > 0.0 and not (0.001 <= self.sl_pct <= 0.50):
+            raise ValueError(
+                f"sl_pct must be in [0.001, 0.50] or 0.0 (disabled), got {self.sl_pct}"
+            )
+        if self.tp_pct > 0.0 and not (0.001 <= self.tp_pct <= 10.0):
+            raise ValueError(
+                f"tp_pct must be in [0.001, 10.0] or 0.0 (disabled), got {self.tp_pct}"
+            )
+        if self.risk_per_trade_pct > 0.0 and not (0.001 <= self.risk_per_trade_pct <= 0.05):
+            raise ValueError(
+                f"risk_per_trade_pct must be in [0.001, 0.05] or 0.0 (disabled), "
+                f"got {self.risk_per_trade_pct}"
+            )
 
 
 @dataclass

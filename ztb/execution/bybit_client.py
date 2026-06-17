@@ -29,6 +29,20 @@ _RECV_WINDOW = "5000"
 _DEFAULT_TIMEOUT = 30.0
 
 
+def round_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    floored = int(qty / qty_step) * qty_step
+    return round(floored, 8)
+
+
+def ceil_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    ceiled = -(-qty // qty_step) * qty_step
+    return round(float(ceiled), 8)
+
+
 @dataclass
 class ClientConfig:
     api_key: str = ""
@@ -153,6 +167,8 @@ class BybitClient:
         price: float | None = None,
         order_link_id: str = "",
         reduce_only: bool = False,
+        take_profit: float | None = None,
+        stop_loss: float | None = None,
         category: str = "linear",
     ) -> dict[str, Any]:
         validated = self._validate_qty(symbol, qty, category)
@@ -180,6 +196,10 @@ class BybitClient:
             body["reduceOnly"] = True
         if price is not None and order_type == OrderType.LIMIT:
             body["price"] = str(price)
+        if take_profit is not None:
+            body["takeProfit"] = str(take_profit)
+        if stop_loss is not None:
+            body["stopLoss"] = str(stop_loss)
         result = self._request("POST", "/v5/order/create", body=body)
         if self._config.mode == Mode.DEMO:
             order_id = result.get("orderId", "N/A")
@@ -192,6 +212,69 @@ class BybitClient:
                 order_id,
             )
         return result
+
+    def set_trading_stop(
+        self,
+        symbol: str,
+        side: OrderSide,
+        position_size: float,
+        stop_loss: float = 0.0,
+        take_profit: float = 0.0,
+        sl_trigger_by: str = "LastPrice",
+        tp_trigger_by: str = "LastPrice",
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        """Set or clear SL/TP on an open position.
+
+        Delegates HTTP + retry/auth/rate-limit handling to ``_request``,
+        which raises ``ClientAuthError`` on auth failures (retCode 10002/10003/10004),
+        retries on rate-limit (10028) and 5xx, and raises ``ClientError`` for
+        all other API errors.  Callers should catch ``ClientError`` for graceful
+        degradation.
+        """
+        body: dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+            "side": side.value,
+            "positionIdx": 0,
+        }
+        if stop_loss > 0.0:
+            body["stopLoss"] = str(stop_loss)
+        else:
+            body["stopLoss"] = ""
+        if take_profit > 0.0:
+            body["takeProfit"] = str(take_profit)
+        else:
+            body["takeProfit"] = ""
+        if sl_trigger_by:
+            body["slTriggerBy"] = sl_trigger_by
+        if tp_trigger_by:
+            body["tpTriggerBy"] = tp_trigger_by
+        return self._request("POST", "/v5/position/trading-stop", body=body)
+
+    def get_active_trading_stops(
+        self,
+        symbol: str = "",
+        category: str = "linear",
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        result = self._request("GET", "/v5/position/list", params=params)
+        items: list[dict[str, Any]] = result.get("list", [])
+        filtered: list[dict[str, Any]] = []
+        for pos in items:
+            sl = pos.get("stopLoss", "0")
+            tp = pos.get("takeProfit", "0")
+            try:
+                sl_val = float(sl) if sl else 0.0
+                tp_val = float(tp) if tp else 0.0
+            except (ValueError, TypeError):
+                sl_val = 0.0
+                tp_val = 0.0
+            if abs(sl_val) > 1e-12 or abs(tp_val) > 1e-12:
+                filtered.append(pos)
+        return filtered
 
     def cancel_order(
         self,
@@ -297,10 +380,24 @@ class BybitClient:
 
     @staticmethod
     def round_to_step(qty: float, qty_step: float) -> float:
-        if qty_step <= 0:
-            return qty
-        floored = int(qty / qty_step) * qty_step
-        return round(floored, 8)
+        return round_to_step(qty, qty_step)
+
+    @staticmethod
+    def ceil_to_step(qty: float, qty_step: float) -> float:
+        return ceil_to_step(qty, qty_step)
+
+    def get_lot_size_filter(self, symbol: str, category: str = "linear") -> dict[str, Any]:
+        info = self.get_instrument_info(symbol, category)
+        ls: dict[str, Any] = info.get("lotSizeFilter", {})
+        return ls
+
+    def get_qty_step(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("qtyStep", "0.001"))
+
+    def get_min_order_qty(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("minOrderQty", "0"))
 
     def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)

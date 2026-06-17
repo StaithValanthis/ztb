@@ -1,12 +1,22 @@
 # Changelog
 
+## v1.1.48 (2026-06-17)
+
+- **Refactor(executor):** Replace pre-validation approach with step-alignment approach for position sizing (ZTB-3008, PR #176). Add `ceil_to_step`/`round_to_step` module-level functions to `bybit_client.py`, expose `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` methods, and align `target_qty`/`qty`/`max_qty`/`capped_qty` to instrument step size in executor (ceil for entry, floor for reduction/cap). Preserves all SL/TP code (`_apply_sl_tp`, `_clear_sl_tp`, `set_trading_stop`).
+- **Fix(engine):** Fix 3 V&R SL/TP defects — direction-aware triggers, close, and flip reset (ZTB-3173, PR #176). SL/TP triggers now respect position direction (long vs short), close orders use correct side, and flip reset clears SL/TP state.
+- **Chore:** Bump version to v1.1.48.
+- **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
+- **Merge commit:** `26411e3`
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `79e8f2c` (ZTB-3221) + `ztb/real-fill-certified` SUCCESS
+- **Tag:** v1.1.48
+
 ## v1.1.47 (2026-06-17)
 
 - **Fix(executor):** `_fetch_new_bars` cursor advancement — replace `no_cache=True` with `end=pd.Timestamp.now(tz="UTC")` (ZTB-2732, ZTB-3147). The `no_cache=True` flag caused every poll iteration to re-download the full data window, defeating the cache-incremental pattern. The `end` param bounds the query so incremental polling only fetches what's needed. This restores the cache-first polling behavior that was lost in the ZTB-2599 fix, avoiding ~50× slowdown and rate-limit-induced silent exits.
 - **Tests:** 5 new tests cover: new-data appending, existing-bar preservation, no-new-bar identity return, and polling-loop cursor advancement. 1 existing test renamed from `test_fetch_new_bars_passes_no_cache` to `test_fetch_new_bars_passes_end_param` with updated assertions.
 - **Rebase:** `feat/ztb-2732-cursor-fix` rebased onto `main` (v1.1.46). Three-file conflict resolved — both ZTB-2628 skip-reason tests and ZTB-2732 cursor tests preserved.
-- **PR:** TBD
-- **Merge commit:** TBD
+- **PR:** [#166](https://github.com/StaithValanthis/ztb/pull/166)
+- **Merge commit:** `55ce9a0`
 - **Tag:** v1.1.47
 
 ## v1.1.46 (2026-06-17)

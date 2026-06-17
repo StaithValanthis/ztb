@@ -22,6 +22,17 @@ def make_order_link_id(
     return hashlib.sha256(raw.encode()).hexdigest()[:40]
 
 
+def make_sl_tp_order_link_id(
+    strategy: str,
+    symbol: str,
+    bar_ts: str,
+    intent_hash: str,
+    kind: str,
+) -> str:
+    raw = f"{strategy}:{symbol}:{bar_ts}:{intent_hash}:{kind}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:36]
+
+
 def make_intent_hash(signal: float, current_position: float) -> str:
     raw = f"sig={signal:.8f}:pos={current_position:.8f}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

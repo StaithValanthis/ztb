@@ -42,6 +42,7 @@ class RiskConfig:
     vol_floor: float = 0.05
     default_slippage: float = 0.0005
     default_commission: float = 0.0005
+    risk_per_trade_pct: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +61,7 @@ class RiskConfig:
             "vol_floor": self.vol_floor,
             "default_slippage": self.default_slippage,
             "default_commission": self.default_commission,
+            "risk_per_trade_pct": self.risk_per_trade_pct,
         }
 
     @classmethod
