@@ -50,6 +50,8 @@ class ForwardtestConfig:
     risk_config: RiskConfig | None = None
     sl_pct: float = 0.0
     tp_pct: float = 0.0
+    risk_per_trade_pct: float = 0.0
+    min_qty: float = 0.0
 
 
 def run_forwardtest(
@@ -158,6 +160,9 @@ def run_forwardtest(
         slippage=config.slippage,
         sl_pct=config.sl_pct,
         tp_pct=config.tp_pct,
+        risk_per_trade_pct=config.risk_per_trade_pct,
+        max_leverage=config.risk_config.max_leverage if config.risk_config else 3.0,
+        min_qty=config.min_qty,
     )
 
     warmup = max(strategy.warmup, config.warmup_bars)

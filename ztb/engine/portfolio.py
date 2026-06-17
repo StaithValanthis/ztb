@@ -24,12 +24,15 @@ def risk_based_target_qty(
     entry_price: float,
     sl_pct: float,
     risk_per_trade_pct: float,
+    max_leverage: float = 3.0,
     min_qty: float = 0.0,
 ) -> float:
     if sl_pct <= 0.0 or risk_per_trade_pct <= 0.0 or entry_price <= 0.0 or equity <= 0.0:
         return 0.0
     risk_amount = equity * risk_per_trade_pct
     target_qty = risk_amount / (entry_price * sl_pct)
+    max_qty_by_leverage = (equity * max_leverage) / entry_price
+    target_qty = min(target_qty, max_qty_by_leverage)
     if min_qty > 0.0 and target_qty < min_qty:
         return 0.0
     return target_qty
@@ -45,6 +48,9 @@ def single_symbol_portfolio(
     slippage: float = 0.0005,
     sl_pct: float = 0.0,
     tp_pct: float = 0.0,
+    risk_per_trade_pct: float = 0.0,
+    max_leverage: float = 3.0,
+    min_qty: float = 0.0,
 ) -> PortfolioState:
     pnl = PnLCalculator(initial_cash=initial_cash)
     trades: list[dict[str, Any]] = []
@@ -58,7 +64,18 @@ def single_symbol_portfolio(
         price = float(close.iloc[i])
         target_frac = float(signals.iloc[i])
         current_equity = pnl.equity(price)
-        target_qty = target_frac * current_equity / price if price > 0 else 0.0
+        if risk_per_trade_pct > 0.0 and sl_pct > 0.0 and abs(target_frac) > 1e-12:
+            direction = 1.0 if target_frac > 0 else -1.0
+            target_qty = direction * risk_based_target_qty(
+                equity=current_equity,
+                entry_price=price,
+                sl_pct=sl_pct,
+                risk_per_trade_pct=risk_per_trade_pct,
+                max_leverage=max_leverage,
+                min_qty=min_qty,
+            )
+        else:
+            target_qty = target_frac * current_equity / price if price > 0 else 0.0
         delta = target_qty - pnl.position
 
         sl_hit = False
