@@ -7,12 +7,12 @@
 
 ## v1.1.45 (2026-06-17)
 
-- **Fix(cli):** Pass credentials from `ZTB_BYBIT_API_KEY`/`ZTB_BYBIT_API_SECRET` env vars to `ClientConfig` in `reconcile` command — unblocks wallet-state visibility (ZTB-3062). Previously `reconcile` built an unauthenticated `ClientConfig(mode=DEMO)` with no `api_key`/`api_secret`, causing `wallet.get_wallet_balance()` to fail with "Expecting value: line 1 column 1".
-- **Tests:** `test_reconcile_reads_credentials` verifies credential passthrough; `test_reconcile_missing_credentials_exits` verifies non-zero exit with error message when env vars are absent.
-- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `3924277` + `ztb/real-fill-certified` (EXEMPTED per two-tier policy for prerequisite fixes).
-- **PR:** [#178](https://github.com/StaithValanthis/ztb/pull/178)
-- **Merge commit:** `c6f0869`
-- **Tag:** v1.1.45
+- **Fix(execution):** Demo wallet topup — faucet zero-credit retry ladder (ZTB-3024). When Bybit demo faucet returns 0.0 USDT (rate-limited), `top_up_demo_account` now retries with stepped-down amounts (300→200→100→50→25→10 USDT) before failing. Previously a single topup attempt at 300 USDT that returned 0.0 immediately exhausted the retry budget, leaving the wallet dry. The retry ladder works around Bybit demo faucet minimum-credit thresholds.
+- **Tests:** 54 bybit-client tests + 167 executor tests all green. 9 topup-specific tests cover: retry ladder, max-step cap, zero-credit handling, and normal topup unchanged path.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS on SHA `dfa32529` + `ztb/real-fill-certified` SUCCESS via branch deploy.
+- **PR:** [#180](https://github.com/StaithValanthis/ztb/pull/180)
+- **Merge commit:** `bac1f34`
+- **Tag:** v1.1.46
 
 ## v1.1.44 (2026-06-16)
 
