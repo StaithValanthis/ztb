@@ -739,6 +739,10 @@ class Executor:
                     current_position,
                     reconcile_report.actual_position,
                 )
+                # adopt_state without realized_pnl --- PnL from the external close
+                # (SL/TP, manual close) is NOT preserved in PnLCalculator.
+                # Acceptable because equity is refreshed from exchange wallet
+                # balance each bar via LiveExecutor._reconcile.
                 self._pnl.adopt_state(position=0.0, avg_entry_price=0.0)
                 self._sync_pnl_state()
                 result["order_skipped"] = True
@@ -1164,6 +1168,11 @@ class Executor:
                         if abs(report.actual_avg_price) > 1e-8
                         else close_price
                     )
+                    # adopt_state without realized_pnl --- the exchange
+                    # position endpoint does not expose the cumulative
+                    # realized PnL at startup in a single call.  Equity
+                    # is refreshed from wallet balance each bar, so the
+                    # missing realized_pnl is reconciled naturally.
                     self._pnl.adopt_state(
                         position=report.actual_position,
                         avg_entry_price=actual_avg,
