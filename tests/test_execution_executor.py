@@ -1558,8 +1558,8 @@ def test_fetch_new_bars_passes_end_param(
     exe._fetch_new_bars(sample_data, "BTCUSDT", "60", "linear")
     _, kwargs = mock_load.call_args
     assert "end" in kwargs
-    assert isinstance(kwargs["end"], pd.Timestamp)
-    assert kwargs["end"].tz is not None
+    assert isinstance(kwargs["end"], str)
+    assert kwargs["end"].endswith("Z")
     assert "no_cache" not in kwargs
 
 
