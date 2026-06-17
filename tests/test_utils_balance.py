@@ -188,3 +188,24 @@ def test_extract_top_up_credited_coin_not_found_empty() -> None:
     assert extract_top_up_credited({}, coin="USDT") == 0.0
     assert extract_top_up_credited({"list": []}, coin="USDT") == 0.0
     assert extract_top_up_credited(None, coin="USDT") == 0.0  # type: ignore[arg-type]
+
+
+def test_extract_top_up_credited_falls_back_to_wallet_balance() -> None:
+    """When availableBalance is 0 (settlement window after demo-apply-money),
+    extract_top_up_credited should fall back to walletBalance so the top-up
+    ladder does NOT escalate to lower rungs and destroy the account balance."""
+    wallet = {
+        "list": [
+            {
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "availableBalance": "0.0",
+                        "walletBalance": "100000.0",
+                    }
+                ],
+            }
+        ]
+    }
+    result = extract_top_up_credited(wallet, coin="USDT")
+    assert result == 100000.0, f"Expected 100000.0 (walletBalance fallback), got {result}"

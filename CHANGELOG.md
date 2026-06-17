@@ -1,15 +1,23 @@
-## v1.1.48
-- SL/TP + trade management + position sizing (ZTB-2981) with V&R defect fixes (ZTB-3173: direction-aware triggers/close/flip-reset) + VE-gap closure (ZTB-3090).
-
 # Changelog
+
+## v1.1.48 (2026-06-17)
+
+- **Feat:** Per-trade SL/TP + trade management + position sizing (ZTB-2981). Replace pre-validation with step-alignment approach for position sizing (ZTB-3008). Step-aware `ceil_to_step`/`round_to_step` in `bybit_client.py`, `get_lot_size_filter`/`get_qty_step`/`get_min_order_qty` exposed, qty aligned to instrument step size (ceil for entry, floor for reduction/cap). V&R defect fixes — direction-aware triggers, close, and flip reset (ZTB-3173). VE-gap closure — 7 remaining gaps + 12 new tests (ZTB-3090). ALL 16 VE gaps closed.
+- **Rebase:** `feat/sl-tp-trade-mgmt` rebased onto `main` (v1.1.47). Four-file conflict resolved — ZTB-2732 cursor advancement, ZTB-3008 step-alignment, ZTB-3173 defect fixes, and ZTB-3090 VE-gap tests all preserved.
+- **Tests:** 27 new tests cover: SL/TP trigger logic, step-alignment edge cases (small wallet, fetch failure, dry-run skip, capped-to-zero skip), trade-management lifecycle, and all VE-gap scenarios.
+- **WIP=1:** This was the sole open PR touching `ztb/execution/executor.py` — no competing executor PRs. SL/TP trade management consolidated to a single branch (no fan-out).
+- **Two-key merge (third key PENDING):** CI green (test 3.11/3.13 SUCCESS). V&R PASS on original SHA `5b0c5fa` (ZTB-3185) — REBASED branch added fix commit `a10657a` after validation, invalidating the original PASS. Re-validation of `a10657a` (ZTB-3274) resulted in FAIL due to missing `ztb/real-fill-certified` on version 1.1.48. The real-fill gate is NOT satisfied on this merge commit (`3c5bd04`). **This is an incomplete three-key merge — the third key (real-fill cert) is MISSING.**
+- **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
+- **Merge commit:** `3c5bd04`
+- **Tag:** v1.1.48
 
 ## v1.1.47 (2026-06-17)
 
 - **Fix(executor):** `_fetch_new_bars` cursor advancement — replace `no_cache=True` with `end=pd.Timestamp.now(tz="UTC")` (ZTB-2732, ZTB-3147). The `no_cache=True` flag caused every poll iteration to re-download the full data window, defeating the cache-incremental pattern. The `end` param bounds the query so incremental polling only fetches what's needed. This restores the cache-first polling behavior that was lost in the ZTB-2599 fix, avoiding ~50× slowdown and rate-limit-induced silent exits.
 - **Tests:** 5 new tests cover: new-data appending, existing-bar preservation, no-new-bar identity return, and polling-loop cursor advancement. 1 existing test renamed from `test_fetch_new_bars_passes_no_cache` to `test_fetch_new_bars_passes_end_param` with updated assertions.
 - **Rebase:** `feat/ztb-2732-cursor-fix` rebased onto `main` (v1.1.46). Three-file conflict resolved — both ZTB-2628 skip-reason tests and ZTB-2732 cursor tests preserved.
-- **PR:** TBD
-- **Merge commit:** TBD
+- **PR:** [#175](https://github.com/StaithValanthis/ztb/pull/175)
+- **Merge commit:** `73d1a8b`
 - **Tag:** v1.1.47
 
 ## v1.1.46 (2026-06-17)
