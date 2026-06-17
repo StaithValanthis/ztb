@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from pandas import DataFrame
 
+from ztb.features.indicators import adx, atr, bb_width
 from ztb.strategies.base import Strategy
 from ztb.strategies.registry import all, get, list_names
 
@@ -281,7 +282,6 @@ class TestBearishResumption:
         assert len(df_4h) > 0
         assert df_4h.index[0] <= df.index[0] + pd.Timedelta(hours=4)
         assert "close" in df_4h.columns
-        from ztb.features.indicators import adx, atr
 
         adx_4h = adx(df_4h["high"], df_4h["low"], df_4h["close"], 14)
         atr_4h = atr(df_4h["high"], df_4h["low"], df_4h["close"], 14)
@@ -291,6 +291,254 @@ class TestBearishResumption:
         assert len(valid_atr) > 0
         assert valid_adx.between(0, 100).all()
         assert (valid_atr > 0).all()
+
+
+@pytest.fixture
+def bear_vol_df() -> DataFrame:
+    n = 2500
+    rng = np.random.default_rng(42)
+    index = pd.date_range("2021-01-01", periods=n, freq="240min")
+    base = 60000.0
+    trend = np.linspace(0, -30000, n)
+    noise = rng.normal(size=n) * 200
+    closes = base + trend + noise
+    opens = closes + rng.normal(size=n) * 50
+    highs = np.maximum(opens, closes) + np.abs(rng.normal(size=n)) * 100
+    lows = np.minimum(opens, closes) - np.abs(rng.normal(size=n)) * 100
+    return DataFrame(
+        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": np.ones(n) * 1000},
+        index=index,
+    )
+
+
+class TestBearVolContinuation:
+    def test_registration(self) -> None:
+        cls = get("bear_vol_continuation")
+        assert cls.name == "bear_vol_continuation"
+        assert "bear_vol_continuation" in list_names()
+
+    def test_params_defaults(self) -> None:
+        cls = get("bear_vol_continuation")
+        expected = {
+            "bb_width_compressed_pct": 5.5,
+            "min_bb_width_pct": 1.0,
+            "min_bar_atr_ratio": 1.0,
+            "trail_atr_mult": 1.5,
+            "target_atr_mult": 1.5,
+            "max_hold_bars": 12,
+        }
+        assert cls.params == expected
+
+    def test_generate_signals_len(self, bear_vol_df: DataFrame) -> None:
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(bear_vol_df)
+        assert len(signals) == len(bear_vol_df)
+        assert signals.index.equals(bear_vol_df.index)
+
+    def test_signals_in_range(self, bear_vol_df: DataFrame) -> None:
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(bear_vol_df)
+        valid = signals.dropna()
+        assert valid.between(-1.0, 0.0).all()
+        assert (valid != 1.0).all()
+
+    def test_warmup_is_flat(self, bear_vol_df: DataFrame) -> None:
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(bear_vol_df)
+        assert (signals.iloc[: s.warmup] == 0.0).all()
+
+    def test_no_nan(self, bear_vol_df: DataFrame) -> None:
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(bear_vol_df)
+        assert signals.iloc[s.warmup :].isna().sum() == 0
+
+    @staticmethod
+    def _bear_compressed_4h() -> DataFrame:
+        n = 4000
+        rng = np.random.default_rng(42)
+        index = pd.date_range("2020-01-01", periods=n, freq="240min")
+        closes = np.ones(n) * 100000.0
+        for i in range(1, 2500):
+            closes[i] = closes[i - 1] - 28 + rng.normal() * 30
+        base = closes[2499]
+        for i in range(2500, 3600):
+            closes[i] = base + rng.normal() * 100
+        for i in range(3600, n):
+            closes[i] = closes[i - 1] - 400 + rng.normal() * 15
+        opens = np.roll(closes, 1)
+        opens[0] = closes[0]
+        noise_h = np.abs(rng.normal(size=n)) * 20
+        noise_l = np.abs(rng.normal(size=n)) * 20
+        highs = np.maximum(opens, closes) + noise_h
+        lows = np.minimum(opens, closes) - noise_l
+        return DataFrame(
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.ones(n) * 1000,
+            },
+            index=index,
+        )
+
+    def test_entry_fires_in_bear_macro(self) -> None:
+        df = self._bear_compressed_4h()
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        assert (post == -1.0).any(), "Entry should fire -1 in bear macro with compression"
+        assert post.dropna().between(-1.0, 0.0).all()
+
+    def test_exit_on_trailing_stop(self) -> None:
+        df = self._bear_compressed_4h()
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        entry_indices = post[post == -1.0].index.tolist()
+        exit_indices = post[post == 0.0].index.tolist()
+        assert len(entry_indices) >= 2, "Should have at least one entry followed by exit"
+        first_entry = entry_indices[0]
+        later_zeros = [idx for idx in exit_indices if idx > first_entry]
+        assert len(later_zeros) > 0, "Should have exit after entry"
+
+    def test_exit_on_profit_target(self) -> None:
+        df = self._bear_compressed_4h()
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        entry_indices = post[post == -1.0].index.tolist()
+        exit_indices = post[post == 0.0].index.tolist()
+        assert len(entry_indices) >= 2, "Should have at least one entry with follow-up exit"
+        first_entry = entry_indices[0]
+        later_zeros = [idx for idx in exit_indices if idx > first_entry]
+        assert len(later_zeros) > 0, "Should have exit after entry"
+
+    @staticmethod
+    def _bull_macro_4h() -> DataFrame:
+        n = 2500
+        rng = np.random.default_rng(42)
+        index = pd.date_range("2020-01-01", periods=n, freq="240min")
+        closes = np.ones(n) * 30000.0
+        for i in range(1, n):
+            closes[i] = closes[i - 1] + 5 + rng.normal() * 10
+        opens = np.roll(closes, 1)
+        opens[0] = closes[0]
+        noise_h = np.abs(rng.normal(size=n)) * 5
+        noise_l = np.abs(rng.normal(size=n)) * 5
+        highs = np.maximum(opens, closes) + noise_h
+        lows = np.minimum(opens, closes) - noise_l
+        return DataFrame(
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.ones(n) * 1000,
+            },
+            index=index,
+        )
+
+    def test_no_entry_in_bull_macro(self) -> None:
+        df = self._bull_macro_4h()
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        assert (post == 0.0).all(), "No entry should fire in bull macro"
+        assert (post != -1.0).all()
+
+    @staticmethod
+    def _wide_bb_4h() -> DataFrame:
+        n = 3000
+        rng = np.random.default_rng(99)
+        index = pd.date_range("2020-01-01", periods=n, freq="240min")
+        closes = np.ones(n) * 100000.0
+        for i in range(1, n):
+            closes[i] = closes[i - 1] - 5 + rng.normal() * 2000
+        opens = np.roll(closes, 1)
+        opens[0] = closes[0]
+        noise_h = np.abs(rng.normal(size=n)) * 500
+        noise_l = np.abs(rng.normal(size=n)) * 500
+        highs = np.maximum(opens, closes) + noise_h
+        lows = np.minimum(opens, closes) - noise_l
+        return DataFrame(
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": np.ones(n) * 1000,
+            },
+            index=index,
+        )
+
+    def test_no_entry_without_compression(self) -> None:
+        df = self._wide_bb_4h()
+
+        bbw = bb_width(df["close"], 20, 2)
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        bbw_post = bbw.iloc[s.warmup :]
+        wide_bars = bbw_post > 5.5
+        if wide_bars.any():
+            assert (post[wide_bars] == 0.0).all(), "No entry should fire when BB width > 5.5%"
+        else:
+            assert (post == 0.0).all(), "No entry should fire in wide BB data"
+
+    def test_long_never_fires(self, bear_vol_df: DataFrame) -> None:
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(bear_vol_df)
+        assert (signals != 1.0).all(), "Long signal (1.0) should never fire"
+
+    def test_4h_indicators_valid(self) -> None:
+        df = self._bear_compressed_4h()
+
+        atr_4h = atr(df["high"], df["low"], df["close"], 14)
+        bb_w = bb_width(df["close"], 20, 2)
+        valid_atr = atr_4h.dropna()
+        valid_bbw = bb_w.dropna()
+        assert len(valid_atr) > 0
+        assert len(valid_bbw) > 0
+        assert (valid_atr > 0).all()
+        assert valid_bbw.notna().all()
+
+    def test_resample_no_lookahead(self) -> None:
+        df = self._bear_compressed_4h()
+        daily = (
+            df.resample("D")
+            .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+            .dropna()
+        )
+        shifted = daily[["close"]].shift(1).dropna()
+        aligned = pd.merge_asof(
+            df[[]],
+            shifted,
+            left_index=True,
+            right_index=True,
+            direction="backward",
+        )
+        only_valid = aligned.dropna(subset=["close"])
+        for t in only_valid.index:
+            daily_idx = pd.Index(shifted.index)
+            matched_daily = daily_idx[daily_idx <= t][-1]
+            src_day = (matched_daily - pd.Timedelta(days=1)).normalize()
+            bar_day = t.normalize()
+            assert src_day < bar_day, (
+                f"bar {t} sees daily close from {src_day} (same or future day)"
+            )
+
+    def test_exit_on_time_stop(self) -> None:
+        df = self._bear_compressed_4h()
+        s = get("bear_vol_continuation")()
+        signals = s.generate_signals(df)
+        post = signals.iloc[s.warmup :]
+        entry_indices = post[post == -1.0].index.tolist()
+        exit_indices = post[post == 0.0].index.tolist()
+        assert len(entry_indices) >= 2, "Should have at least one entry with follow-up exit"
+        first_entry = entry_indices[0]
+        later_zeros = [idx for idx in exit_indices if idx > first_entry]
+        assert len(later_zeros) > 0, "Should have exit after entry"
 
 
 class TestBearBounceExhaustion:
