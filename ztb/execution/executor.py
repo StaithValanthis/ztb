@@ -15,7 +15,7 @@ from ztb import __version__
 from ztb.data.loader import load as load_data
 from ztb.data.timeframes import interval_to_ms
 from ztb.engine.pnl import PnLCalculator
-from ztb.execution.bybit_client import BybitClient
+from ztb.execution.bybit_client import BybitClient, ceil_to_step, round_to_step
 from ztb.execution.errors import (
     ClientError,
     ExecutionError,
@@ -580,6 +580,21 @@ class Executor:
                 if close_price > 0
                 else 0.0
             )
+
+        # Align target_qty to instrument step size (round away from zero)
+        # to avoid flooring small wallets to zero when step > precision
+        instrument_qty_step = 0.0
+        if not self.config.dry_run and self.client is not None:
+            try:
+                instrument_qty_step = self.client.get_qty_step(symbol)
+            except Exception:
+                logger.warning(
+                    "Failed to fetch qty_step for %s, skipping step alignment",
+                    symbol,
+                )
+        if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+            target_qty = ceil_to_step(target_qty, instrument_qty_step)
+
         delta = target_qty - current_position
 
         result: dict[str, Any] = {
@@ -719,6 +734,14 @@ class Executor:
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
+            # Align order qty to instrument step size so it passes
+            # _validate_qty without being floored to zero or silently adjusted
+            if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                if delta > 0:
+                    qty = ceil_to_step(qty, instrument_qty_step)
+                else:
+                    qty = round_to_step(qty, instrument_qty_step)
+
             flip = (
                 delta < 0 and current_position > 0 and abs(delta) > current_position + 1e-12
             ) or (delta > 0 and current_position < 0 and abs(delta) > abs(current_position) + 1e-12)
@@ -766,9 +789,15 @@ class Executor:
             if not reduce_only and available_balance > 0 and close_price > 0:
                 max_notional = available_balance * self.config.max_leverage
                 max_qty = round(max_notional / close_price, asset_precision)
+                if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                    max_qty = round_to_step(max_qty, instrument_qty_step)
                 require_margin_qty = max(0.0, qty - abs(current_position)) if flip else qty
                 if require_margin_qty > max_qty + 1e-12:
                     capped_qty = round(qty - require_margin_qty + max_qty, asset_precision)
+                    # Align capped qty to step size (toward zero / floor) to
+                    # avoid exceeding the balance limit after step-rounding
+                    if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
+                        capped_qty = round_to_step(capped_qty, instrument_qty_step)
                     self.state.errors.append(
                         f"Qty capped by available balance: {qty} -> {capped_qty} "
                         f"(available_balance={available_balance:.2f}, "

@@ -28,6 +28,20 @@ _RECV_WINDOW = "5000"
 _DEFAULT_TIMEOUT = 30.0
 
 
+def round_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    floored = int(qty / qty_step) * qty_step
+    return round(floored, 8)
+
+
+def ceil_to_step(qty: float, qty_step: float) -> float:
+    if qty_step <= 0:
+        return qty
+    ceiled = -(-qty // qty_step) * qty_step
+    return round(float(ceiled), 8)
+
+
 @dataclass
 class ClientConfig:
     api_key: str = ""
@@ -296,10 +310,24 @@ class BybitClient:
 
     @staticmethod
     def round_to_step(qty: float, qty_step: float) -> float:
-        if qty_step <= 0:
-            return qty
-        floored = int(qty / qty_step) * qty_step
-        return round(floored, 8)
+        return round_to_step(qty, qty_step)
+
+    @staticmethod
+    def ceil_to_step(qty: float, qty_step: float) -> float:
+        return ceil_to_step(qty, qty_step)
+
+    def get_lot_size_filter(self, symbol: str, category: str = "linear") -> dict[str, Any]:
+        info = self.get_instrument_info(symbol, category)
+        ls: dict[str, Any] = info.get("lotSizeFilter", {})
+        return ls
+
+    def get_qty_step(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("qtyStep", "0.001"))
+
+    def get_min_order_qty(self, symbol: str, category: str = "linear") -> float:
+        ls = self.get_lot_size_filter(symbol, category)
+        return float(ls.get("minOrderQty", "0"))
 
     def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)

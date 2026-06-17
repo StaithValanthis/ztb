@@ -507,6 +507,128 @@ def test_round_to_step_zero_step() -> None:
     assert BybitClient.round_to_step(0.5, 0.0) == 0.5
 
 
+def test_ceil_to_step_basic() -> None:
+    assert BybitClient.ceil_to_step(0.0026, 0.001) == pytest.approx(0.003)
+    assert BybitClient.ceil_to_step(0.0024, 0.001) == pytest.approx(0.003)
+    assert BybitClient.ceil_to_step(0.001, 0.001) == pytest.approx(0.001)
+    assert BybitClient.ceil_to_step(0.0005, 0.001) == pytest.approx(0.001)
+    assert BybitClient.ceil_to_step(0.0, 0.001) == pytest.approx(0.0)
+    assert BybitClient.ceil_to_step(1.29, 0.1) == pytest.approx(1.3)
+    assert BybitClient.ceil_to_step(1.0, 0.5) == pytest.approx(1.0)
+
+
+def test_ceil_to_step_negative() -> None:
+    assert BybitClient.ceil_to_step(-0.0026, 0.001) == pytest.approx(-0.002)
+    assert BybitClient.ceil_to_step(-0.0024, 0.001) == pytest.approx(-0.002)
+    assert BybitClient.ceil_to_step(-0.001, 0.001) == pytest.approx(-0.001)
+    assert BybitClient.ceil_to_step(-0.0005, 0.001) == pytest.approx(0.0)
+
+
+def test_ceil_to_step_zero_step() -> None:
+    assert BybitClient.ceil_to_step(0.5, 0.0) == 0.5
+
+
+def test_ceil_to_step_round_trip() -> None:
+    """round_to_step + ceil_to_step on the same qty give different results for off-step values."""
+    qty, step = 0.0026, 0.001
+    floored = BybitClient.round_to_step(qty, step)
+    ceiled = BybitClient.ceil_to_step(qty, step)
+    assert floored == pytest.approx(0.002)
+    assert ceiled == pytest.approx(0.003)
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_lot_size_filter(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {
+            "list": [
+                {
+                    "symbol": "BTCUSDT",
+                    "lotSizeFilter": {
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
+                    },
+                }
+            ]
+        },
+    }
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    ls = client.get_lot_size_filter("BTCUSDT")
+    assert ls["qtyStep"] == "0.001"
+    assert ls["minOrderQty"] == "0.001"
+    assert ls["maxOrderQty"] == "1000"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_qty_step(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {
+            "list": [
+                {
+                    "symbol": "BTCUSDT",
+                    "lotSizeFilter": {
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
+                    },
+                }
+            ]
+        },
+    }
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    step = client.get_qty_step("BTCUSDT")
+    assert step == pytest.approx(0.001)
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_get_min_order_qty(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "retCode": 0,
+        "result": {
+            "list": [
+                {
+                    "symbol": "BTCUSDT",
+                    "lotSizeFilter": {
+                        "qtyStep": "0.001",
+                        "minOrderQty": "0.001",
+                        "maxOrderQty": "1000",
+                    },
+                }
+            ]
+        },
+    }
+    mock_instance.request.return_value = mock_resp
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    min_qty = client.get_min_order_qty("BTCUSDT")
+    assert min_qty == pytest.approx(0.001)
+    client.close()
+
+
 @patch("ztb.execution.bybit_client.httpx.Client")
 def test_get_instrument_info(mock_client_cls: MagicMock) -> None:
     mock_instance = MagicMock()
