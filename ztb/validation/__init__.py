@@ -1,3 +1,7 @@
+from ztb.validation.conversion import (
+    SignalToFillConversion,
+    compute_signal_to_fill_conversion,
+)
 from ztb.validation.deflated_sharpe import (
     DeflatedSharpeResult,
     compute_deflated_sharpe,
@@ -20,6 +24,8 @@ __all__ = [
     "LookaheadResult",
     "run_lookahead_tripwire",
     "evaluate_acceptance_criteria",
+    "SignalToFillConversion",
+    "compute_signal_to_fill_conversion",
     "save_validation_run",
     "get_validation_run",
 ]
