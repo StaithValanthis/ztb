@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.46 (2026-06-17)
+
+- **Feat(sl-tp-trade-mgmt):** Consolidate ceil-to-step (ZTB-3008) into per-trade SL/TP branch — `_validate_qty` floor fix, `ceil_to_step` helper, executor qty pre-validation, PnL alignment (ZTB-3008, ZTB-2981). Both features now live on the canonical WIP=1 exchange-path branch.
+- **PR:** [#176](https://github.com/StaithValanthis/ztb/pull/176)
+
 ## v1.1.45 (2026-06-17)
 
 - **Fix(cli):** Pass credentials from `ZTB_BYBIT_API_KEY`/`ZTB_BYBIT_API_SECRET` env vars to `ClientConfig` in `reconcile` command — unblocks wallet-state visibility (ZTB-3062). Previously `reconcile` built an unauthenticated `ClientConfig(mode=DEMO)` with no `api_key`/`api_secret`, causing `wallet.get_wallet_balance()` to fail with "Expecting value: line 1 column 1".
