@@ -1,3 +1,6 @@
+## v1.1.52
+- atomic-merge version bump for PR #183
+
 ## v1.1.51
 - **Fix(executor):** Conditional demo top-up — check `get_wallet_balance` before calling `top_up_demo_account`. Skip if wallet >= 10% of `initial_cash`. Eliminates ~7,045 `ClientError("ab not enough")` and ~16 `DemoAccountTopUpError` rate-limit hits per day from unconditional restart top-ups.
 - **Fix(executor):** Skip SL/TP query in DEMO mode — `get_active_trading_stops()` only called when `config.mode == Mode.LIVE`. Removes `"Startup active-trading-stops query failed"` warning on every demo restart.
