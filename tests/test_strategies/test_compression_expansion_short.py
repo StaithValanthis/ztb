@@ -126,7 +126,8 @@ class TestCompressionExpansionShort:
                 df.loc[df.index[idx + i], "close"] = entry_price + 120.0 * pct + rng.normal() * 3
         for i in range(rally_bars, 30):
             if idx + i < n:
-                df.loc[df.index[idx + i], "close"] = df.loc[df.index[idx + i - 1], "close"] + rng.normal() * 10
+                prev_c = df.loc[df.index[idx + i - 1], "close"]
+                df.loc[df.index[idx + i], "close"] = prev_c + rng.normal() * 10
 
         signals = _signals(df)
         post = signals.iloc[400:]
@@ -161,17 +162,15 @@ class TestCompressionExpansionShort:
     def test_exit_time_stop(self) -> None:
         df, entry_bar = _build_df()
         n = len(df)
-        rng = np.random.default_rng(99)
-        idx = entry_bar + 1
-        for i in range(55):
-            if idx + i < n:
-                pct = (i + 1) / 55
-                df.loc[df.index[idx + i], "close"] = 6945.0 - pct * 10.0 + rng.normal() * 0.3
+        for i in range(entry_bar + 1, min(entry_bar + 10, n)):
+            df.loc[df.index[i], "close"] = 6945.0
+            df.loc[df.index[i], "open"] = 6945.0
+            df.loc[df.index[i], "high"] = 6946.0
+            df.loc[df.index[i], "low"] = 6944.0
 
         s = get("compression_expansion_short")()
         s.params = dict(s.params)
-        s.params["trail_atr_mult"] = 100.0
-        s.params["target_atr_mult"] = 100.0
+        s.params["max_hold_bars"] = 3
         signals = s.generate_signals(df)
         post = signals.iloc[400:]
         neg = post[post == -1.0]
@@ -184,7 +183,7 @@ class TestCompressionExpansionShort:
                 streak += 1
             else:
                 break
-        assert streak >= 48, f"Position should hold for at least 48 bars (held {streak})"
+        assert streak == 3, f"Time stop should fire at max_hold_bars=3, got streak={streak}"
 
     def test_exit_breakdown_failed(self) -> None:
         df, entry_bar = _build_df()
@@ -197,7 +196,8 @@ class TestCompressionExpansionShort:
                 df.loc[df.index[idx + i], "close"] = entry_price - 15.0 + rng.normal() * 2
         for i in range(10, 22):
             if idx + i < n:
-                df.loc[df.index[idx + i], "close"] = entry_price + 120.0 + (i - 10) * 5.0 + rng.normal() * 5
+                c = entry_price + 120.0 + (i - 10) * 5.0 + rng.normal() * 5
+                df.loc[df.index[idx + i], "close"] = c
 
         signals = _signals(df)
         post = signals.iloc[400:]
