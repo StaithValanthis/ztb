@@ -235,6 +235,20 @@ class Executor:
         except Exception:
             logger.warning("set_leverage failed for %s — continuing", symbol)
 
+    def _compute_atr(self, data: Any, period: int = 14) -> float:
+        """ATR(period) last value from the bar window for ATR-based trailing.
+        Returns 0.0 (disable ATR trailing) on insufficient/invalid data."""
+        try:
+            from ztb.features.indicators import atr as _atr
+
+            if data is None or len(data) < period + 1:
+                return 0.0
+            series = _atr(data["high"], data["low"], data["close"], period)
+            val = float(series.iloc[-1])
+            return val if val > 0.0 and not pd.isna(val) else 0.0
+        except Exception:
+            return 0.0
+
     def _apply_sl_tp(
         self,
         symbol: str,
@@ -243,10 +257,14 @@ class Executor:
         avg_entry: float,
         sl_pct: float,
         tp_pct: float,
+        trail_pct: float = 0.0,
+        activation_pct: float = 0.0,
+        trail_atr_mult: float = 0.0,
+        atr: float = 0.0,
     ) -> bool:
         if self.client is None or self.config.dry_run:
             return False
-        if sl_pct <= 0.0 and tp_pct <= 0.0:
+        if sl_pct <= 0.0 and tp_pct <= 0.0 and trail_pct <= 0.0 and trail_atr_mult <= 0.0:
             return False
         if abs(position_size) < 1e-12 or avg_entry <= 0.0:
             return False
@@ -274,6 +292,16 @@ class Executor:
             raise ValueError(
                 f"TP price {tp_price} must be below entry {avg_entry} for short position"
             )
+        trailing_stop_dist: float = 0.0
+        if trail_pct > 0.0:
+            trailing_stop_dist = avg_entry * trail_pct
+        elif trail_atr_mult > 0.0 and atr > 0.0:
+            trailing_stop_dist = atr * trail_atr_mult
+        active_price: float = 0.0
+        if trailing_stop_dist > 0.0 and activation_pct > 0.0:
+            active_price = (
+                avg_entry * (1.0 + activation_pct) if is_long else avg_entry * (1.0 - activation_pct)
+            )
         try:
             self.client.set_trading_stop(
                 symbol=symbol,
@@ -283,6 +311,8 @@ class Executor:
                 take_profit=tp_price,
                 sl_trigger_by="LastPrice",
                 tp_trigger_by="LastPrice",
+                trailing_stop=trailing_stop_dist,
+                active_price=active_price,
             )
             sl_link_id: str | None = None
             tp_link_id: str | None = None
@@ -304,6 +334,7 @@ class Executor:
             self._active_sl_tp[symbol] = {
                 "sl_price": sl_price,
                 "tp_price": tp_price,
+                "trailing_stop": trailing_stop_dist,
                 "sl_link_id": sl_link_id,
                 "tp_link_id": tp_link_id,
             }
@@ -1333,6 +1364,10 @@ class Executor:
             self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
             sl_pct = _resolve_profile_field(self.strategy, self.config, "sl_pct")
             tp_pct = _resolve_profile_field(self.strategy, self.config, "tp_pct")
+            trail_pct = _resolve_profile_field(self.strategy, self.config, "trail_pct")
+            activation_pct = _resolve_profile_field(self.strategy, self.config, "activation_pct")
+            trail_atr_mult = _resolve_profile_field(self.strategy, self.config, "trail_atr_mult")
+            atr_val = self._compute_atr(data) if trail_atr_mult > 0.0 else 0.0
             self._apply_sl_tp(
                 symbol,
                 pos_side,
@@ -1340,6 +1375,10 @@ class Executor:
                 avg_entry,
                 sl_pct,
                 tp_pct,
+                trail_pct=trail_pct,
+                activation_pct=activation_pct,
+                trail_atr_mult=trail_atr_mult,
+                atr=atr_val,
             )
 
             self._reconcile(target_qty, close_price, bar_ts)

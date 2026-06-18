@@ -262,6 +262,8 @@ class BybitClient:
         take_profit: float = 0.0,
         sl_trigger_by: str = "LastPrice",
         tp_trigger_by: str = "LastPrice",
+        trailing_stop: float = 0.0,
+        active_price: float = 0.0,
         category: str = "linear",
     ) -> dict[str, Any]:
         """Set or clear SL/TP on an open position.
@@ -290,6 +292,10 @@ class BybitClient:
             body["slTriggerBy"] = sl_trigger_by
         if tp_trigger_by:
             body["tpTriggerBy"] = tp_trigger_by
+        if trailing_stop > 0.0:
+            body["trailingStop"] = str(trailing_stop)
+        if active_price > 0.0:
+            body["activePrice"] = str(active_price)
         return self._request("POST", "/v5/position/trading-stop", body=body)
 
     def get_active_trading_stops(
