@@ -6670,7 +6670,9 @@ def test_sltp_fill_fetch_recorded_on_reduce_only_skip(
         }
     ]
 
-    def sltp_exec_side_effect(symbol: str = "", category: str = "linear", limit: int = 50, order_id: str = ""):
+    def sltp_exec_side_effect(
+        symbol: str = "", category: str = "linear", limit: int = 50, order_id: str = ""
+    ):
         if order_id == "sltp_order_1":
             return [
                 {
@@ -6699,11 +6701,14 @@ def test_sltp_fill_fetch_recorded_on_reduce_only_skip(
         timeframe = "60"
         params: dict = {}
         warmup = 50
+
         def generate_signals(self, data: pd.DataFrame) -> pd.Series:
             arr = np.zeros(len(data))
             return pd.Series(arr, index=data.index)
 
-    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, risk_enabled=False, sl_pct=0.05, tp_pct=0.0)
+    config = ExecRunConfig(
+        mode=Mode.LIVE, dry_run=False, risk_enabled=False, sl_pct=0.05, tp_pct=0.0
+    )
     exe = Executor(ReduceOnlyStrategy(), config=config)
     exe._init_run()
     exe._init_store(":memory:")
@@ -6715,9 +6720,7 @@ def test_sltp_fill_fetch_recorded_on_reduce_only_skip(
     exe._sync_pnl_state()
 
     result = exe.step(sample_data)
-    assert result.get("order_skipped") is True, (
-        f"Expected order_skipped, got {result}"
-    )
+    assert result.get("order_skipped") is True, f"Expected order_skipped, got {result}"
 
     from ztb.store.exec_io import get_exec_fills
 
@@ -6826,7 +6829,9 @@ def test_sltp_fill_fetch_no_sltp_orders(
     mock_client.get_active_trading_stops.return_value = []
     mock_bybit_cls.return_value = mock_client
 
-    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, risk_enabled=False, sl_pct=0.05, tp_pct=0.0)
+    config = ExecRunConfig(
+        mode=Mode.LIVE, dry_run=False, risk_enabled=False, sl_pct=0.05, tp_pct=0.0
+    )
     signal_strat = SignalStrategy()
     exe = Executor(signal_strat, config=config)
     exe._init_run()

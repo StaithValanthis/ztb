@@ -587,9 +587,7 @@ class Executor:
                     save_exec_fill(self._store_conn, fill_row)
                     recorded.append(fill_row)
             if recorded:
-                logger.info(
-                    "Recorded %d SL/TP fill(s) for %s", len(recorded), symbol
-                )
+                logger.info("Recorded %d SL/TP fill(s) for %s", len(recorded), symbol)
         except Exception:
             logger.warning("Failed to fetch/record SL/TP fills for %s", symbol)
         return recorded
