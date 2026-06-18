@@ -24,7 +24,7 @@ def _seed_store(
             symbol TEXT, side TEXT, order_type TEXT, price REAL DEFAULT 0,
             qty REAL DEFAULT 0, status TEXT, created_at TEXT,
             cum_exec_qty REAL DEFAULT 0, cum_exec_value REAL DEFAULT 0,
-            cum_exec_fee REAL DEFAULT 0
+            cum_exec_fee REAL DEFAULT 0, code_version TEXT DEFAULT NULL
         )"""
     )
     conn.execute(
@@ -54,8 +54,8 @@ def _seed_store(
         conn.execute(
             """INSERT OR IGNORE INTO exec_orders
                (order_link_id, exec_run_id, order_id, symbol, side, order_type,
-                price, qty, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                price, qty, status, created_at, code_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 o["order_link_id"],
                 o["exec_run_id"],
@@ -67,6 +67,7 @@ def _seed_store(
                 o.get("qty", 0.0),
                 o.get("status", "Filled"),
                 o.get("created_at", ""),
+                o.get("code_version", "1.1.53"),
             ),
         )
     for f in fills:
@@ -269,3 +270,107 @@ def test_conversion_no_fills_at_all(tmp_path) -> None:
     assert result.runs_with_signals == 5
     assert result.runs_with_real_fills == 0
     assert result.sufficient_sample is True
+
+
+def test_conversion_code_version_filter(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    run_ids = [f"run_{i}" for i in range(5)]
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": rid} for rid in run_ids],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": rid, "code_version": "1.1.53"}
+            for i, rid in enumerate(run_ids)
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db))
+    assert result.runs_with_signals == 5
+    assert result.conversion_rate == 1.0
+
+    # same seed but min_code_version=2.0.0 should exclude all
+    result_exclude = compute_signal_to_fill_conversion(str(db), min_code_version="2.0.0")
+    assert result_exclude.runs_with_signals == 0
+    assert result_exclude.sufficient_sample is False
+
+
+def test_conversion_code_version_all_below(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    run_ids = [f"run_{i}" for i in range(5)]
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": rid} for rid in run_ids],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": rid, "code_version": "1.0.0"}
+            for i, rid in enumerate(run_ids)
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db))
+    assert result.runs_with_signals == 0
+    assert result.runs_with_real_fills == 0
+    assert result.sufficient_sample is False
+    assert result.conversion_rate == 0.0
+
+
+def test_conversion_code_version_mixed(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    run_ids = [f"run_{i}" for i in range(5)]
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": rid} for rid in run_ids],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": rid, "code_version": cv}
+            for i, (rid, cv) in enumerate(
+                zip(run_ids, ["1.0.0", "1.1.0", "1.1.53", "1.2.0", "1.1.53"], strict=True)
+            )
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate([run_ids[2], run_ids[3], run_ids[4]])
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db))
+    assert result.runs_with_signals == 3
+    assert result.runs_with_real_fills == 3
+    assert result.conversion_rate == 1.0
+    assert result.sufficient_sample is False  # 3 < min_signal_runs=5
+
+
+def test_conversion_code_version_configurable(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    run_ids = [f"run_{i}" for i in range(4)]
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": rid} for rid in run_ids],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": rid, "code_version": cv}
+            for i, (rid, cv) in enumerate(
+                zip(run_ids, ["1.1.0", "1.2.0", "1.3.0", "1.2.5"], strict=True)
+            )
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate([run_ids[0], run_ids[2]])
+        ],
+    )
+    conn.close()
+    # custom threshold >= "1.2.0" -> runs 1,2,3 are included
+    result = compute_signal_to_fill_conversion(str(db), min_code_version="1.2.0")
+    assert result.runs_with_signals == 3
+    assert result.runs_with_real_fills == 1  # only run_2 (index 2 = "1.3.0") has a fill
+    assert result.conversion_rate == 1.0 / 3.0
+    assert result.sufficient_sample is False  # 3 < 5

@@ -16,16 +16,21 @@ def compute_signal_to_fill_conversion(
     store_path: str,
     strategy_name: str | None = None,
     min_signal_runs: int = 5,
+    min_code_version: str = "1.1.53",
 ) -> SignalToFillConversion:
     conn = sqlite3.connect(store_path)
     conn.row_factory = sqlite3.Row
     try:
-        base = """SELECT DISTINCT o.exec_run_id FROM exec_orders o
-                  JOIN exec_runs r ON o.exec_run_id = r.exec_run_id"""
+        where_clauses: list[str] = []
         params: list[str] = []
         if strategy_name:
-            base += " WHERE r.strategy_name = ?"
+            where_clauses.append("r.strategy_name = ?")
             params.append(strategy_name)
+        where_clauses.append("o.code_version >= ?")
+        params.append(min_code_version)
+        where_sql = " WHERE " + " AND ".join(where_clauses)
+        base = f"""SELECT DISTINCT o.exec_run_id FROM exec_orders o
+                   JOIN exec_runs r ON o.exec_run_id = r.exec_run_id{where_sql}"""
         signal_run_ids = [row["exec_run_id"] for row in conn.execute(base, params).fetchall()]
         denom = len(signal_run_ids)
         if denom == 0:

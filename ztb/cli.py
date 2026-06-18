@@ -360,6 +360,11 @@ def forwardtest(
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--exec-db", default=None, help="Path to exec store for signal-to-fill check")
+@click.option(
+    "--min-code-version",
+    default="1.1.53",
+    help="Minimum code_version for signal-to-fill coverage formula",
+)
 def validate(
     strategy_name: str,
     symbol: str,
@@ -375,6 +380,7 @@ def validate(
     db: str | None,
     persist: bool,
     exec_db: str | None,
+    min_code_version: str = "1.1.53",
 ) -> None:
     """Run OOS validation gate for a strategy on a symbol."""
 
@@ -449,7 +455,9 @@ def validate(
 
     signal_to_fill = None
     if exec_db is not None:
-        signal_to_fill = compute_signal_to_fill_conversion(exec_db, strategy_name=strategy_name)
+        signal_to_fill = compute_signal_to_fill_conversion(
+            exec_db, strategy_name=strategy_name, min_code_version=min_code_version
+        )
 
     scorecard = evaluate_acceptance_criteria(
         wf_result, dsr_result, lookahead_result, signal_to_fill=signal_to_fill
