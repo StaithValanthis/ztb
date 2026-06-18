@@ -11,7 +11,7 @@ import pytest
 
 from ztb.execution.errors import ClientError, ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
-from ztb.execution.models import AccountState, Mode, Position, TopUpResult
+from ztb.execution.models import AccountState, Mode, OrderType, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
@@ -4829,6 +4829,12 @@ def test_both_order_and_fill_persisted_together(
     assert len(fills) >= 1
     assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
 
+    order = orders[0]
+    assert order["status"] == "Filled"
+    assert order["cum_exec_qty"] == pytest.approx(1.0)
+    assert order["cum_exec_value"] == pytest.approx(50000.0)
+    assert order["cum_exec_fee"] == pytest.approx(25.0)
+
 
 # ---------------------------------------------------------------------------
 # ZTB-2447: exec_fill polling loop
@@ -6880,3 +6886,272 @@ def test_sltp_fill_fetch_no_client_noop(
     exe._init_run()
     result = exe._fetch_and_record_sltp_fills("BTCUSDT")
     assert result == []
+
+
+# =========================================================================
+# ZTB-3637: Fill-pipeline test-coverage gaps (4 gaps from V&R assessment)
+# =========================================================================
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_gap1_real_fills_reconciliation_detail(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap 1: exec_orders row reflects real-fill totals and exec_fills link back."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "gap1_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = [
+        {
+            "execId": "gap1_fill_a",
+            "orderId": "gap1_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50001.0",
+            "execQty": "0.002",
+            "execFee": "0.06",
+            "execTime": "2026-01-01T00:00:01Z",
+        },
+        {
+            "execId": "gap1_fill_b",
+            "orderId": "gap1_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50002.0",
+            "execQty": "0.003",
+            "execFee": "0.09",
+            "execTime": "2026-01-01T00:00:02Z",
+        },
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.LIVE, dry_run=False, risk_enabled=False)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" in result
+    assert len(result["real_fills"]) == 2
+
+    from ztb.store.exec_io import get_exec_orders, get_exec_fills
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+
+    assert len(orders) == 1
+    order = orders[0]
+    assert order["status"] == "Filled"
+    assert order["cum_exec_qty"] == pytest.approx(0.005)
+    assert order["cum_exec_value"] == pytest.approx(
+        50001.0 * 0.002 + 50002.0 * 0.003
+    )
+    assert order["cum_exec_fee"] == pytest.approx(0.15)
+
+    assert len(fills) == 2
+    for fill in fills:
+        assert fill["order_link_id"] == order["order_link_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_gap2_fill_fetch_error_saved_to_exec_errors(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap 2: FillFetchError is saved in exec_errors when _poll_fills returns empty."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "gap2_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type='FillFetchError'",
+            (exe._exec_run_id,),
+        ).fetchall()
+    )
+    assert len(rows) >= 1, "Expected FillFetchError in exec_errors"
+    assert "No fills after polling" in rows[0]["message"]
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic-" in fills[0]["fill_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_gap3_limit_path_no_fills_no_synthetic(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap 3 limit path: unfilled limit order returns order_unfilled with NO FillFetchError and NO synthetic fill."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "gap3_lim_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.round_to_step.side_effect = lambda v, s: round(v / s) * s
+    mock_client.ceil_to_step.side_effect = lambda v, s: -round(-v / s) * s
+    mock_client.get_tick_size.return_value = 0.1
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        order_type=OrderType.LIMIT,
+        limit_fallback_market=False,
+        poll_fill_max_attempts=1,
+        limit_offset_pct=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_unfilled"] is True
+
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) == 0, "Limit must NOT create a synthetic fill"
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type='FillFetchError'",
+            (exe._exec_run_id,),
+        ).fetchall()
+    )
+    assert len(rows) == 0, "Limit must NOT produce FillFetchError"
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    assert len(orders) == 0, "Limit must NOT create any exec_order"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_gap3_market_path_no_fills_with_synthetic(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap 3 market path: unfilled market order saves FillFetchError AND creates synthetic."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "gap3_mkt_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE, dry_run=False, risk_enabled=False, poll_fill_max_attempts=1
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type='FillFetchError'",
+            (exe._exec_run_id,),
+        ).fetchall()
+    )
+    assert len(rows) >= 1
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic-" in fills[0]["fill_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_gap4_poll_fills_all_attempts_exception(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap 4: get_executions raises on every attempt -> error saved, no fills."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "gap4_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.side_effect = [
+        Exception("conn reset"),
+        Exception("timeout"),
+        Exception("rate limit"),
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+    assert mock_client.get_executions.call_count == 3
+
+    rows = list(
+        exe._store_conn.execute(
+            "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type='FillFetchError'",
+            (exe._exec_run_id,),
+        ).fetchall()
+    )
+    assert len(rows) >= 1
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic-" in fills[0]["fill_id"]
