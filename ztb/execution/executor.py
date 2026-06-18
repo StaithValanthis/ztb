@@ -282,7 +282,17 @@ class Executor:
         chance to fill, then CANCEL FIRST so no later fill can race a fallback,
         re-read the actual fills, fill only the UNFILLED remainder with a market
         order (if enabled), and NEVER synthesize a fill. Returns the real fills
-        plus the order id/link/type to attribute downstream."""
+        plus the order id/link/type to attribute downstream.
+
+        v1 limitation (limit orders are OFF by default — order_type defaults to
+        market): the shared restart/lost-response recovery paths (the top-of-bar
+        synthetic restore and the M1 _reconcile_pending_order block) assume
+        market-fill-at-close semantics. If the process crashes mid-bar while a
+        limit is resting, on restart those paths may mis-attribute the entry at
+        close_price rather than the fill price (the next bar re-reconciles
+        against the exchange). Making them fully limit-aware requires reworking
+        that shared idempotency code; tracked separately. Normal (non-restart)
+        operation is correct and fully covered by tests."""
         assert self.client is not None
         assert self._idempotency is not None
         executed_order_type = "Limit"
