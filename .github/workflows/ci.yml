@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   test:
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ["3.11", "3.13"]
@@ -36,7 +37,7 @@ jobs:
       - name: Types (mypy)
         run: mypy --strict ztb/
       - name: Test + coverage
-        run: pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing
+        run: pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing --timeout=120
       - name: Secret scan
         run: python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null || find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' | grep -v __pycache__ | grep -v .git)
       - name: Version consistency
@@ -51,6 +52,7 @@ jobs:
 
   vr-pass:
     needs: [test]
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
