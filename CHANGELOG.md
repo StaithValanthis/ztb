@@ -1,5 +1,15 @@
 ## v1.1.54
-- atomic-merge version bump for PR #199 (SL/TP enable + precedence + close-gaps + contract freeze)
+- **Feat(executor):** Enable SL/TP with non-zero defaults (sl_pct=0.02, tp_pct=0.03) on every trade. Default parity preserved: `sl_pct=0, tp_pct=0` config produces byte-identical output to v1.1.53.
+- **Feat(executor):** Per-strategy SL/TP precedence — CLI `--sl-pct/--tp-pct` > strategy `params` > `ExecRunConfig` defaults. sma_cross params: `sl_pct=0.05, tp_pct=0.10`.
+- **Fix(executor):** Close-gaps — `_cleanup_orphan_sl_tp()` clears untracked exchange SL/TP on startup; SIGTERM handler clears active SL/TP via `_clear_sl_tp` per symbol; `SCHEMA_VERSION=12` assertion in `_run_migrations`.
+- **Fix(executor):** Idempotency bug — `_clear_sl_tp` now deletes by exact `order_link_id` (stored in `_active_sl_tp`) instead of unreachable `LIKE '%:{symbol}:%'` pattern. Fallback to `LIKE` retained for legacy entries.
+- **Docs:** Contract freeze at `docs/contract-ZTB-3541.md` — all 4 changes specified, 11 pytest cases required, invariants enumerated, build order defined.
+- **CI:** Timeout limits added (`timeout-minutes: 30` for test, `10` for vr-pass); `pytest-timeout>=2.2` with `--timeout=120` for non-network tests.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS (vr-pass SUCCESS on SHA `005f950`) + `ztb/real-fill-certified` SUCCESS — real fill `b87afdf8` on v1.1.54 (fee=0.0355, price=64592.8, post-commit).
+- **WIP=1:** Single canonical PR (#199) on exchange path — executor.py + cli.py + bybit_client.py consolidated. No competing PR.
+- **Merge commit:** `1c8dced`
+- **PR:** [#199](https://github.com/StaithValanthis/ztb/pull/199)
+- **Tag:** v1.1.54
 
 ## v1.1.53
 - **Fix(executor):** Demo top-up rate-limiting — cooldown + single-attempt (ZTB-3426). Remove `_top_up_ladder` multi-attempt retry ladder (5 HTTP POSTs per top-up). Replace with single-attempt `top_up_demo_account` + 60-second cooldown (`_last_demo_post_ts`, `_demo_faucet_cooldown`). Eliminates redundant POST to `/v5/account/demo-apply-money` when cooldown is active — at most 1 POST per 60s regardless of restart frequency. Previously the ladder approach issued up to 5 POSTs per restart, hitting Bybit demo faucet rate limits (~16 `DemoAccountTopUpError` per day).
