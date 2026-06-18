@@ -115,6 +115,7 @@ class ExecRunConfig:
     trail_atr_mult: float = 0.0
     risk_per_trade_pct: float = 0.0
     min_qty: float = 0.0
+    daily_loss_limit_pct: float = 0.0
 
     def __post_init__(self) -> None:
         if self.loop is None:

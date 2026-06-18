@@ -532,6 +532,12 @@ def validate(
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
 @click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.001-0.50)")
 @click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.001-10.0)")
+@click.option(
+    "--daily-loss-limit-pct",
+    default=0.0,
+    type=float,
+    help="Account daily realized-loss limit as fraction of initial cash (0=disabled)",
+)
 @click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
@@ -560,6 +566,7 @@ def run(
     no_risk: bool,
     sl_pct: float | None,
     tp_pct: float | None,
+    daily_loss_limit_pct: float,
     asset_precision: int,
     db: str | None,
     preflight: bool,
@@ -614,6 +621,7 @@ def run(
         risk_enabled=not no_risk,
         sl_pct=sl_pct if sl_pct is not None else ExecRunConfig.sl_pct,
         tp_pct=tp_pct if tp_pct is not None else ExecRunConfig.tp_pct,
+        daily_loss_limit_pct=daily_loss_limit_pct,
         asset_precision=asset_precision,
         loop_flush_interval=loop_flush_interval,
     )

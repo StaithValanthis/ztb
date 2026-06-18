@@ -119,6 +119,8 @@ class Executor:
         self._signal_initialized: bool = False
         self._active_sl_tp: dict[str, dict[str, float | str | None]] = {}
         self._applied_leverage: dict[str, float] = {}
+        self._dll_day: str | None = None
+        self._dll_day_start_realized: float = 0.0
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -234,6 +236,20 @@ class Executor:
             logger.info("Applied leverage %sx for %s", lev, symbol)
         except Exception:
             logger.warning("set_leverage failed for %s — continuing", symbol)
+
+    def _daily_loss_breached(self, bar_ts: str) -> bool:
+        """Account-level daily realized-loss circuit breaker. Blocks NEW entries
+        (existing positions / exits unaffected) once today's realized PnL drops to
+        -limit * initial_cash. Resets at the UTC day boundary. Disabled at <= 0."""
+        limit = getattr(self.config, "daily_loss_limit_pct", 0.0)
+        if not limit or limit <= 0.0:
+            return False
+        day = str(bar_ts)[:10]
+        if self._dll_day != day:
+            self._dll_day = day
+            self._dll_day_start_realized = self._pnl.realized_pnl
+        daily_realized = self._pnl.realized_pnl - self._dll_day_start_realized
+        return daily_realized <= -(limit * self.config.initial_cash)
 
     def _seed_scale_outs(self, symbol, entry_qty, avg_entry, bar_ts, scale_outs) -> None:
         """Seed per-tier scale-out state at entry (absolute trigger prices)."""
@@ -1050,6 +1066,13 @@ class Executor:
             and float(scale_state.get("fired_frac", 0.0)) > 0.0
         ):
             target_qty *= 1.0 - float(scale_state["fired_frac"])
+
+        if (
+            self._daily_loss_breached(bar_ts)
+            and abs(target_qty) > abs(current_position)
+            and target_qty * current_position >= 0
+        ):
+            target_qty = current_position
 
         # Align target_qty to instrument step size (round away from zero)
         # to avoid flooring small wallets to zero when step > precision
