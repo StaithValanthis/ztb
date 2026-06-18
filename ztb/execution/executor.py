@@ -35,6 +35,7 @@ from ztb.execution.models import (
 from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
+from ztb.strategies.base import RiskProfile
 from ztb.store.results import connect as store_connect
 from ztb.utils.balance import extract_available_balance
 
@@ -78,7 +79,7 @@ def _resolve_profile_field(strategy: Any, config: Any, field: str) -> Any:
     """
     get = getattr(strategy, "get_risk_profile", None)
     prof = get() if callable(get) else getattr(strategy, "risk_profile", None)
-    if prof is not None:
+    if isinstance(prof, RiskProfile):
         val = getattr(prof, field, None)
         if val is not None:
             return val
@@ -215,8 +216,8 @@ class Executor:
         declares risk_profile.leverage (None => leave the account default)."""
         get = getattr(self.strategy, "get_risk_profile", None)
         prof = get() if callable(get) else getattr(self.strategy, "risk_profile", None)
-        lev = getattr(prof, "leverage", None) if prof is not None else None
-        if lev is not None and lev > 0:
+        lev = prof.leverage if isinstance(prof, RiskProfile) else None
+        if isinstance(lev, (int, float)) and not isinstance(lev, bool) and lev > 0:
             return float(lev)
         return None
 
