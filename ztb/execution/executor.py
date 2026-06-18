@@ -50,6 +50,49 @@ def _safe_float(val: str | float | None, default: float = 0.0) -> float:
         return default
 
 
+_PROFILE_DEFAULTS: dict[str, Any] = {
+    "sl_pct": 0.02,
+    "tp_pct": 0.03,
+    "leverage": 1.0,
+    "trail_pct": 0.0,
+    "activation_pct": 0.0,
+    "trail_atr_mult": 0.0,
+    "scale_outs": (),
+}
+# RiskProfile field -> ExecRunConfig attr (leverage reuses the max_leverage sizing cap).
+_CONFIG_FIELD: dict[str, str] = {"leverage": "max_leverage"}
+
+
+def _resolve_profile_field(strategy: Any, config: Any, field: str) -> Any:
+    """Effective per-strategy trade-management value.
+
+    Precedence:
+      1) strategy.get_risk_profile().<field>  (non-None wins)
+      2) strategy.params[field]               (ONLY sl_pct/tp_pct; PR#199 back-compat)
+      3) config.<mapped attr>                 (present & not None; explicit 0.0 disable wins)
+      4) _PROFILE_DEFAULTS[field]             (hard default)
+
+    None (not declared) falls through; 0.0 (explicit disable) is returned as-is.
+    The config value is authoritative even at 0.0 because the CLI passes
+    sl_pct/tp_pct=0.0 (not None) when the flag is omitted.
+    """
+    get = getattr(strategy, "get_risk_profile", None)
+    prof = get() if callable(get) else getattr(strategy, "risk_profile", None)
+    if prof is not None:
+        val = getattr(prof, field, None)
+        if val is not None:
+            return val
+    if field in ("sl_pct", "tp_pct"):
+        params = getattr(strategy, "params", None)
+        if isinstance(params, dict) and params.get(field) is not None:
+            return params[field]
+    cfg_attr = _CONFIG_FIELD.get(field, field)
+    cval = getattr(config, cfg_attr, None)
+    if cval is not None:
+        return cval
+    return _PROFILE_DEFAULTS[field]
+
+
 class Executor:
     def __init__(
         self,
@@ -1253,12 +1296,8 @@ class Executor:
             pos_size = self._pnl.position
             avg_entry = self._pnl.avg_entry_price
             self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
-            if isinstance(self.strategy.params, dict):
-                sl_pct = self.strategy.params.get("sl_pct", self.config.sl_pct)
-                tp_pct = self.strategy.params.get("tp_pct", self.config.tp_pct)
-            else:
-                sl_pct = self.config.sl_pct
-                tp_pct = self.config.tp_pct
+            sl_pct = _resolve_profile_field(self.strategy, self.config, "sl_pct")
+            tp_pct = _resolve_profile_field(self.strategy, self.config, "tp_pct")
             self._apply_sl_tp(
                 symbol,
                 pos_side,

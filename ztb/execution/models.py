@@ -110,6 +110,9 @@ class ExecRunConfig:
     poll_fill_interval: float = 2.0
     sl_pct: float = 0.02
     tp_pct: float = 0.03
+    trail_pct: float = 0.0
+    activation_pct: float = 0.0
+    trail_atr_mult: float = 0.0
     risk_per_trade_pct: float = 0.0
     min_qty: float = 0.0
 
