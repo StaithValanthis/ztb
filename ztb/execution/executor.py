@@ -1448,9 +1448,14 @@ class Executor:
 
             if not reduce_only and available_balance > 0 and close_price > 0:
                 max_notional = available_balance * self._resolve_sizing_leverage()
-                max_qty = round(max_notional / close_price, asset_precision)
+                max_qty_raw = max_notional / close_price
+                max_qty = round(max_qty_raw, asset_precision)
                 if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
                     max_qty = round_to_step(max_qty, instrument_qty_step)
+                    if max_qty < 1e-12 and max_qty_raw > 1e-12:
+                        max_qty = ceil_to_step(
+                            round(max_qty_raw, asset_precision), instrument_qty_step
+                        )
                 require_margin_qty = max(0.0, qty - abs(current_position)) if flip else qty
                 if require_margin_qty > max_qty + 1e-12:
                     capped_qty = round(qty - require_margin_qty + max_qty, asset_precision)

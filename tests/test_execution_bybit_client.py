@@ -1361,17 +1361,15 @@ def test_place_order_logs_skip_demo(mock_client_cls: MagicMock) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Area 3: _validate_qty floor-rounding warning (ZTB-2628)
+# Area 3: _validate_qty floor-rounding fix — ceil when step floors to 0
 # ---------------------------------------------------------------------------
 
 
-def test_validate_qty_floored_to_zero_warns() -> None:
+def test_validate_qty_sub_step_uses_ceil() -> None:
+    """Sub-step qty rounds up via ceil_to_step instead of flooring to 0."""
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
     client = BybitClient(cfg)
-    with (
-        patch.object(client, "get_instrument_info") as mock_info,
-        patch("ztb.execution.bybit_client.logger") as mock_logger,
-    ):
+    with patch.object(client, "get_instrument_info") as mock_info:
         mock_info.return_value = {
             "lotSizeFilter": {
                 "qtyStep": "0.001",
@@ -1380,9 +1378,25 @@ def test_validate_qty_floored_to_zero_warns() -> None:
             },
         }
         result = client._validate_qty("BTCUSDT", 0.0005)
+        assert result["skipped"] is False
+        assert result["qty"] == 0.001
+
+
+def test_validate_qty_sub_step_below_min_skips() -> None:
+    """Sub-step qty that ceils but is still below minOrderQty returns skipped."""
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    with patch.object(client, "get_instrument_info") as mock_info:
+        mock_info.return_value = {
+            "lotSizeFilter": {
+                "qtyStep": "0.001",
+                "minOrderQty": "0.01",
+                "maxOrderQty": "1000",
+            },
+        }
+        result = client._validate_qty("BTCUSDT", 0.0001)
         assert result["skipped"] is True
-        mock_logger.warning.assert_called_once()
-        assert "floored to 0" in mock_logger.warning.call_args[0][0]
+        assert "ceiled" in result["reason"]
 
 
 def test_validate_qty_normal_no_warning() -> None:

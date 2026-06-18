@@ -4321,6 +4321,104 @@ def test_balance_cap_does_not_apply_when_no_wallet_data(
     assert result["order_placed"] is True
 
 
+# ---------------------------------------------------------------------------
+# ZTB-3768: Balance cap ceiling fix — ceil max_qty when step floors to 0
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_small_wallet_allows_min_step(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Small wallet ceil'd to min step does not get floored to 0."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "oid_small"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "40.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "40.0",
+                        "walletBalance": "40.0",
+                        "availableBalance": "40.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+
+    assert result["order_placed"] is True
+    call_kwargs = mock_client.place_order.call_args.kwargs
+    assert call_kwargs["qty"] == 0.001
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_balance_cap_small_wallet_below_min_trade_skips(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Tiny wallet that can only afford a sub-step qty — skip gracefully."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {
+        "skipped": True,
+        "reason": "Qty below minOrderQty",
+    }
+    mock_client.get_positions.return_value = []
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.get_wallet_balance.return_value = {
+        "list": [
+            {
+                "totalAvailableBalance": "5.0",
+                "coin": [
+                    {
+                        "coin": "USDT",
+                        "equity": "5.0",
+                        "walletBalance": "5.0",
+                        "availableBalance": "5.0",
+                        "unrealisedPnl": "0.0",
+                    }
+                ],
+            }
+        ]
+    }
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, risk_enabled=False, max_leverage=1.0)
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+    exe.state.current_position = 0.0
+
+    result = exe.step(sample_data)
+    assert result.get("order_skipped") is True
+    assert result.get("order_placed") is not True
+
+
 def test_polling_error_class_exists() -> None:
     assert issubclass(PollingError, ExecutionError)
     err = PollingError("test message")
@@ -6289,12 +6387,12 @@ def test_step_alignment_does_not_affect_dry_run(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_step_alignment_floors_capped_qty_to_zero_and_skips(
+def test_step_alignment_ceils_capped_qty_above_zero(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """When balance cap max_qty floors to zero after step-rounding, order is skipped."""
+    """When balance cap max_qty would floor to zero, ceil_to_step saves the order."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.get_wallet_balance.return_value = {
@@ -6330,9 +6428,12 @@ def test_step_alignment_floors_capped_qty_to_zero_and_skips(
 
     # target_qty = 0.5 * min(100000, 30*1) / 50000 = 0.0003
     # ceil_to_step(0.0003, 0.001) -> 0.001
-    # max_qty = floor_to_step(30/50000, 0.001) = 0.0
-    # capped_qty = 0.0 -> skipped
-    assert result.get("order_skipped") is True
+    # max_qty_raw = 30/50000 = 0.0006
+    # round_to_step(0.0006, 0.001) would floor to 0.0,
+    # but ceil_to_step saves it -> 0.001
+    # require_margin_qty (0.001) <= max_qty (0.001) → cap does not trigger
+    assert result.get("order_placed") is True
+    assert result.get("order_skipped") is not True
 
 
 # =========================================================================

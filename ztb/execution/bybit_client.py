@@ -464,13 +464,20 @@ class BybitClient:
 
         orig_qty = qty
         qty = self.round_to_step(qty, qty_step)
+
+        # When round_to_step floors to 0 but orig_qty > 0, try ceil_to_step
         if qty < 1e-12 and orig_qty > 1e-12:
-            logger.warning(
-                "_validate_qty: qty floored to 0 for %s (orig=%s, step=%s)",
-                symbol,
-                orig_qty,
-                qty_step,
-            )
+            ceiled = self.ceil_to_step(orig_qty, qty_step)
+            if ceiled >= min_qty - 1e-12:
+                qty = ceiled
+            else:
+                return {
+                    "skipped": True,
+                    "reason": (
+                        f"Qty {orig_qty} ceiled to {ceiled} but still below"
+                        f" minOrderQty {min_qty} for {symbol}"
+                    ),
+                }
 
         if qty < min_qty - 1e-12:
             return {
