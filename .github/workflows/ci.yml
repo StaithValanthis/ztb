@@ -88,3 +88,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/ztb-evidence-gate-check.py --sha "$SHA"
+
+  strategy-validate:
+    needs: [test]
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run ztb validate on changed strategy plugins (real edge gate, not attestation)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/ztb-ci-strategy-validate.py --base "$BASE_SHA"
