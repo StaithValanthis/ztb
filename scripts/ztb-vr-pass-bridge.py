@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ztb-vr-pass-bridge.py — set GitHub commit status for V&R PASS/FAIL.
+ztb-vr-pass-bridge.py — set GitHub commit status ztb/vr-pass for V&R PASS/FAIL.
 
 Usage:
     python3 scripts/ztb-vr-pass-bridge.py --sha <commit-sha> --outcome PASS|FAIL
@@ -24,7 +24,7 @@ import argparse
 import json
 import subprocess
 import sys
-from typing import NoReturn
+from typing import Any, NoReturn
 
 
 def fail(msg: str) -> NoReturn:
@@ -32,7 +32,7 @@ def fail(msg: str) -> NoReturn:
     sys.exit(1)
 
 
-def gh(args: list[str], input_data: str | None = None) -> dict:
+def gh(args: list[str], input_data: str | None = None) -> dict[str, Any]:
     """Run `gh api` and return parsed JSON. Exits on error."""
     cmd = ["gh", "api"] + args
     try:
@@ -126,8 +126,9 @@ def post_commit_status(
     sha: str,
     state: str,
     description: str,
+    context: str = "ztb/vr-pass",
 ) -> None:
-    """Post a commit status via GitHub API.
+    """Post ztb/vr-pass commit status via GitHub API.
 
     state: 'success', 'failure', 'pending', 'error'
     """
@@ -136,7 +137,7 @@ def post_commit_status(
             "state": state,
             "target_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
             "description": description,
-            "context": "ztb/vr-pass",
+            "context": context,
         }
     )
     url = f"/repos/{owner}/{repo}/statuses/{sha}"

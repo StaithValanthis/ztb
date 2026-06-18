@@ -68,3 +68,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/ztb-vr-pass-bridge.py --sha "$SHA" --mode notify
+
+  strategy-evidence-gate:
+    needs: [test]
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: python -m pip install --upgrade pip
+      - name: Run evidence-gate check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ztb-evidence-gate-check.py --sha "$SHA"
