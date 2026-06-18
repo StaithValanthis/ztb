@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from ztb.validation.conversion import compute_signal_to_fill_conversion
+from ztb.validation.conversion import _parse_version, compute_signal_to_fill_conversion
 
 
 def _seed_store(
@@ -24,7 +24,8 @@ def _seed_store(
             symbol TEXT, side TEXT, order_type TEXT, price REAL DEFAULT 0,
             qty REAL DEFAULT 0, status TEXT, created_at TEXT,
             cum_exec_qty REAL DEFAULT 0, cum_exec_value REAL DEFAULT 0,
-            cum_exec_fee REAL DEFAULT 0
+            cum_exec_fee REAL DEFAULT 0,
+            code_version TEXT DEFAULT NULL
         )"""
     )
     conn.execute(
@@ -54,8 +55,8 @@ def _seed_store(
         conn.execute(
             """INSERT OR IGNORE INTO exec_orders
                (order_link_id, exec_run_id, order_id, symbol, side, order_type,
-                price, qty, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                price, qty, status, created_at, code_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 o["order_link_id"],
                 o["exec_run_id"],
@@ -67,6 +68,7 @@ def _seed_store(
                 o.get("qty", 0.0),
                 o.get("status", "Filled"),
                 o.get("created_at", ""),
+                o.get("code_version"),
             ),
         )
     for f in fills:
@@ -269,3 +271,82 @@ def test_conversion_no_fills_at_all(tmp_path) -> None:
     assert result.runs_with_signals == 5
     assert result.runs_with_real_fills == 0
     assert result.sufficient_sample is True
+
+
+def test_conversion_min_code_version_filter(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[
+            {"exec_run_id": "r1"},
+            {"exec_run_id": "r2"},
+            {"exec_run_id": "r3"},
+        ],
+        orders=[
+            {"order_link_id": "o1", "exec_run_id": "r1", "code_version": "1.1.50"},
+            {"order_link_id": "o2", "exec_run_id": "r2", "code_version": "1.1.53"},
+            {"order_link_id": "o3", "exec_run_id": "r3", "code_version": "1.1.55"},
+        ],
+        fills=[
+            {"fill_id": "f1", "exec_run_id": "r1", "order_link_id": "o1"},
+            {"fill_id": "f2", "exec_run_id": "r2", "order_link_id": "o2"},
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db), min_code_version="1.1.53")
+    assert result.runs_with_signals == 2
+    assert result.runs_with_real_fills == 1
+    assert result.conversion_rate == 0.5
+    assert result.sufficient_sample is False
+
+
+def test_conversion_min_code_version_all_excluded(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": "r1"}],
+        orders=[
+            {"order_link_id": "o1", "exec_run_id": "r1", "code_version": "1.1.50"},
+        ],
+        fills=[
+            {"fill_id": "f1", "exec_run_id": "r1", "order_link_id": "o1"},
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db), min_code_version="1.1.53")
+    assert result.runs_with_signals == 0
+    assert result.runs_with_real_fills == 0
+    assert result.conversion_rate == 0.0
+    assert result.sufficient_sample is False
+
+
+def test_conversion_min_code_version_with_null_versions(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[
+            {"exec_run_id": "r1"},
+            {"exec_run_id": "r2"},
+        ],
+        orders=[
+            {"order_link_id": "o1", "exec_run_id": "r1"},
+            {"order_link_id": "o2", "exec_run_id": "r2", "code_version": "1.1.55"},
+        ],
+        fills=[
+            {"fill_id": "f2", "exec_run_id": "r2", "order_link_id": "o2"},
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db), min_code_version="1.1.53")
+    assert result.runs_with_signals == 1
+    assert result.runs_with_real_fills == 1
+    assert result.conversion_rate == 1.0
+
+
+def test_parse_version() -> None:
+    assert _parse_version("1.1.53") == (1, 1, 53)
+    assert _parse_version("0.7.0") == (0, 7, 0)
+    assert _parse_version("1.0.0") == (1, 0, 0)
