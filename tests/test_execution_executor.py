@@ -7094,6 +7094,7 @@ def test_limit_partial_fill_market_fallback(
     assert len(fills) == 2
     assert orders[0]["cum_exec_qty"] == pytest.approx(1.0, abs=1e-8)
     assert orders[0]["cum_exec_fee"] == pytest.approx(0.05, abs=1e-8)
+    assert orders[0]["order_type"] in ("Limit+Market", "Market")
 
     assert mock_client.place_order.call_count == 2
     mock_client.cancel_order.assert_called_once()
