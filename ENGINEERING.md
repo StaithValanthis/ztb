@@ -45,7 +45,7 @@ Rules:
 - **Strategy evidence-gate runs after CI-green (`needs: [test]`).** For non-strategy PRs it passes trivially.
 - The V&R PASS (or evidence-gate PASS) must be recorded **against the same SHA** that CI went green on. Not "the branch," not "a later commit" — the identical commit.
 - **Head of Engineering performs the merge, and only when all three keys hold on the identical SHA.** No self-certification: Engineering does not approve its own validation; V&R is independent of Engineering.
-- Branch protection on `main` enforces require-PR + green-CI + `strategy-evidence-gate` + `vr-pass` mechanically; the three-key discipline enforces the rest.
+- Branch protection on `main` enforces require-PR + green-CI + `strategy-evidence-gate` mechanically; the three-key discipline enforces the rest.
 
 Merge order, every module: `feat/<x>` → CI green on head (precondition) → V&R PASS on the same SHA → (for strategy PRs) evidence-gate PASS on the same SHA → Head-of-Eng merge + tag → MD routes next.
 
