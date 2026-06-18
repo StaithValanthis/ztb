@@ -1,3 +1,6 @@
+## v1.1.55
+- atomic-merge version bump for PR #203
+
 ## v1.1.54
 - **Feat(executor):** Enable SL/TP with non-zero defaults (sl_pct=0.02, tp_pct=0.03) on every trade. Default parity preserved: `sl_pct=0, tp_pct=0` config produces byte-identical output to v1.1.53.
 - **Feat(executor):** Per-strategy SL/TP precedence — CLI `--sl-pct/--tp-pct` > strategy `params` > `ExecRunConfig` defaults. sma_cross params: `sl_pct=0.05, tp_pct=0.10`.
