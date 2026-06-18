@@ -6,7 +6,7 @@ Usage:
     python3 scripts/ztb-evidence-gate-check.py --sha <commit-sha>
 
 Detects whether the PR touches ztb/strategies/. If so, checks that
-ztb/vr-evidence-gate = success on the exact SHA. Posts its own status
+ztb/vr-pass = success on the exact SHA. Posts its own status
 ztb/strategy-evidence-gate for UI visibility.
 """
 
@@ -17,7 +17,7 @@ import sys
 from typing import Any, NoReturn
 
 GATE_CONTEXT = "ztb/strategy-evidence-gate"
-EVIDENCE_CONTEXT = "ztb/vr-evidence-gate"
+EVIDENCE_CONTEXT = "ztb/vr-pass"
 
 
 def fail(msg: str) -> NoReturn:

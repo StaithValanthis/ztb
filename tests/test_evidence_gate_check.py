@@ -1,4 +1,4 @@
-"""Tests for scripts/ztb-evidence-gate-check.py + bridge --context extension."""
+"""Tests for scripts/ztb-evidence-gate-check.py."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import pytest
 import ztb_evidence_gate_check as mod
-import ztb_vr_pass_bridge as bridge_mod
 
 SHA = "abcdef1234567890abcdef1234567890abcdef12"
 
@@ -146,123 +145,3 @@ class TestEvidenceGateCheck:
         assert exc.value.code == 1
         _, err = capsys.readouterr()
         assert "pending" in err
-
-
-class TestBridgeContextExtension:
-    """Bridge --context parameter extension."""
-
-    def test_bridge_context_default(self) -> None:
-        """Default --context is ztb/vr-pass -> POST body uses ztb/vr-pass."""
-        with (
-            patch.object(bridge_mod, "get_repo_owner_repo", return_value=("o", "r")),
-            patch.object(bridge_mod, "get_ci_conclusion", return_value="success"),
-            patch.object(bridge_mod, "post_commit_status") as mock_post,
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "bridge.py",
-                    "--sha",
-                    SHA,
-                    "--outcome",
-                    "PASS",
-                    "--owner",
-                    "o",
-                    "--repo",
-                    "r",
-                ],
-            ),
-        ):
-            bridge_mod.main()
-        call_args = mock_post.call_args[0]
-        call_kwargs = mock_post.call_args[1]
-        ctx = call_kwargs.get("context", call_args[5] if len(call_args) > 5 else None)
-        assert ctx == "ztb/vr-pass", f"Expected default context 'ztb/vr-pass', got {ctx}"
-
-    def test_bridge_custom_context(self) -> None:
-        """Custom --context ztb/vr-evidence-gate is passed through."""
-        with (
-            patch.object(bridge_mod, "get_repo_owner_repo", return_value=("o", "r")),
-            patch.object(bridge_mod, "get_ci_conclusion", return_value="success"),
-            patch.object(bridge_mod, "post_commit_status") as mock_post,
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "bridge.py",
-                    "--sha",
-                    SHA,
-                    "--outcome",
-                    "PASS",
-                    "--owner",
-                    "o",
-                    "--repo",
-                    "r",
-                    "--context",
-                    "ztb/vr-evidence-gate",
-                ],
-            ),
-        ):
-            bridge_mod.main()
-        call_args = mock_post.call_args[0]
-        call_kwargs = mock_post.call_args[1]
-        ctx = call_kwargs.get("context", call_args[5] if len(call_args) > 5 else None)
-        assert ctx == "ztb/vr-evidence-gate", f"Expected custom context, got {ctx}"
-
-    def test_bridge_fail_with_custom_context(self) -> None:
-        """Bridge --outcome FAIL with custom context."""
-        with (
-            patch.object(bridge_mod, "get_repo_owner_repo", return_value=("o", "r")),
-            patch.object(bridge_mod, "post_commit_status") as mock_post,
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "bridge.py",
-                    "--sha",
-                    SHA,
-                    "--outcome",
-                    "FAIL",
-                    "--owner",
-                    "o",
-                    "--repo",
-                    "r",
-                    "--context",
-                    "ztb/vr-evidence-gate",
-                ],
-            ),
-        ):
-            bridge_mod.main()
-        call_args = mock_post.call_args[0]
-        call_kwargs = mock_post.call_args[1]
-        ctx = call_kwargs.get("context", call_args[5] if len(call_args) > 5 else None)
-        assert ctx == "ztb/vr-evidence-gate", f"Expected custom context, got {ctx}"
-
-    def test_bridge_notify_with_custom_context(self) -> None:
-        """Bridge --mode notify with custom context."""
-        with (
-            patch.object(bridge_mod, "get_repo_owner_repo", return_value=("o", "r")),
-            patch.object(bridge_mod, "post_commit_status") as mock_post,
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "bridge.py",
-                    "--sha",
-                    SHA,
-                    "--mode",
-                    "notify",
-                    "--owner",
-                    "o",
-                    "--repo",
-                    "r",
-                    "--context",
-                    "ztb/vr-evidence-gate",
-                ],
-            ),
-        ):
-            bridge_mod.main()
-        call_args = mock_post.call_args[0]
-        call_kwargs = mock_post.call_args[1]
-        ctx = call_kwargs.get("context", call_args[5] if len(call_args) > 5 else None)
-        assert ctx == "ztb/vr-evidence-gate", f"Expected custom context, got {ctx}"

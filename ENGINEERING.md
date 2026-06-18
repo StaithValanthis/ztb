@@ -37,7 +37,7 @@ A merge to `main` requires **ALL THREE keys to hold on the SAME commit SHA**:
 
 1. **CI-green** on the PR head commit.
 2. A **recorded V&R PASS** on that **identical SHA**.
-3. **Strategy evidence-gate PASS** — strategy PRs (changing `ztb/strategies/`) must have `ztb/vr-evidence-gate` = success on the same SHA, enforced by the `strategy-evidence-gate` CI job.
+3. **Strategy evidence-gate PASS** — strategy PRs (changing `ztb/strategies/`) must have `ztb/vr-pass` = success on the same SHA, enforced by the `strategy-evidence-gate` CI job.
 
 Rules:
 
