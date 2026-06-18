@@ -350,3 +350,136 @@ def test_parse_version() -> None:
     assert _parse_version("1.1.53") == (1, 1, 53)
     assert _parse_version("0.7.0") == (0, 7, 0)
     assert _parse_version("1.0.0") == (1, 0, 0)
+
+
+def test_conversion_unscoped_default_backward_compat(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[
+            {"exec_run_id": "r1"},
+            {"exec_run_id": "r2"},
+        ],
+        orders=[
+            {"order_link_id": "o1", "exec_run_id": "r1", "code_version": "1.1.50"},
+            {"order_link_id": "o2", "exec_run_id": "r2", "code_version": "1.1.55"},
+        ],
+        fills=[
+            {"fill_id": "f1", "exec_run_id": "r1", "order_link_id": "o1"},
+            {"fill_id": "f2", "exec_run_id": "r2", "order_link_id": "o2"},
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(str(db))
+    assert result.runs_with_signals == 2
+    assert result.conversion_rate == 1.0
+
+
+def test_conversion_scoped_min_sample_uses_scoped_denom(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": f"r{i}"} for i in range(5)],
+        orders=[
+            {
+                "order_link_id": f"o{i}",
+                "exec_run_id": f"r{i}",
+                "code_version": "1.1.55" if i < 3 else "1.1.50",
+            }
+            for i in range(5)
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": f"r{i}", "order_link_id": f"o{i}"} for i in range(3)
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(
+        str(db), min_code_version="1.1.53", min_signal_runs=5
+    )
+    assert result.runs_with_signals == 3
+    assert result.sufficient_sample is False
+
+
+def test_conversion_scoped_at_min_sample(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    run_ids = [f"r{i}" for i in range(5)]
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": rid} for rid in run_ids],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": rid, "code_version": "1.1.53"}
+            for i, rid in enumerate(run_ids)
+        ],
+        fills=[
+            {"fill_id": f"f{i}", "exec_run_id": rid, "order_link_id": f"o{i}"}
+            for i, rid in enumerate(run_ids)
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(
+        str(db), min_code_version="1.1.53", min_signal_runs=5
+    )
+    assert result.runs_with_signals == 5
+    assert result.sufficient_sample is True
+
+
+def test_conversion_scoped_plus_strategy_filter(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[
+            {"exec_run_id": "r1", "strategy_name": "strat_a"},
+            {"exec_run_id": "r2", "strategy_name": "strat_a"},
+            {"exec_run_id": "r3", "strategy_name": "strat_b"},
+            {"exec_run_id": "r4", "strategy_name": "strat_b"},
+        ],
+        orders=[
+            {"order_link_id": "o1", "exec_run_id": "r1", "code_version": "1.1.53"},
+            {"order_link_id": "o2", "exec_run_id": "r2", "code_version": "1.1.50"},
+            {"order_link_id": "o3", "exec_run_id": "r3", "code_version": "1.1.55"},
+            {"order_link_id": "o4", "exec_run_id": "r4", "code_version": "1.1.50"},
+        ],
+        fills=[
+            {"fill_id": "f1", "exec_run_id": "r1", "order_link_id": "o1"},
+            {"fill_id": "f3", "exec_run_id": "r3", "order_link_id": "o3"},
+        ],
+    )
+    conn.close()
+    strat_a = compute_signal_to_fill_conversion(
+        str(db), strategy_name="strat_a", min_code_version="1.1.53"
+    )
+    assert strat_a.runs_with_signals == 1
+    assert strat_a.runs_with_real_fills == 1
+    assert strat_a.conversion_rate == 1.0
+
+
+def test_conversion_conformance_real_not_synthetic(tmp_path) -> None:
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    _seed_store(
+        conn,
+        runs=[{"exec_run_id": f"r{i}"} for i in range(4)],
+        orders=[
+            {"order_link_id": f"o{i}", "exec_run_id": f"r{i}", "code_version": "1.1.53"}
+            for i in range(4)
+        ],
+        fills=[
+            {"fill_id": f"synthetic-r{i}", "exec_run_id": f"r{i}", "order_link_id": f"o{i}"}
+            for i in range(2)
+        ]
+        + [
+            {"fill_id": f"real-r{i}", "exec_run_id": f"r{i}", "order_link_id": f"o{i}"}
+            for i in range(2, 4)
+        ],
+    )
+    conn.close()
+    result = compute_signal_to_fill_conversion(
+        str(db), min_code_version="1.1.53", min_signal_runs=4
+    )
+    assert result.runs_with_signals == 4
+    assert result.runs_with_real_fills == 2
+    assert result.conversion_rate == 0.5

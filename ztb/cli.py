@@ -449,7 +449,9 @@ def validate(
 
     signal_to_fill = None
     if exec_db is not None:
-        signal_to_fill = compute_signal_to_fill_conversion(exec_db, strategy_name=strategy_name)
+        signal_to_fill = compute_signal_to_fill_conversion(
+            exec_db, strategy_name=strategy_name, min_code_version="1.1.53"
+        )
 
     scorecard = evaluate_acceptance_criteria(
         wf_result, dsr_result, lookahead_result, signal_to_fill=signal_to_fill
