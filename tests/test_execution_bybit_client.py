@@ -33,6 +33,7 @@ def test_live_mode_allowed_when_armed(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
     client = BybitClient(cfg)
@@ -40,6 +41,7 @@ def test_live_mode_allowed_when_armed(tmp_path: Path) -> None:
     client.close()
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 def test_demo_mode_ok() -> None:
@@ -853,6 +855,7 @@ def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "audit-tkn"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("audit-tkn"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     db_path = tmp_path / "test_audit_bybit.db"
     cfg = ClientConfig(
@@ -887,6 +890,7 @@ def test_live_mode_logs_audit_on_success(tmp_path: Path) -> None:
     assert "POST /v5/order/create: success" in api_events[0]["detail"]
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 def test_demo_mode_does_not_log_audit(tmp_path: Path) -> None:
@@ -928,6 +932,7 @@ def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "wallet-tkn"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("wallet-tkn"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     db_path = tmp_path / "test_audit_wallet.db"
     cfg = ClientConfig(
@@ -962,6 +967,7 @@ def test_audit_logged_for_get_wallet_balance_live(tmp_path: Path) -> None:
     assert "GET /v5/account/wallet-balance: success" in api_events[0]["detail"]
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 # ---------------------------------------------------------------------------
@@ -1007,14 +1013,15 @@ def test_top_up_demo_account_calls_api() -> None:
     client.close()
 
 
-def test_top_up_demo_account_live_mode_skips() -> None:
+def test_top_up_demo_account_live_mode_skips(tmp_path: Path) -> None:
     cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.LIVE)
     from ztb.execution.arm_auth import compute_arm_hash
     from ztb.execution.live_guard import LiveGuard
 
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
-    hp = Path("/tmp/test-arm-hash-top-up-live")
+    hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     try:
         client = BybitClient(cfg)
@@ -1029,6 +1036,7 @@ def test_top_up_demo_account_live_mode_skips() -> None:
     finally:
         LiveGuard.disarm()
         os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+        os.environ.pop("ZTB_ARM_HASH_PATH", None)
         hp.unlink(missing_ok=True)
 
 

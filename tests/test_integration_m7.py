@@ -140,11 +140,13 @@ def test_live_guard_armed_allows(tmp_path: Path) -> None:
     os.environ[LiveGuard.BOARD_TOKEN_VAR] = "test-token"
     hp = tmp_path / "board-arm-hash"
     hp.write_text(compute_arm_hash("test-token"))
+    os.environ["ZTB_ARM_HASH_PATH"] = str(hp)
     LiveGuard.arm("1", hash_path=hp)
     assert LiveGuard.is_armed()
     LiveGuard.assert_live_allowed()
     LiveGuard.disarm()
     os.environ.pop(LiveGuard.BOARD_TOKEN_VAR, None)
+    os.environ.pop("ZTB_ARM_HASH_PATH", None)
 
 
 def test_cli_list_strategies() -> None:
