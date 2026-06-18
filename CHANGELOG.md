@@ -1,5 +1,11 @@
 ## v1.1.57
-- atomic-merge version bump for PR #219
+- **Feat(execution):** Trade management — `amend_order` on BybitClient (POST /v5/order/amend) and 3 Executor methods (`modify_tp_sl`, `modify_tp_sl_by_pct`, `cancel_tp_sl`). Enables runtime SL/TP modification on open positions via the exchange's amend endpoint instead of cancel/replace (PR #219). Follow-up to PR #203 (RiskProfile system without amend support).
+- **Tests:** 11 new tests — 3 BybitClient `amend_order` API tests, 8 executor trade management tests. Total: 1312 tests.
+- **Three-key merge:** CI green (test 3.11/3.13) + V&R PASS (vr-pass SUCCESS on SHA `46dc61e`) + `ztb/real-fill-certified` SUCCESS — real fill on v1.1.57 deployed pre-merge.
+- **Atomic merge:** Deployed branch `feat/ztb-3924-rebase-trade-management` to bot pre-merge (v1.1.57), earned real fill cert, merged via ztb-atomic-merge.sh with race guard.
+- **Merge commit:** `9fc275d`
+- **PR:** [#219](https://github.com/StaithValanthis/ztb/pull/219)
+- **Tag:** v1.1.57
 
 ## v1.1.56
 - atomic-merge version bump for PR #204
