@@ -173,8 +173,8 @@ def instruments(category: str) -> None:
 @click.option("--commission", default=0.0005, type=float, help="Commission rate")
 @click.option("--slippage", default=0.0005, type=float, help="Slippage rate")
 @click.option("--risk-enabled", is_flag=True, help="Enable risk management")
-@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
-@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.001-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.001-10.0)")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def backtest(
@@ -245,8 +245,8 @@ def backtest(
 @click.option(
     "--baseline-run-id", default=None, help="Run ID for baseline metrics (decay computation)"
 )
-@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
-@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.001-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.001-10.0)")
 @click.option("--persist", is_flag=True, help="Save result to the store")
 @click.option("--db", default=None, help="Path to result database")
 def forwardtest(
@@ -530,8 +530,8 @@ def validate(
 @click.option("--poll-interval", default=60.0, type=float, help="Seconds between polls")
 @click.option("--lookback-bars", default=0, type=int, help="Minimum historical bars to load")
 @click.option("--no-risk", is_flag=True, help="Disable risk management (default: ON)")
-@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.0-0.50)")
-@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.0-10.0)")
+@click.option("--sl-pct", default=None, type=float, help="Stop-loss percentage (0.001-0.50)")
+@click.option("--tp-pct", default=None, type=float, help="Take-profit percentage (0.001-10.0)")
 @click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
@@ -612,8 +612,8 @@ def run(
         lookback_bars=lookback_bars,
         initial_cash=cash,
         risk_enabled=not no_risk,
-        sl_pct=sl_pct if sl_pct is not None else 0.0,
-        tp_pct=tp_pct if tp_pct is not None else 0.0,
+        sl_pct=sl_pct if sl_pct is not None else ExecRunConfig.sl_pct,
+        tp_pct=tp_pct if tp_pct is not None else ExecRunConfig.tp_pct,
         asset_precision=asset_precision,
         loop_flush_interval=loop_flush_interval,
     )
