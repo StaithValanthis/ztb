@@ -1403,3 +1403,94 @@ def test_validate_qty_normal_no_warning() -> None:
         assert result["skipped"] is False
         assert result["qty"] == 0.002
         mock_logger.warning.assert_not_called()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_amend_order_sends_correct_body(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid1"}}
+    mock_instance.request.return_value = mock_resp
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.amend_order(
+        symbol="BTCUSDT",
+        order_id="oid1",
+        price=51000.0,
+        qty=0.5,
+    )
+    assert result["orderId"] == "oid1"
+    call_body = mock_instance.request.call_args[1]["content"]
+    parsed = json.loads(call_body)
+    assert parsed["symbol"] == "BTCUSDT"
+    assert parsed["orderId"] == "oid1"
+    assert parsed["price"] == "51000.0"
+    assert parsed["qty"] == "0.5"
+    assert parsed["category"] == "linear"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_amend_order_uses_order_link_id(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid1"}}
+    mock_instance.request.return_value = mock_resp
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.amend_order(
+        symbol="BTCUSDT",
+        order_link_id="my-link-id",
+        take_profit=52000.0,
+        stop_loss=48000.0,
+        tp_trigger_by="MarkPrice",
+        sl_trigger_by="MarkPrice",
+    )
+    assert result["orderId"] == "oid1"
+    call_body = mock_instance.request.call_args[1]["content"]
+    parsed = json.loads(call_body)
+    assert parsed["symbol"] == "BTCUSDT"
+    assert parsed["orderLinkId"] == "my-link-id"
+    assert parsed["takeProfit"] == "52000.0"
+    assert parsed["stopLoss"] == "48000.0"
+    assert parsed["tpTriggerBy"] == "MarkPrice"
+    assert parsed["slTriggerBy"] == "MarkPrice"
+    client.close()
+
+
+@patch("ztb.execution.bybit_client.httpx.Client")
+def test_amend_order_sends_trigger_price(mock_client_cls: MagicMock) -> None:
+    mock_instance = MagicMock()
+    mock_client_cls.return_value = mock_instance
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"retCode": 0, "result": {"orderId": "oid1"}}
+    mock_instance.request.return_value = mock_resp
+
+    from ztb.execution.bybit_client import BybitClient, ClientConfig
+    from ztb.execution.models import Mode
+
+    cfg = ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO)
+    client = BybitClient(cfg)
+    result = client.amend_order(
+        symbol="ETHUSDT",
+        order_id="oid1",
+        trigger_price=3000.0,
+    )
+    assert result["orderId"] == "oid1"
+    call_body = mock_instance.request.call_args[1]["content"]
+    parsed = json.loads(call_body)
+    assert parsed["triggerPrice"] == "3000.0"
+    client.close()

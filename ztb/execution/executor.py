@@ -1041,6 +1041,114 @@ class Executor:
             logger.warning("Failed to fetch/record SL/TP fills for %s", symbol)
         return recorded
 
+    def modify_tp_sl(
+        self,
+        symbol: str,
+        sl_price: float | None = None,
+        tp_price: float | None = None,
+        trailing_stop: float | None = None,
+        activation_price: float | None = None,
+    ) -> bool:
+        """Modify SL/TP levels on an open position by absolute price.
+
+        Args:
+            symbol: Trading pair (e.g. "BTCUSDT").
+            sl_price: New stop-loss price. None leaves current unchanged.
+            tp_price: New take-profit price. None leaves current unchanged.
+            trailing_stop: New trailing stop distance. None leaves current.
+            activation_price: New activation price for trailing stop. None leaves current.
+
+        Returns:
+            True if the trading-stop API call succeeded.
+        """
+        if self.client is None or self.config.dry_run:
+            return False
+        assert self.state is not None
+        state = self._active_sl_tp.get(symbol, {})
+        side = OrderSide.BUY if self._pnl.position > 0 else OrderSide.SELL
+        pos_size = abs(self._pnl.position)
+        if pos_size < 1e-12 and symbol not in self._active_sl_tp:
+            logger.warning("modify_tp_sl: no position for %s — skipping", symbol)
+            return False
+        current_sl = state.get("sl_price", 0.0)
+        current_tp = state.get("tp_price", 0.0)
+        current_ts = state.get("trailing_stop", 0.0)
+        current_ap = state.get("activation_price", 0.0)
+        effective_sl = sl_price if sl_price is not None else current_sl
+        effective_tp = tp_price if tp_price is not None else current_tp
+        effective_ts = trailing_stop if trailing_stop is not None else current_ts
+        effective_ap = activation_price if activation_price is not None else current_ap
+        try:
+            self.client.set_trading_stop(
+                symbol=symbol,
+                side=side,
+                position_size=max(pos_size, 0.01),
+                stop_loss=effective_sl,
+                take_profit=effective_tp,
+                trailing_stop=effective_ts,
+                active_price=effective_ap,
+            )
+            self._active_sl_tp[symbol] = {
+                "sl_price": effective_sl,
+                "tp_price": effective_tp,
+                "trailing_stop": effective_ts,
+                "activation_price": effective_ap,
+            }
+            return True
+        except Exception:
+            logger.warning("modify_tp_sl failed for %s — continuing", symbol)
+            return False
+
+    def modify_tp_sl_by_pct(
+        self,
+        symbol: str,
+        sl_pct: float | None = None,
+        tp_pct: float | None = None,
+    ) -> bool:
+        """Modify SL/TP on an open position by percentage of avg entry price.
+
+        Args:
+            symbol: Trading pair.
+            sl_pct: New stop-loss as fraction of entry (e.g. 0.02 = 2%).
+                    Pass 0.0 to clear SL.
+            tp_pct: New take-profit as fraction of entry.
+                    Pass 0.0 to clear TP.
+
+        Returns:
+            True if the trading-stop API call succeeded.
+        """
+        avg_entry = self._pnl.avg_entry_price
+        if avg_entry <= 0.0:
+            logger.warning("modify_tp_sl_by_pct: no avg_entry for %s — skipping", symbol)
+            return False
+        is_long = self._pnl.position > 0
+        sl_price: float | None = 0.0
+        tp_price: float | None = 0.0
+        if sl_pct is not None and sl_pct > 0.0:
+            sl_price = avg_entry * (1.0 - sl_pct) if is_long else avg_entry * (1.0 + sl_pct)
+        elif sl_pct is not None:
+            sl_price = 0.0
+        else:
+            sl_price = None
+        if tp_pct is not None and tp_pct > 0.0:
+            tp_price = avg_entry * (1.0 + tp_pct) if is_long else avg_entry * (1.0 - tp_pct)
+        elif tp_pct is not None:
+            tp_price = 0.0
+        else:
+            tp_price = None
+        return self.modify_tp_sl(symbol, sl_price=sl_price, tp_price=tp_price)
+
+    def cancel_tp_sl(self, symbol: str) -> bool:
+        """Cancel both stop-loss and take-profit on an open position.
+
+        Args:
+            symbol: Trading pair.
+
+        Returns:
+            True if cancellation succeeded.
+        """
+        return self._clear_sl_tp(symbol)
+
     def step(
         self,
         data: DataFrame,
