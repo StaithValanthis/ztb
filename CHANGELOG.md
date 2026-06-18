@@ -1,6 +1,14 @@
 ## v1.1.56
 - atomic-merge version bump for PR #204
 - **chore(strategies):** Remove the 4 failed bear strategies (bearish_resumption, bear_bounce_exhaustion, bear_flag_continuation_short, bear_vol_continuation) — all failed `ztb validate` (0-trade/non-credible + a trailing-stop bug). sma_cross retained as the reference/test fixture only. Clean slate for the strategy-research pivot; bot halted until a strategy passes validation. Non-trading-path change.
+- **Tests:** Fill-pipeline test-coverage gaps (ZTB-3682) — 6 new tests covering 4 identified V&R gaps:
+  - **Gap A:** `test_fill_fetch_error_saved_on_exhaustion` — `FillFetchError` persisted to `exec_errors` when `_poll_fills` exhausts for a MARKET order (3 attempts, no fills).
+  - **Gap B1:** `test_limit_fully_fills_no_fallback` — Limit order fully fills via pre-cancel poll; order_type=`Limit`, `cum_exec_qty`/`cum_exec_fee` match fills.
+  - **Gap B2:** `test_limit_partial_fill_market_fallback` — Limit partially fills, market fallback fills remainder; 2 `place_order` calls, combined fills.
+  - **Gap B3:** `test_limit_unfilled_no_fallback` — Limit unfilled with fallback disabled; `order_unfilled=True`, NO fills persisted, `cancel_order` called.
+  - **Gap C:** `test_poll_fills_all_attempts_exception` — `get_executions` raises on every attempt (3× Exception); synthetic fill + `FillFetchError` created.
+  - **Gap D:** `test_exec_orders_fills_reconciliation_quantitative` — 2 fills, 1 order; `cum_exec_qty`/`cum_exec_fee`/`cum_exec_value`/`status` verified quantitatively.
+  - All 201 tests pass. Test-only change (`tests/test_execution_executor.py` only). No engine/executor changes. No version bump.
 
 ## v1.1.55
 - atomic-merge version bump for PR #203
