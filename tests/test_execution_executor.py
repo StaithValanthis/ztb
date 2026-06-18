@@ -3726,18 +3726,19 @@ def test_startup_calls_topup_when_wallet_low(
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_startup_skips_sltp_query_in_demo_mode(
+def test_startup_calls_orphan_cleanup_in_demo_mode(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
 ) -> None:
-    """get_active_trading_stops NOT called in DEMO mode."""
+    """_cleanup_orphan_sl_tp calls get_active_trading_stops in DEMO mode with client."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "test_oid"}
     mock_client.get_positions.return_value = []
     mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_active_trading_stops.return_value = []
     mock_bybit_cls.return_value = mock_client
 
     config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, once=True, risk_enabled=False)
@@ -3750,18 +3751,18 @@ def test_startup_skips_sltp_query_in_demo_mode(
         db_path=":memory:",
     )
     assert result.status == "completed"
-    mock_client.get_active_trading_stops.assert_not_called()
+    mock_client.get_active_trading_stops.assert_called_once()
 
 
 @patch("ztb.execution.executor.load_data")
 @patch("ztb.execution.executor.BybitClient")
-def test_startup_calls_sltp_query_in_live_mode(
+def test_startup_calls_orphan_cleanup_in_live_mode(
     mock_bybit_cls: MagicMock,
     mock_load: MagicMock,
     fake_strategy: FakeStrategy,
     sample_data: pd.DataFrame,
 ) -> None:
-    """get_active_trading_stops IS called in LIVE mode."""
+    """_cleanup_orphan_sl_tp calls get_active_trading_stops in LIVE mode with client."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "test_oid"}

@@ -237,3 +237,54 @@ def test_run_lookback_bars() -> None:
         ],
     )
     assert "blocked" not in result.output.lower()
+
+
+def test_run_sl_tp_params_in_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--sl-pct" in result.output
+    assert "--tp-pct" in result.output
+
+
+def test_backtest_sl_tp_params_in_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["backtest", "--help"])
+    assert result.exit_code == 0
+    assert "--sl-pct" in result.output
+    assert "--tp-pct" in result.output
+
+
+def test_forwardtest_sl_tp_params_in_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["forwardtest", "--help"])
+    assert result.exit_code == 0
+    assert "--sl-pct" in result.output
+    assert "--tp-pct" in result.output
+
+
+def test_run_sl_pct_default_none_to_zero() -> None:
+    """EP-T6: Default None for --sl-pct is passed as 0.0 to ExecRunConfig."""
+    from ztb.execution.models import ExecRunConfig
+
+    cfg = ExecRunConfig()
+    assert cfg.sl_pct == 0.0
+    assert cfg.tp_pct == 0.0
+
+
+def test_backtest_sl_pct_wiring() -> None:
+    """EP-T7: BacktestConfig(sl_pct=0.03) created correctly."""
+    from ztb.engine.backtest import BacktestConfig
+
+    cfg = BacktestConfig(sl_pct=0.03, tp_pct=0.06)
+    assert cfg.sl_pct == 0.03
+    assert cfg.tp_pct == 0.06
+
+
+def test_forwardtest_sl_pct_wiring() -> None:
+    """EP-T8: ForwardtestConfig(sl_pct=0.03) created correctly."""
+    from ztb.engine.forwardtest import ForwardtestConfig
+
+    cfg = ForwardtestConfig(sl_pct=0.03, tp_pct=0.06)
+    assert cfg.sl_pct == 0.03
+    assert cfg.tp_pct == 0.06

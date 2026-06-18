@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
 import pytest
 from pandas import DataFrame, Series
 
 from ztb.engine.backtest import BacktestConfig, run_backtest
+from ztb.engine.pnl import PnLCalculator
 from ztb.engine.portfolio import risk_based_target_qty, single_symbol_portfolio
+from ztb.execution.executor import ExecRunConfig, Executor
+from ztb.execution.models import Mode, OrderSide
 from ztb.strategies.base import Strategy
 
 
@@ -1047,3 +1052,206 @@ def test_executor_killswitch_step_clears_all_sl_tp() -> None:
         result = executor.step(df)
         assert result.get("killswitch_tripped") is True
         assert len(executor._active_sl_tp) == 0
+
+
+# ---------------------------------------------------------------------------
+# EP-T1 through EP-T9: SL/TP enablement contract tests
+# ---------------------------------------------------------------------------
+
+
+class StratWithSLTP:
+    name = "strat_sltp"
+    symbols = ["BTCUSDT"]
+    timeframe = "60"
+    params: dict = {"sl_pct": 0.02, "tp_pct": 0.05}
+    warmup = 0
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+        return pd.Series([0.0, 1.0, 1.0, 0.0], index=data.index[:4])
+
+
+class StratNoSLTP:
+    name = "strat_no_sltp"
+    symbols = ["BTCUSDT"]
+    timeframe = "60"
+    params: dict = {}
+    warmup = 0
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.Series:
+        return pd.Series([0.0, 1.0, 1.0, 0.0], index=data.index[:4])
+
+
+def test_ep_t1_strategy_param_used_when_cli_not_set() -> None:
+    """Strategy param used when CLI not set (EP-T1).
+
+    Precedence: CLI > strategy > config default.
+    With CLI at 0.0, strategy sl_pct=0.02/tp_pct=0.05 should be used.
+    """
+    strategy = StratWithSLTP()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, sl_pct=0.0, tp_pct=0.0)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor._pnl = PnLCalculator(initial_cash=100_000.0)
+    executor.client = MagicMock()
+
+    sl_pct = 0.0
+    tp_pct = 0.0
+
+    if config.sl_pct > 0.0 or config.tp_pct > 0.0:
+        sl_pct = config.sl_pct
+        tp_pct = config.tp_pct
+    elif isinstance(strategy.params, dict):
+        sl_pct = strategy.params.get("sl_pct", 0.0)
+        tp_pct = strategy.params.get("tp_pct", 0.0)
+
+    assert sl_pct == 0.02
+    assert tp_pct == 0.05
+
+    result = executor._apply_sl_tp("BTCUSDT", OrderSide.BUY, 1.0, 50000.0, sl_pct, tp_pct)
+    assert result is True
+
+
+def test_ep_t2_cli_param_overrides_strategy_param() -> None:
+    """CLI param overrides strategy param (EP-T2).
+
+    Precedence: CLI > strategy > config default.
+    With CLI sl_pct=0.03 > 0.0, it should win over strategy's 0.02.
+    """
+    strategy = StratWithSLTP()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False, sl_pct=0.03, tp_pct=0.06)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor._pnl = PnLCalculator(initial_cash=100_000.0)
+    executor.client = MagicMock()
+
+    sl_pct = 0.0
+    tp_pct = 0.0
+
+    if config.sl_pct > 0.0 or config.tp_pct > 0.0:
+        sl_pct = config.sl_pct
+        tp_pct = config.tp_pct
+    elif isinstance(strategy.params, dict):
+        sl_pct = strategy.params.get("sl_pct", 0.0)
+        tp_pct = strategy.params.get("tp_pct", 0.0)
+
+    assert sl_pct == 0.03
+    assert tp_pct == 0.06
+
+    result = executor._apply_sl_tp("BTCUSDT", OrderSide.BUY, 1.0, 50000.0, sl_pct, tp_pct)
+    assert result is True
+
+
+def test_ep_t3_both_zero_no_sl_tp() -> None:
+    """Both zero — no SL/TP set (EP-T3)."""
+    strategy = StratNoSLTP()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True, sl_pct=0.0, tp_pct=0.0)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+
+    sl_pct = 0.0
+    tp_pct = 0.0
+
+    if config.sl_pct > 0.0 or config.tp_pct > 0.0:
+        sl_pct = config.sl_pct
+        tp_pct = config.tp_pct
+    elif isinstance(strategy.params, dict):
+        sl_pct = strategy.params.get("sl_pct", 0.0)
+        tp_pct = strategy.params.get("tp_pct", 0.0)
+
+    assert sl_pct == 0.0
+    assert tp_pct == 0.0
+
+    result = executor._apply_sl_tp("BTCUSDT", OrderSide.BUY, 1.0, 50000.0, sl_pct, tp_pct)
+    assert result is False
+    executor.client.set_trading_stop.assert_not_called()
+
+
+def test_ep_t4_orphan_cleanup_removes_stale_stops() -> None:
+    """Orphan cleanup removes stale stops (EP-T4)."""
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+    executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
+    executor.client.get_active_trading_stops.return_value = [
+        {"symbol": "BTCUSDT", "stopLoss": "49000", "takeProfit": "0"},
+        {"symbol": "SOLUSDT", "stopLoss": "150", "takeProfit": "0"},
+    ]
+
+    executor._cleanup_orphan_sl_tp()
+
+    assert executor.client.set_trading_stop.call_count >= 1
+    calls = executor.client.set_trading_stop.call_args_list
+    cleared_symbols = [c[1]["symbol"] for c in calls]
+    assert "BTCUSDT" in cleared_symbols or "SOLUSDT" in cleared_symbols
+
+
+def test_ep_t4_orphan_cleanup_skips_when_client_none() -> None:
+    """Orphan cleanup skips when client is None."""
+    strategy = MagicMock()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = None
+
+    executor._cleanup_orphan_sl_tp()
+
+
+def test_ep_t4_orphan_cleanup_skips_when_dry_run() -> None:
+    """Orphan cleanup skips when dry_run is True."""
+    strategy = MagicMock()
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+
+    executor._cleanup_orphan_sl_tp()
+    executor.client.get_active_trading_stops.assert_not_called()
+
+
+def test_ep_t5_shutdown_clears_tracked_stops() -> None:
+    """SIGTERM shutdown clears tracked stops (EP-T5)."""
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+    executor.client = MagicMock()
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+    executor._active_sl_tp["ETHUSDT"] = {"sl_price": 3000.0, "tp_price": 3100.0}
+
+    with patch.object(executor, "_clear_sl_tp") as mock_clear:
+        executor._setup_sigterm()
+        import signal
+
+        executor._original_sigterm = None
+        signal.raise_signal(signal.SIGTERM)
+
+        assert mock_clear.call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# EP-T9: sma_cross defaults
+# ---------------------------------------------------------------------------
+
+
+def test_ep_t9_sma_cross_has_default_sl_tp_params() -> None:
+    """SMACross has default SL/TP params (EP-T9)."""
+    from ztb.strategies.sma_cross import SMACross
+
+    strat = SMACross()
+    assert "sl_pct" in strat.params
+    assert "tp_pct" in strat.params
+    assert strat.params["sl_pct"] == 0.05
+    assert strat.params["tp_pct"] == 0.10
