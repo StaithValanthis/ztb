@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from pandas import DataFrame, Series
 
-from ztb.execution.bybit_client import round_to_step
+from ztb.execution.bybit_client import ceil_to_step, round_to_step
 from ztb.execution.executor import Executor
 from ztb.execution.models import ExecRunConfig, Mode, OrderSide, OrderType
 
@@ -23,6 +23,10 @@ _EXEC = {
     "execFee": "0.05",
     "execTime": "2024-01-01T01:00:00Z",
 }
+
+
+def _exec(exec_id: str, qty: str, price: str = "99.0") -> dict:
+    return {**_EXEC, "execId": exec_id, "execQty": qty, "execPrice": price}
 
 
 def _df() -> DataFrame:
@@ -91,17 +95,19 @@ def _mk_executor(
         "priceFilter": {"tickSize": tick},
     }
     executor.client.get_tick_size.return_value = float(tick)
+    executor.client.get_qty_step.return_value = 0.001
     executor.client.round_to_step.side_effect = round_to_step
+    executor.client.ceil_to_step.side_effect = ceil_to_step
     return executor, strategy
 
 
-def _run(executor) -> dict:
+def _run(executor, df: DataFrame | None = None) -> dict:
     with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
         executor._init_store(tmp.name)
         executor._idempotency = MagicMock()
         executor._idempotency.try_claim.return_value = True
         executor._idempotency.resolve.return_value = None
-        return executor.step(_df())
+        return executor.step(df if df is not None else _df())
 
 
 # --------------------------------------------------------------------------- #
@@ -112,7 +118,6 @@ def test_config_rejects_bad_limit_offset() -> None:
         ExecRunConfig(mode=Mode.DEMO, limit_offset_pct=0.5)
     with pytest.raises(ValueError):
         ExecRunConfig(mode=Mode.DEMO, limit_offset_pct=-0.01)
-    # boundary + zero are fine
     ExecRunConfig(mode=Mode.DEMO, limit_offset_pct=0.0)
     ExecRunConfig(mode=Mode.DEMO, limit_offset_pct=0.10)
 
@@ -132,12 +137,15 @@ def test_get_tick_size_reads_price_filter() -> None:
     assert c.get_tick_size("BTCUSDT") == 0.5
 
 
-def test_resolve_limit_price_buy_below_sell_above() -> None:
-    executor, _ = _mk_executor(OrderType.LIMIT, offset=0.01, tick="0.1")
+def test_resolve_limit_price_buy_floors_sell_ceils() -> None:
+    # tick 0.5 to make the rounding direction observable
+    executor, _ = _mk_executor(OrderType.LIMIT, offset=0.011, tick="0.5")
     buy = executor._resolve_limit_price(OrderSide.BUY, 100.0, "BTCUSDT")
     sell = executor._resolve_limit_price(OrderSide.SELL, 100.0, "BTCUSDT")
-    assert buy == 99.0  # 100*(1-0.01)=99.0, on-tick
-    assert sell == 101.0  # 100*(1+0.01)=101.0, on-tick
+    # buy raw = 98.9 -> floor to 0.5 -> 98.5 (below market, maker)
+    assert buy == 98.5
+    # sell raw = 101.1 -> ceil to 0.5 -> 101.5 (above market, maker — never crosses down)
+    assert sell == 101.5
     assert buy < 100.0 < sell
 
 
@@ -159,24 +167,28 @@ def test_limit_order_placed_with_limit_type_and_offset_price() -> None:
     executor, _ = _mk_executor(OrderType.LIMIT, offset=0.01, tick="0.1")
     executor.client.get_executions.return_value = [_EXEC]
     _run(executor)
-    kw = executor.client.place_order.call_args.kwargs
-    assert kw["order_type"] == OrderType.LIMIT
-    assert kw["price"] == 99.0  # buy limit 1% below close 100.0, on-tick
+    first = executor.client.place_order.call_args_list[0].kwargs
+    assert first["order_type"] == OrderType.LIMIT
+    assert first["price"] == 99.0  # buy limit 1% below close 100.0, on-tick
     assert executor._pnl.position > 0
 
 
-def test_filled_limit_cancels_resting_remainder() -> None:
+def test_filled_limit_cancels_and_resolves_placed() -> None:
+    # cancel-FIRST design: we always cancel to clear any resting remainder, and a
+    # filled limit resolves the link to a restorable 'placed' state.
     executor, _ = _mk_executor(OrderType.LIMIT)
     executor.client.get_executions.return_value = [_EXEC]
     _run(executor)
-    # even on a fill we attempt cancel to clear any partial remainder
     executor.client.cancel_order.assert_called()
+    statuses = [c.args[1] for c in executor._idempotency.resolve.call_args_list if len(c.args) >= 2]
+    assert "placed" in statuses
+    assert "cancelled" not in statuses  # it filled
 
 
-def test_unfilled_limit_falls_back_to_market() -> None:
+def test_unfilled_limit_falls_back_to_market_for_remainder() -> None:
     executor, _ = _mk_executor(OrderType.LIMIT, fallback=True)
-    # first poll (limit) empty, second poll (market fallback) fills
-    executor.client.get_executions.side_effect = [[], [_EXEC]]
+    # pre poll empty, post-cancel poll empty, fallback market poll fills
+    executor.client.get_executions.side_effect = [[], [], [_EXEC]]
     result = _run(executor)
     assert executor.client.place_order.call_count == 2
     executor.client.cancel_order.assert_called()
@@ -191,9 +203,60 @@ def test_unfilled_limit_no_fallback_takes_no_phantom_position() -> None:
     executor, _ = _mk_executor(OrderType.LIMIT, fallback=False)
     executor.client.get_executions.return_value = []  # never fills
     result = _run(executor)
-    # exactly one order placed (no market fallback), resting order cancelled,
-    # and CRITICALLY no synthetic fill -> position stays flat
-    assert executor.client.place_order.call_count == 1
+    assert executor.client.place_order.call_count == 1  # no market fallback
     executor.client.cancel_order.assert_called()
     assert result.get("order_unfilled") is True
-    assert abs(executor._pnl.position) < 1e-12
+    assert abs(executor._pnl.position) < 1e-12  # CRITICAL: no synthetic phantom
+    # the unfilled limit link must be terminal so restart cannot synth-restore it
+    statuses = [c.args[1] for c in executor._idempotency.resolve.call_args_list if len(c.args) >= 2]
+    assert "cancelled" in statuses
+    assert "placed" not in statuses
+
+
+def test_partial_limit_fill_tops_up_remainder_only() -> None:
+    executor, _ = _mk_executor(OrderType.LIMIT, fallback=True)
+    # limit partially fills 0.4; post-cancel sees same; fallback market fills the rest
+    executor.client.get_executions.side_effect = [
+        [_exec("fill-A", "0.4")],
+        [_exec("fill-A", "0.4")],
+        [_exec("fill-B", "0.6")],
+    ]
+    _run(executor)
+    assert executor.client.place_order.call_count == 2
+    first = executor.client.place_order.call_args_list[0].kwargs
+    second = executor.client.place_order.call_args_list[1].kwargs
+    assert second["order_type"] == OrderType.MARKET
+    # fallback sizes ONLY the unfilled remainder, strictly less than the full order
+    assert 0.0 < second["qty"] < first["qty"]
+    # net position reflects the partial limit fill + market remainder
+    assert executor._pnl.position > 0.4
+
+
+def test_reduce_only_exit_is_always_market() -> None:
+    # open a long with a limit, then flatten — the exit must be a guaranteed market
+    executor, _ = _mk_executor(OrderType.LIMIT, fallback=True)
+    executor.client.get_executions.return_value = [_EXEC]
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+        executor._init_store(tmp.name)
+        executor._idempotency = MagicMock()
+        executor._idempotency.try_claim.return_value = True
+        executor._idempotency.resolve.return_value = None
+
+        idx = _df().index
+        # bar: long
+        executor.strategy.generate_signals.return_value = Series([0.0, 1.0, 1.0], index=idx)
+        executor.step(_df())
+        assert executor._pnl.position > 0
+
+        # now flatten — exchange reports the held long so reduce-only proceeds
+        executor.client.place_order.reset_mock()
+        executor.client.cancel_order.reset_mock()
+        executor.client.get_positions.return_value = [
+            {"symbol": "BTCUSDT", "side": "Buy", "size": "1.0", "avgPrice": "99.0", "leverage": "1"}
+        ]
+        executor.strategy.generate_signals.return_value = Series([1.0, 1.0, 0.0], index=idx)
+        executor.step(_df())
+
+    exit_kw = executor.client.place_order.call_args.kwargs
+    assert exit_kw["order_type"] == OrderType.MARKET  # reduce_only exits never rest
+    assert exit_kw.get("reduce_only") is True
