@@ -84,7 +84,7 @@ class TestSMACross:
     def test_name_and_params(self) -> None:
         cls = get("sma_cross")
         assert cls.name == "sma_cross"
-        assert cls.params == {"fast": 5, "slow": 20}
+        assert cls.params == {"fast": 5, "slow": 20, "sl_pct": 0.05, "tp_pct": 0.10}
         assert cls.warmup == 20
 
 
