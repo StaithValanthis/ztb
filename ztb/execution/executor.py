@@ -36,6 +36,7 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
+from ztb.strategies.base import RiskProfile, ScaleOutTier
 from ztb.utils.balance import extract_available_balance
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,49 @@ def _safe_float(val: str | float | None, default: float = 0.0) -> float:
         return float(val)
     except (ValueError, TypeError):
         return default
+
+
+_PROFILE_DEFAULTS: dict[str, Any] = {
+    "sl_pct": 0.02,
+    "tp_pct": 0.03,
+    "leverage": 1.0,
+    "trail_pct": 0.0,
+    "activation_pct": 0.0,
+    "trail_atr_mult": 0.0,
+    "scale_outs": (),
+}
+# RiskProfile field -> ExecRunConfig attr (leverage reuses the max_leverage sizing cap).
+_CONFIG_FIELD: dict[str, str] = {"leverage": "max_leverage"}
+
+
+def _resolve_profile_field(strategy: Any, config: Any, field: str) -> Any:
+    """Effective per-strategy trade-management value.
+
+    Precedence:
+      1) strategy.get_risk_profile().<field>  (non-None wins)
+      2) strategy.params[field]               (ONLY sl_pct/tp_pct; PR#199 back-compat)
+      3) config.<mapped attr>                 (present & not None; explicit 0.0 disable wins)
+      4) _PROFILE_DEFAULTS[field]             (hard default)
+
+    None (not declared) falls through; 0.0 (explicit disable) is returned as-is.
+    The config value is authoritative even at 0.0 because the CLI passes
+    sl_pct/tp_pct=0.0 (not None) when the flag is omitted.
+    """
+    get = getattr(strategy, "get_risk_profile", None)
+    prof = get() if callable(get) else getattr(strategy, "risk_profile", None)
+    if isinstance(prof, RiskProfile):
+        val = getattr(prof, field, None)
+        if val is not None:
+            return val
+    if field in ("sl_pct", "tp_pct"):
+        params = getattr(strategy, "params", None)
+        if isinstance(params, dict) and params.get(field) is not None:
+            return params[field]
+    cfg_attr = _CONFIG_FIELD.get(field, field)
+    cval = getattr(config, cfg_attr, None)
+    if cval is not None:
+        return cval
+    return _PROFILE_DEFAULTS[field]
 
 
 class Executor:
@@ -74,7 +118,10 @@ class Executor:
         self._sigterm_stop: bool = False
         self._last_executed_signal: float = 0.0
         self._signal_initialized: bool = False
-        self._active_sl_tp: dict[str, dict[str, float | str | None]] = {}
+        self._active_sl_tp: dict[str, dict[str, Any]] = {}
+        self._applied_leverage: dict[str, float] = {}
+        self._dll_day: str | None = None
+        self._dll_day_start_realized: float = 0.0
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -159,6 +206,207 @@ class Executor:
                 self.state.timeframe,
             )
 
+    def _resolve_sizing_leverage(self) -> float:
+        """Leverage for LOCAL margin sizing caps. Always returns a value:
+        per-strategy declared > config.max_leverage > hard default."""
+        return float(_resolve_profile_field(self.strategy, self.config, "leverage"))
+
+    def _resolve_exchange_leverage(self) -> float | None:
+        """Leverage to SET on the exchange. Only when the strategy EXPLICITLY
+        declares risk_profile.leverage (None => leave the account default)."""
+        get = getattr(self.strategy, "get_risk_profile", None)
+        prof = get() if callable(get) else getattr(self.strategy, "risk_profile", None)
+        lev = prof.leverage if isinstance(prof, RiskProfile) else None
+        if isinstance(lev, (int, float)) and not isinstance(lev, bool) and lev > 0:
+            return float(lev)
+        return None
+
+    def _apply_leverage(self, symbol: str) -> None:
+        """Set per-strategy leverage on the exchange once, when flat before the
+        first entry. Idempotent; no-op in dry_run or when not declared."""
+        if self.client is None or self.config.dry_run:
+            return
+        lev = self._resolve_exchange_leverage()
+        if lev is None or lev <= 0:
+            return
+        if self._applied_leverage.get(symbol) == lev:
+            return
+        try:
+            self.client.set_leverage(symbol, buy_leverage=lev, sell_leverage=lev)
+            self._applied_leverage[symbol] = lev
+            logger.info("Applied leverage %sx for %s", lev, symbol)
+        except Exception:
+            logger.warning("set_leverage failed for %s — continuing", symbol)
+
+    def _daily_loss_breached(self, bar_ts: str) -> bool:
+        """Account-level daily realized-loss circuit breaker. Blocks NEW entries
+        (existing positions / exits unaffected) once today's realized PnL drops to
+        -limit * initial_cash. Resets at the UTC day boundary. Disabled at <= 0."""
+        limit = getattr(self.config, "daily_loss_limit_pct", 0.0)
+        if not limit or limit <= 0.0:
+            return False
+        day = str(bar_ts)[:10]
+        if self._dll_day != day:
+            self._dll_day = day
+            self._dll_day_start_realized = self._pnl.realized_pnl
+        daily_realized = self._pnl.realized_pnl - self._dll_day_start_realized
+        return daily_realized <= -(limit * self.config.initial_cash)
+
+    def _seed_scale_outs(
+        self,
+        symbol: str,
+        entry_qty: float,
+        avg_entry: float,
+        bar_ts: str,
+        scale_outs: tuple[ScaleOutTier, ...],
+    ) -> None:
+        """Seed per-tier scale-out state at entry (absolute trigger prices)."""
+        from ztb.execution.idempotency import make_intent_hash
+
+        is_long = entry_qty > 0
+        state = self._active_sl_tp.setdefault(symbol, {})
+        state["entry_qty"] = entry_qty
+        state["avg_entry"] = avg_entry
+        state["entry_bar_ts"] = str(bar_ts)
+        state["intent_hash"] = make_intent_hash(entry_qty, avg_entry)
+        state["fired_frac"] = 0.0
+        state["scale_tiers"] = [
+            {
+                "tier_index": i,
+                "close_frac": float(t.close_frac),
+                "fired": False,
+                "at_price": avg_entry * (1.0 + t.at_pct)
+                if is_long
+                else avg_entry * (1.0 - t.at_pct),
+            }
+            for i, t in enumerate(scale_outs)
+        ]
+
+    def _check_scale_outs(self, symbol: str, close_price: float) -> None:
+        """Fire any crossed scale-out tiers: a reduce_only partial close of
+        ``close_frac`` of the ORIGINAL entry size, then re-assert SL on the
+        remainder. Idempotent per tier (fired flag + deterministic link_id)."""
+        if self.client is None or self.config.dry_run or self.state is None:
+            return
+        state = self._active_sl_tp.get(symbol)
+        if not state or not state.get("scale_tiers"):
+            return
+        entry_qty = float(state.get("entry_qty", 0.0))
+        avg_entry = float(state.get("avg_entry", 0.0))
+        if abs(entry_qty) < 1e-12 or avg_entry <= 0.0:
+            return
+        is_long = entry_qty > 0
+        try:
+            step = self.client.get_qty_step(symbol)
+        except Exception:
+            step = 0.0
+        try:
+            min_qty = self.client.get_min_order_qty(symbol)
+        except Exception:
+            min_qty = 0.0
+        fired_any = False
+        for tier in state["scale_tiers"]:
+            if tier.get("fired"):
+                continue
+            at_price = float(tier["at_price"])
+            crossed = (close_price >= at_price) if is_long else (close_price <= at_price)
+            if not crossed:
+                continue
+            scale_qty = abs(entry_qty) * float(tier["close_frac"])
+            if isinstance(step, (int, float)) and step > 0:
+                scale_qty = round_to_step(scale_qty, step)
+            if scale_qty <= 0.0 or (min_qty > 0 and scale_qty < min_qty):
+                logger.info(
+                    "scale-out tier %s qty %s below min — skip", tier["tier_index"], scale_qty
+                )
+                continue
+            close_side = OrderSide.SELL if is_long else OrderSide.BUY
+            from ztb.execution.idempotency import make_sl_tp_order_link_id
+
+            link_id = make_sl_tp_order_link_id(
+                self.state.strategy_name,
+                symbol,
+                str(state.get("entry_bar_ts", "")),
+                str(state.get("intent_hash", "")),
+                f"scaleout{tier['tier_index']}",
+            )
+            if self._idempotency is not None and not self._idempotency.try_claim(link_id):
+                tier["fired"] = True  # already placed in a prior run
+                state["fired_frac"] = min(
+                    1.0, float(state.get("fired_frac", 0.0)) + float(tier["close_frac"])
+                )
+                continue
+            try:
+                self.client.place_order(
+                    symbol,
+                    close_side,
+                    scale_qty,
+                    order_type=OrderType.MARKET,
+                    order_link_id=link_id,
+                    reduce_only=True,
+                )
+                fill_delta = -scale_qty if is_long else scale_qty
+                comm = scale_qty * close_price * self.config.commission
+                slip = scale_qty * close_price * self.config.slippage
+                self._pnl.apply_fill(fill_delta, close_price, commission=comm, slippage=slip)
+                self._sync_pnl_state()
+                tier["fired"] = True
+                state["fired_frac"] = min(
+                    1.0, float(state.get("fired_frac", 0.0)) + scale_qty / abs(entry_qty)
+                )
+                if self._idempotency is not None:
+                    self._idempotency.resolve(link_id, "placed")
+                fired_any = True
+                logger.info(
+                    "scale-out tier %s: closed %s %s at %s",
+                    tier["tier_index"],
+                    scale_qty,
+                    symbol,
+                    close_price,
+                )
+            except Exception:
+                logger.warning(
+                    "scale-out tier %s failed for %s — continuing", tier["tier_index"], symbol
+                )
+        if fired_any:
+            remaining = self._pnl.position
+            if abs(remaining) > 1e-12:
+                preserved = {
+                    k: state[k]
+                    for k in (
+                        "scale_tiers",
+                        "entry_qty",
+                        "avg_entry",
+                        "fired_frac",
+                        "entry_bar_ts",
+                        "intent_hash",
+                    )
+                    if k in state
+                }
+                pos_side = OrderSide.BUY if remaining > 0 else OrderSide.SELL
+                sl_pct = _resolve_profile_field(self.strategy, self.config, "sl_pct")
+                self._apply_sl_tp(symbol, pos_side, remaining, avg_entry, sl_pct, 0.0)
+                self._active_sl_tp.setdefault(symbol, {}).update(preserved)
+            else:
+                # fully scaled out — clear state so a stale fired_frac=1.0 can never
+                # zero every future target_qty and freeze the symbol flat.
+                self._active_sl_tp.pop(symbol, None)
+                self._signal_initialized = False
+
+    def _compute_atr(self, data: Any, period: int = 14) -> float:
+        """ATR(period) last value from the bar window for ATR-based trailing.
+        Returns 0.0 (disable ATR trailing) on insufficient/invalid data."""
+        try:
+            from ztb.features.indicators import atr as _atr
+
+            if data is None or len(data) < period + 1:
+                return 0.0
+            series = _atr(data["high"], data["low"], data["close"], period)
+            val = float(series.iloc[-1])
+            return val if val > 0.0 and not pd.isna(val) else 0.0
+        except Exception:
+            return 0.0
+
     def _apply_sl_tp(
         self,
         symbol: str,
@@ -167,10 +415,14 @@ class Executor:
         avg_entry: float,
         sl_pct: float,
         tp_pct: float,
+        trail_pct: float = 0.0,
+        activation_pct: float = 0.0,
+        trail_atr_mult: float = 0.0,
+        atr: float = 0.0,
     ) -> bool:
         if self.client is None or self.config.dry_run:
             return False
-        if sl_pct <= 0.0 and tp_pct <= 0.0:
+        if sl_pct <= 0.0 and tp_pct <= 0.0 and trail_pct <= 0.0 and trail_atr_mult <= 0.0:
             return False
         if abs(position_size) < 1e-12 or avg_entry <= 0.0:
             return False
@@ -198,6 +450,18 @@ class Executor:
             raise ValueError(
                 f"TP price {tp_price} must be below entry {avg_entry} for short position"
             )
+        trailing_stop_dist: float = 0.0
+        if trail_pct > 0.0:
+            trailing_stop_dist = avg_entry * trail_pct
+        elif trail_atr_mult > 0.0 and atr > 0.0:
+            trailing_stop_dist = atr * trail_atr_mult
+        active_price: float = 0.0
+        if trailing_stop_dist > 0.0 and activation_pct > 0.0:
+            active_price = (
+                avg_entry * (1.0 + activation_pct)
+                if is_long
+                else avg_entry * (1.0 - activation_pct)
+            )
         try:
             self.client.set_trading_stop(
                 symbol=symbol,
@@ -207,6 +471,8 @@ class Executor:
                 take_profit=tp_price,
                 sl_trigger_by="LastPrice",
                 tp_trigger_by="LastPrice",
+                trailing_stop=trailing_stop_dist,
+                active_price=active_price,
             )
             sl_link_id: str | None = None
             tp_link_id: str | None = None
@@ -228,6 +494,7 @@ class Executor:
             self._active_sl_tp[symbol] = {
                 "sl_price": sl_price,
                 "tp_price": tp_price,
+                "trailing_stop": trailing_stop_dist,
                 "sl_link_id": sl_link_id,
                 "tp_link_id": tp_link_id,
             }
@@ -710,6 +977,8 @@ class Executor:
         bar_ts = str(data.index[-1])
         close_price = float(data["close"].iloc[-1])
 
+        self._check_scale_outs(symbol, close_price)
+
         target_signal = self._compute_target_position(data)
         current_position = self._pnl.position
 
@@ -798,7 +1067,7 @@ class Executor:
         asset_precision = self.config.asset_precision
         if not self.config.dry_run and self.client is not None and available_balance > 0:
             target_notional = target_signal * min(
-                equity, available_balance * self.config.max_leverage
+                equity, available_balance * self._resolve_sizing_leverage()
             )
             target_qty = (
                 round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
@@ -809,6 +1078,22 @@ class Executor:
                 if close_price > 0
                 else 0.0
             )
+
+        scale_state = self._active_sl_tp.get(symbol)
+        if (
+            scale_state
+            and scale_state.get("scale_tiers")
+            and float(scale_state.get("fired_frac", 0.0)) > 0.0
+            and abs(current_position) > 1e-12
+            and target_qty * float(scale_state.get("entry_qty", 0.0)) > 0
+        ):
+            target_qty *= 1.0 - float(scale_state["fired_frac"])
+
+        if self._daily_loss_breached(bar_ts):
+            if target_qty * current_position < 0:
+                target_qty = 0.0  # block flip into new opposite exposure (close to flat)
+            elif abs(target_qty) > abs(current_position):
+                target_qty = current_position  # block same-direction adds (hold)
 
         # Align target_qty to instrument step size (round away from zero)
         # to avoid flooring small wallets to zero when step > precision
@@ -1025,7 +1310,7 @@ class Executor:
                 return result
 
             if not reduce_only and available_balance > 0 and close_price > 0:
-                max_notional = available_balance * self.config.max_leverage
+                max_notional = available_balance * self._resolve_sizing_leverage()
                 max_qty = round(max_notional / close_price, asset_precision)
                 if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
                     max_qty = round_to_step(max_qty, instrument_qty_step)
@@ -1069,6 +1354,8 @@ class Executor:
                 clear_side = OrderSide.BUY if current_position > 0 else OrderSide.SELL
                 self._clear_sl_tp(symbol, side=clear_side, position_size=abs(current_position))
 
+            if not reduce_only and abs(current_position) < 1e-8:
+                self._apply_leverage(symbol)
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,
@@ -1253,12 +1540,15 @@ class Executor:
             pos_size = self._pnl.position
             avg_entry = self._pnl.avg_entry_price
             self._clear_sl_tp(symbol, side=pos_side, position_size=abs(pos_size))
-            if isinstance(self.strategy.params, dict):
-                sl_pct = self.strategy.params.get("sl_pct", self.config.sl_pct)
-                tp_pct = self.strategy.params.get("tp_pct", self.config.tp_pct)
-            else:
-                sl_pct = self.config.sl_pct
-                tp_pct = self.config.tp_pct
+            sl_pct = _resolve_profile_field(self.strategy, self.config, "sl_pct")
+            tp_pct = _resolve_profile_field(self.strategy, self.config, "tp_pct")
+            trail_pct = _resolve_profile_field(self.strategy, self.config, "trail_pct")
+            activation_pct = _resolve_profile_field(self.strategy, self.config, "activation_pct")
+            trail_atr_mult = _resolve_profile_field(self.strategy, self.config, "trail_atr_mult")
+            atr_val = self._compute_atr(data) if trail_atr_mult > 0.0 else 0.0
+            scale_outs = _resolve_profile_field(self.strategy, self.config, "scale_outs")
+            if scale_outs:
+                tp_pct = 0.0  # tiered exits + SL replace the single TP
             self._apply_sl_tp(
                 symbol,
                 pos_side,
@@ -1266,7 +1556,13 @@ class Executor:
                 avg_entry,
                 sl_pct,
                 tp_pct,
+                trail_pct=trail_pct,
+                activation_pct=activation_pct,
+                trail_atr_mult=trail_atr_mult,
+                atr=atr_val,
             )
+            if scale_outs and (flip or abs(current_position) < 1e-8):
+                self._seed_scale_outs(symbol, pos_size, avg_entry, bar_ts, scale_outs)
 
             self._reconcile(target_qty, close_price, bar_ts)
             self._last_executed_signal = target_signal

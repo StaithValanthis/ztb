@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ztb.features.indicators import sma
-from ztb.strategies.base import Strategy
+from ztb.strategies.base import RiskProfile, Strategy
 from ztb.strategies.registry import register
 
 
@@ -14,6 +14,7 @@ class SMACross(Strategy):
     timeframe: str = "60"
     params: dict[str, float | int | str] = {"fast": 5, "slow": 20, "sl_pct": 0.05, "tp_pct": 0.10}
     warmup: int = 20
+    risk_profile = RiskProfile(sl_pct=0.05, tp_pct=0.10)
 
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         fast_period = int(self.params["fast"])

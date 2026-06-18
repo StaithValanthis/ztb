@@ -4,7 +4,7 @@ import pandas as pd
 from pandas import DataFrame, Series
 
 from ztb.features.indicators import adx, atr, bb, rsi, sma
-from ztb.strategies.base import Strategy
+from ztb.strategies.base import RiskProfile, Strategy
 from ztb.strategies.registry import register
 
 
@@ -21,6 +21,7 @@ class BearBounceExhaustion(Strategy):
         "max_hold_bars": 24,
     }
     warmup: int = 400
+    risk_profile = RiskProfile(sl_pct=0.03, tp_pct=0.05, leverage=2.0)
 
     def generate_signals(self, df: DataFrame) -> Series:
         # --- 1h indicators ---

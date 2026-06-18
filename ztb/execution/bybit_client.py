@@ -223,6 +223,37 @@ class BybitClient:
             )
         return result
 
+    def set_leverage(
+        self,
+        symbol: str,
+        buy_leverage: float,
+        sell_leverage: float,
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        """Set position leverage on the exchange.
+
+        Swallows Bybit "leverage not modified" (retCode 110043) as a success
+        no-op so repeated calls with the same value are harmless.
+        """
+
+        def _fmt(v: float) -> str:
+            return str(int(v)) if float(v).is_integer() else str(v)
+
+        body = {
+            "category": category,
+            "symbol": symbol,
+            "buyLeverage": _fmt(buy_leverage),
+            "sellLeverage": _fmt(sell_leverage),
+        }
+        try:
+            return self._request("POST", "/v5/position/set-leverage", body=body)
+        except ClientError as exc:
+            msg = str(exc).lower()
+            if "not modified" in msg or "110043" in msg:
+                logger.info("set_leverage no-op (already %s) for %s", buy_leverage, symbol)
+                return {}
+            raise
+
     def set_trading_stop(
         self,
         symbol: str,
@@ -232,6 +263,8 @@ class BybitClient:
         take_profit: float = 0.0,
         sl_trigger_by: str = "LastPrice",
         tp_trigger_by: str = "LastPrice",
+        trailing_stop: float = 0.0,
+        active_price: float = 0.0,
         category: str = "linear",
     ) -> dict[str, Any]:
         """Set or clear SL/TP on an open position.
@@ -260,6 +293,10 @@ class BybitClient:
             body["slTriggerBy"] = sl_trigger_by
         if tp_trigger_by:
             body["tpTriggerBy"] = tp_trigger_by
+        if trailing_stop > 0.0:
+            body["trailingStop"] = str(trailing_stop)
+        if active_price > 0.0:
+            body["activePrice"] = str(active_price)
         return self._request("POST", "/v5/position/trading-stop", body=body)
 
     def get_active_trading_stops(
