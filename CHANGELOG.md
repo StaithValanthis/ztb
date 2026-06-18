@@ -45,7 +45,16 @@
 - **Tag:** v1.1.53
 
 ## v1.1.52
-- atomic-merge version bump for PR #183
+- **Feat(store):** Separate test/backtest DB from live execution DB (Option A — dual-DB, ZTB-3070). Both DBs get full schema (core + exec tables); cross-contamination enforced by code path, not by missing tables.
+- **Store:** `connect_live()`, `_get_live_db_path()`, `_get_test_db_path()`, `_ensure_all_tables()` in `ztb/store/results.py`.
+- **CLI:** Per-command default DB paths; `ztb report --live` flag routes to live DB.
+- **Execution:** `executor.py` passes live DB to `_init_store`; `bybit_client.py` audit logging uses `connect_live`; `live_guard.py` resolves default store for live DB.
+- **Dashboard/Health:** `data_access.py` and `health.py` use `connect_live` for live queries.
+- **Engine:** `pnl.py` uses test DB via `Store.get_test_db()` — no leak to live path.
+- **Tests:** 9 new test cases in `test_dual_db.py` — isolation test #9 confirms zero cross-contamination between test and live DBs on concurrent writes.
+- **Three-key merge:** CI green (test 3.11/3.13 SUCCESS) + V&R PASS (vr-pass checkrun SUCCESS) on merge commit `0fe260a` + `ztb/real-fill-certified` SUCCESS via branch deploy.
+- **PR:** [#183](https://github.com/StaithValanthis/ztb/pull/183)
+- **Tag:** v1.1.52
 
 ## v1.1.51
 - **Fix(executor):** Conditional demo top-up — check `get_wallet_balance` before calling `top_up_demo_account`. Skip if wallet >= 10% of `initial_cash`. Eliminates ~7,045 `ClientError("ab not enough")` and ~16 `DemoAccountTopUpError` rate-limit hits per day from unconditional restart top-ups.
