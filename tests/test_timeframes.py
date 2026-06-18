@@ -38,3 +38,27 @@ class TestMappingConsistency:
     def test_inverse_mapping_complete(self) -> None:
         assert set(MS_TO_INTERVAL.keys()) == set(INTERVAL_TO_MS.values())
         assert set(MS_TO_INTERVAL.values()) == set(INTERVAL_TO_MS.keys())
+
+
+def test_normalize_timeframe_aliases() -> None:
+    from ztb.data.timeframes import interval_to_ms, normalize_timeframe
+
+    assert normalize_timeframe("4h") == "240"
+    assert normalize_timeframe("1h") == "60"
+    assert normalize_timeframe("1d") == "D"
+    assert normalize_timeframe("1w") == "W"
+    assert normalize_timeframe("240") == "240"  # canonical passthrough
+    assert normalize_timeframe("D") == "D"
+    assert normalize_timeframe("4H") == "240"  # case-insensitive
+    assert normalize_timeframe("garbage") == "garbage"  # unknown returns as-is
+    # interval_to_ms now accepts aliases (this is what crashed validate on "4h")
+    assert interval_to_ms("4h") == 14_400_000
+    assert interval_to_ms("1h") == 3_600_000
+
+
+def test_resolve_ppy_accepts_aliases() -> None:
+    from ztb.engine.metrics import resolve_periods_per_year
+
+    assert resolve_periods_per_year("4h") == 365 * 24 * 60 / 240  # 2190 via alias->240
+    assert resolve_periods_per_year("1h") == 365 * 24  # 60
+    assert resolve_periods_per_year("1d") == 365  # D

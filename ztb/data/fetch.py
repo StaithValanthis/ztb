@@ -19,6 +19,9 @@ def fetch_ohlcv(
     Returns deduplicated, ascending list of raw API dicts.
     Raises FetchError on failure.
     """
+    from ztb.data.timeframes import normalize_timeframe
+
+    interval = normalize_timeframe(interval)
     all_bars: list[dict[str, Any]] = []
     seen: set[str] = set()
 
