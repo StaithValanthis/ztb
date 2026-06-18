@@ -34,30 +34,26 @@ class RecoveryContinuation(Strategy):
         daily_ema200 = ema(daily_close, 200)
         daily_ema50 = ema(daily_close, 50)
 
-        daily_ema200_4h = daily_ema200.reindex(close.index, method="ffill")
-        daily_ema50_4h = daily_ema50.reindex(close.index, method="ffill")
+        daily_bear = (daily_close < daily_ema200) & (daily_close < daily_ema50)
+        daily_bear_4h = daily_bear.reindex(close.index, method="ffill").fillna(False)
 
         bbw = bb_width(close, 20, 2.0)
         _, _, bb_lower = bb(close, 20, 2.0)
         atr14 = atr(high, low, close, 14)
 
-        bear_macro = (close < daily_ema200_4h) & (close < daily_ema50_4h)
+        bear_macro = daily_bear_4h
         compressed = bbw < self.params["bb_width_compressed_pct"]
         not_dead = bbw >= self.params["min_bb_width_pct"]
         precondition = bear_macro & compressed & not_dead
 
         lookback = int(self.params["lookback_bars"])
-        highest_high = (
-            high.shift(1).rolling(window=lookback, min_periods=lookback).max()
-        )
+        highest_high = high.shift(1).rolling(window=lookback, min_periods=lookback).max()
 
         bar_range = high - low
         min_atr_ratio = self.params["min_bar_atr_ratio"]
         strong_bar = bar_range / atr14 > min_atr_ratio
 
-        entry_setup = (
-            precondition.shift(1) & (close > highest_high) & strong_bar
-        ).fillna(False)
+        entry_setup = (precondition.shift(1) & (close > highest_high) & strong_bar).fillna(False)
 
         signals = pd.Series(0.0, index=df.index)
         in_position = False
@@ -76,13 +72,9 @@ class RecoveryContinuation(Strategy):
 
                 lowest_since_entry = min(lowest_since_entry, cur_low)
 
-                trail_stop = (
-                    lowest_since_entry - self.params["trail_atr_mult"] * cur_atr
-                )
+                trail_stop = lowest_since_entry - self.params["trail_atr_mult"] * cur_atr
 
-                profit_target = (
-                    entry_price + self.params["target_atr_mult"] * cur_atr
-                )
+                profit_target = entry_price + self.params["target_atr_mult"] * cur_atr
 
                 bars_held = i - entry_idx
                 max_bars = int(self.params["max_hold_bars"])
@@ -103,9 +95,7 @@ class RecoveryContinuation(Strategy):
                 else:
                     signals.iloc[i] = 1.0
             else:
-                if entry_setup.iloc[i] and (
-                    i - last_exit_idx >= min_gap_bars
-                ):
+                if entry_setup.iloc[i] and (i - last_exit_idx >= min_gap_bars):
                     in_position = True
                     entry_price = close.iloc[i]
                     entry_idx = i

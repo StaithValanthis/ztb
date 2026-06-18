@@ -23,22 +23,17 @@ def _rc_sample_df(bars: int = 3000) -> DataFrame:
     close[bull_end:crash_end] = np.linspace(150, 60, crash_end - bull_end)
     comp_end = min(crash_end + 420, n - 300)
     comp_len = comp_end - crash_end
-    close[crash_end:comp_end] = (
-        60 + np.random.normal(0, 0.4, comp_len).clip(-1.5, 1.5)
-    )
+    close[crash_end:comp_end] = 60 + np.random.normal(0, 0.4, comp_len).clip(-1.5, 1.5)
     close[comp_end] = 68.0
     hold_end = min(comp_end + 50, n - 200)
     hold_len = hold_end - comp_end - 1
     if hold_len > 0:
-        close[comp_end + 1 : hold_end] = (
-            67 + np.random.normal(0, 0.4, hold_len).clip(-1, 1)
-        )
+        close[comp_end + 1 : hold_end] = 67 + np.random.normal(0, 0.4, hold_len).clip(-1, 1)
     remaining = n - hold_end
     if remaining > 0:
-        close[hold_end:] = (
-            np.linspace(68, 76, remaining)
-            + np.random.normal(0, 0.4, remaining).clip(-0.8, 0.8)
-        )
+        close[hold_end:] = np.linspace(68, 76, remaining) + np.random.normal(
+            0, 0.4, remaining
+        ).clip(-0.8, 0.8)
 
     high = np.zeros(n)
     low = np.zeros(n)
