@@ -1,3 +1,6 @@
+## v1.1.54
+- atomic-merge version bump for PR #199 (SL/TP enable + precedence + close-gaps + contract freeze)
+
 ## v1.1.53
 - **Fix(executor):** Demo top-up rate-limiting — cooldown + single-attempt (ZTB-3426). Remove `_top_up_ladder` multi-attempt retry ladder (5 HTTP POSTs per top-up). Replace with single-attempt `top_up_demo_account` + 60-second cooldown (`_last_demo_post_ts`, `_demo_faucet_cooldown`). Eliminates redundant POST to `/v5/account/demo-apply-money` when cooldown is active — at most 1 POST per 60s regardless of restart frequency. Previously the ladder approach issued up to 5 POSTs per restart, hitting Bybit demo faucet rate limits (~16 `DemoAccountTopUpError` per day).
 - **Tests:** 4 new tests — `test_top_up_demo_account_single_attempt` (exactly 1 POST, no ladder), `test_top_up_demo_account_cooldown_skips` (cooldown active → graceful skip), `test_top_up_demo_account_updates_timestamp` (post-TS updated), `test_top_up_ladder_not_present` (ladder removed). Ladder tests removed.
