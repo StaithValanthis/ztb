@@ -4,7 +4,7 @@ import pandas as pd
 from pandas import DataFrame, DatetimeIndex, Series
 
 from ztb.features.indicators import adx, atr, bb, bb_width, di_minus, di_plus, ema
-from ztb.strategies.base import Strategy
+from ztb.strategies.base import RiskProfile, Strategy
 from ztb.strategies.registry import register
 
 
@@ -26,6 +26,7 @@ class BearishResumption(Strategy):
         "trail_atr_mult": 2.5,
     }
     warmup: int = 1200
+    risk_profile = RiskProfile(sl_pct=0.03, tp_pct=0.06, leverage=2.0)
 
     def generate_signals(self, df: DataFrame) -> Series:
         idx = df.index

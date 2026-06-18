@@ -4,7 +4,7 @@ import pandas as pd
 from pandas import DataFrame, Series
 
 from ztb.features.indicators import adx, atr, di_minus, di_plus, ema
-from ztb.strategies.base import Strategy
+from ztb.strategies.base import RiskProfile, Strategy
 from ztb.strategies.registry import register
 
 
@@ -21,6 +21,7 @@ class BearFlagContinuationShort(Strategy):
         "max_hold_bars": 12,
     }
     warmup: int = 400
+    risk_profile = RiskProfile(sl_pct=0.04, tp_pct=0.08, leverage=2.0)
 
     def generate_signals(self, df: DataFrame) -> Series:
         daily = (
