@@ -1,5 +1,6 @@
 ## v1.1.56
 - atomic-merge version bump for PR #204
+- **chore(strategies):** Remove the 4 failed bear strategies (bearish_resumption, bear_bounce_exhaustion, bear_flag_continuation_short, bear_vol_continuation) — all failed `ztb validate` (0-trade/non-credible + a trailing-stop bug). sma_cross retained as the reference/test fixture only. Clean slate for the strategy-research pivot; bot halted until a strategy passes validation. Non-trading-path change.
 
 ## v1.1.55
 - atomic-merge version bump for PR #203
