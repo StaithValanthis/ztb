@@ -27,7 +27,8 @@ def _rcl_sample_df(bars: int = 4000) -> DataFrame:
     close[bear_end:base_end] = 45 + np.random.normal(0, 0.8, base_len).clip(-2, 2)
     # Phase 3: Reversal — price rallies above EMA20, DI+ crosses DI-
     rev_len = n - base_end
-    close[base_end:] = np.linspace(45, 70, rev_len) + np.random.normal(0, 0.6, rev_len).clip(-1.5, 1.5)
+    noise = np.random.normal(0, 0.6, rev_len).clip(-1.5, 1.5)
+    close[base_end:] = np.linspace(45, 70, rev_len) + noise
 
     # Build high/low
     high = np.zeros(n)
@@ -94,7 +95,7 @@ class TestReversalConfirmationLong:
         strat = cls()
         df = _rcl_sample_df()
         signals = strat.generate_signals(df)
-        assert signals.iloc[strat.warmup:].isna().sum() == 0
+        assert signals.iloc[strat.warmup :].isna().sum() == 0
 
     # RC-P6
     @pytest.mark.parametrize(
@@ -129,7 +130,7 @@ class TestReversalConfirmationLong:
             signals = strat.generate_signals(df)
             assert signals.dtype == float
             assert len(signals) == len(df)
-            assert signals.iloc[strat.warmup:].isna().sum() == 0
+            assert signals.iloc[strat.warmup :].isna().sum() == 0
 
     # RC-P7
     def test_signal_length_matches_data(self) -> None:
