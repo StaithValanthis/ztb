@@ -323,6 +323,44 @@ class BybitClient:
                 filtered.append(pos)
         return filtered
 
+    def amend_order(
+        self,
+        symbol: str,
+        order_id: str = "",
+        order_link_id: str = "",
+        price: float | None = None,
+        qty: float | None = None,
+        trigger_price: float | None = None,
+        take_profit: float | None = None,
+        stop_loss: float | None = None,
+        tp_trigger_by: str | None = None,
+        sl_trigger_by: str | None = None,
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+        }
+        if order_id:
+            body["orderId"] = order_id
+        if order_link_id:
+            body["orderLinkId"] = order_link_id
+        if price is not None:
+            body["price"] = str(price)
+        if qty is not None:
+            body["qty"] = str(qty)
+        if trigger_price is not None:
+            body["triggerPrice"] = str(trigger_price)
+        if take_profit is not None:
+            body["takeProfit"] = str(take_profit)
+        if stop_loss is not None:
+            body["stopLoss"] = str(stop_loss)
+        if tp_trigger_by is not None:
+            body["tpTriggerBy"] = tp_trigger_by
+        if sl_trigger_by is not None:
+            body["slTriggerBy"] = sl_trigger_by
+        return self._request("POST", "/v5/order/amend", body=body)
+
     def cancel_order(
         self,
         symbol: str,
