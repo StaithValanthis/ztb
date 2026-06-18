@@ -108,8 +108,8 @@ class ExecRunConfig:
     loop_flush_interval: int = 1
     poll_fill_max_attempts: int = 15
     poll_fill_interval: float = 2.0
-    sl_pct: float = 0.0
-    tp_pct: float = 0.0
+    sl_pct: float = 0.02
+    tp_pct: float = 0.03
     risk_per_trade_pct: float = 0.0
     min_qty: float = 0.0
 
