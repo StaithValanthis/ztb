@@ -73,6 +73,11 @@ class RiskProfile:
                     raise ValueError("RiskProfile.scale_outs must be strictly ascending by at_pct")
             if sum(t.close_frac for t in tiers) > 1.0 + 1e-9:
                 raise ValueError("RiskProfile.scale_outs close_frac sum must be <= 1.0")
+            if self.trail_pct is not None or self.trail_atr_mult is not None:
+                raise ValueError(
+                    "RiskProfile: trailing + scale_outs together is not supported "
+                    "(the post-scale-out SL re-assert would drop the trailing stop)"
+                )
 
 
 # Contract-name alias.

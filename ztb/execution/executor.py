@@ -325,6 +325,9 @@ class Executor:
             )
             if self._idempotency is not None and not self._idempotency.try_claim(link_id):
                 tier["fired"] = True  # already placed in a prior run
+                state["fired_frac"] = min(
+                    1.0, float(state.get("fired_frac", 0.0)) + float(tier["close_frac"])
+                )
                 continue
             try:
                 self.client.place_order(
@@ -341,7 +344,9 @@ class Executor:
                 self._pnl.apply_fill(fill_delta, close_price, commission=comm, slippage=slip)
                 self._sync_pnl_state()
                 tier["fired"] = True
-                state["fired_frac"] = float(state.get("fired_frac", 0.0)) + float(tier["close_frac"])
+                state["fired_frac"] = min(
+                    1.0, float(state.get("fired_frac", 0.0)) + scale_qty / abs(entry_qty)
+                )
                 if self._idempotency is not None:
                     self._idempotency.resolve(link_id, "placed")
                 fired_any = True
@@ -375,6 +380,11 @@ class Executor:
                 sl_pct = _resolve_profile_field(self.strategy, self.config, "sl_pct")
                 self._apply_sl_tp(symbol, pos_side, remaining, avg_entry, sl_pct, 0.0)
                 self._active_sl_tp.setdefault(symbol, {}).update(preserved)
+            else:
+                # fully scaled out — clear state so a stale fired_frac=1.0 can never
+                # zero every future target_qty and freeze the symbol flat.
+                self._active_sl_tp.pop(symbol, None)
+                self._signal_initialized = False
 
     def _compute_atr(self, data: Any, period: int = 14) -> float:
         """ATR(period) last value from the bar window for ATR-based trailing.
@@ -1065,15 +1075,16 @@ class Executor:
             scale_state
             and scale_state.get("scale_tiers")
             and float(scale_state.get("fired_frac", 0.0)) > 0.0
+            and abs(current_position) > 1e-12
+            and target_qty * float(scale_state.get("entry_qty", 0.0)) > 0
         ):
             target_qty *= 1.0 - float(scale_state["fired_frac"])
 
-        if (
-            self._daily_loss_breached(bar_ts)
-            and abs(target_qty) > abs(current_position)
-            and target_qty * current_position >= 0
-        ):
-            target_qty = current_position
+        if self._daily_loss_breached(bar_ts):
+            if target_qty * current_position < 0:
+                target_qty = 0.0  # block flip into new opposite exposure (close to flat)
+            elif abs(target_qty) > abs(current_position):
+                target_qty = current_position  # block same-direction adds (hold)
 
         # Align target_qty to instrument step size (round away from zero)
         # to avoid flooring small wallets to zero when step > precision
@@ -1541,7 +1552,7 @@ class Executor:
                 trail_atr_mult=trail_atr_mult,
                 atr=atr_val,
             )
-            if scale_outs:
+            if scale_outs and (flip or abs(current_position) < 1e-8):
                 self._seed_scale_outs(symbol, pos_size, avg_entry, bar_ts, scale_outs)
 
             self._reconcile(target_qty, close_price, bar_ts)
