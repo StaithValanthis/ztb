@@ -26,6 +26,9 @@ def cache_path(
     *,
     base: Path = DEFAULT_CACHE_DIR,
 ) -> Path:
+    from ztb.data.timeframes import normalize_timeframe
+
+    interval = normalize_timeframe(interval)
     path = base / "kline" / category / symbol / f"{interval}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path

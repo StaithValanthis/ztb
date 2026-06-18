@@ -28,6 +28,9 @@ def resolve_periods_per_year(timeframe: str) -> float:
     not in the table — 4h Sharpe came out ~2x too high, making the validation
     edge gate too lenient (false positives). Unknown/garbage falls back to hourly.
     """
+    from ztb.data.timeframes import normalize_timeframe
+
+    timeframe = normalize_timeframe(timeframe)
     if timeframe in PERIODS_PER_YEAR:
         return PERIODS_PER_YEAR[timeframe]
     try:
