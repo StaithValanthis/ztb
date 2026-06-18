@@ -155,6 +155,14 @@ def main() -> None:
     # Step 1: detect if this is a strategy PR
     if not is_strategy_pr():
         post_commit_status(owner, repo, sha, "success", "Non-strategy PR — evidence gate skipped")
+        post_commit_status(
+            owner,
+            repo,
+            sha,
+            "success",
+            "Non-strategy PR — V&R PASS trivially satisfied",
+            context=EVIDENCE_CONTEXT,
+        )
         print(f"{GATE_CONTEXT} = success on {sha[:12]} (non-strategy PR, trivially passed)")
         sys.exit(0)
 

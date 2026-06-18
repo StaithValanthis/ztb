@@ -74,6 +74,7 @@ class TestEvidenceGateCheck:
         mock_run.side_effect = [
             _cp(stdout="README.md"),
             _cp(stdout="{}"),
+            _cp(stdout="{}"),
         ]
         argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
@@ -81,6 +82,24 @@ class TestEvidenceGateCheck:
         assert exc.value.code == 0
         out, _ = capsys.readouterr()
         assert "trivially passed" in out
+
+    @patch.object(mod.subprocess, "run")
+    def test_non_strategy_pr_sets_vr_pass_success(self, mock_run: Any) -> None:
+        mock_run.side_effect = [
+            _cp(stdout="README.md"),
+            _cp(stdout="{}"),
+            _cp(stdout="{}"),
+        ]
+        argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
+        with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 0
+        # Two gh POST calls: gate context + evidence context.
+        # The last should be for EVIDENCE_CONTEXT with state=success.
+        post_calls = [c for c in mock_run.call_args_list if "statuses" in " ".join(c[0][0])]
+        assert len(post_calls) == 2
+        evidence_call = post_calls[-1]
+        assert mod.EVIDENCE_CONTEXT in evidence_call.kwargs["input"]
 
     @patch.object(mod.subprocess, "run")
     def test_strategy_pr_no_evidence_gate(
