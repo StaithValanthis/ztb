@@ -544,6 +544,56 @@ class Executor:
         )
         return []
 
+    def _fetch_and_record_sltp_fills(self, symbol: str) -> list[dict[str, Any]]:
+        if self.client is None or self.config.dry_run:
+            return []
+        assert self.state is not None
+        recorded: list[dict[str, Any]] = []
+        try:
+            orders = self.client.get_order_history(symbol=symbol, limit=50)
+            sltp_orders = [
+                o
+                for o in orders
+                if o.get("stopOrderType") in ("StopLoss", "TakeProfit")
+                and o.get("orderStatus") in ("Filled", "PartiallyFilled")
+            ]
+            for order in sltp_orders:
+                order_id = order.get("orderId", "")
+                order_link_id = order.get("orderLinkId", "")
+                if not order_id:
+                    continue
+                raw_fills = self.client.get_executions(symbol=symbol, order_id=order_id)
+                from ztb.execution.reconcile import parse_fills as _parse_fills
+
+                parsed = list(_parse_fills(raw_fills))
+                for fill in parsed:
+                    fill_row = {
+                        "fill_id": fill.exec_id,
+                        "order_link_id": order_link_id,
+                        "exec_run_id": self.state.exec_run_id,
+                        "order_id": fill.order_id,
+                        "symbol": fill.symbol,
+                        "side": fill.side.value,
+                        "price": fill.price,
+                        "qty": fill.qty,
+                        "commission": fill.commission,
+                        "realized_pnl": 0.0,
+                        "filled_at": fill.timestamp,
+                        "sufficient_sample": 1,
+                        "code_version": __version__,
+                    }
+                    from ztb.store.exec_io import save_exec_fill
+
+                    save_exec_fill(self._store_conn, fill_row)
+                    recorded.append(fill_row)
+            if recorded:
+                logger.info(
+                    "Recorded %d SL/TP fill(s) for %s", len(recorded), symbol
+                )
+        except Exception:
+            logger.warning("Failed to fetch/record SL/TP fills for %s", symbol)
+        return recorded
+
     def step(
         self,
         data: DataFrame,
@@ -869,6 +919,8 @@ class Executor:
                     self.state.last_bar_ts = bar_ts
                     return result
 
+            self._fetch_and_record_sltp_fills(symbol)
+
             side = OrderSide.BUY if delta > 0 else OrderSide.SELL
             qty = round(abs(delta), asset_precision)
 
@@ -900,6 +952,7 @@ class Executor:
                     current_position,
                     reconcile_report.actual_position,
                 )
+                self._fetch_and_record_sltp_fills(symbol)
                 # adopt_state without realized_pnl --- PnL from the external close
                 # (SL/TP, manual close) is NOT preserved in PnLCalculator.
                 # Acceptable because equity is refreshed from exchange wallet
