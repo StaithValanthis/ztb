@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ztb.features.indicators import atr, sma
-from ztb.strategies.base import Strategy
+from ztb.strategies.base import RiskProfile, Strategy
 from ztb.strategies.registry import register
 
 
@@ -11,7 +11,7 @@ from ztb.strategies.registry import register
 class SMA20RejectionShort(Strategy):
     name = "sma20_rejection_short"
     symbols: list[str] = ["BTCUSDT"]
-    timeframe: str = "240"
+    timeframe: str = "4h"
     params: dict[str, float | int | str] = {
         "volume_spike_mult": 3.0,
         "volume_spike_lookback": 5,
@@ -20,6 +20,7 @@ class SMA20RejectionShort(Strategy):
         "max_hold_bars": 10,
     }
     warmup: int = 200
+    risk_profile = RiskProfile()
 
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         sma20 = sma(df["close"], 20)
