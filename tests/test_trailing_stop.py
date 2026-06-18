@@ -13,14 +13,21 @@ from ztb.strategies.base import RiskProfile
 def _bybit(monkeypatch):
     c = BybitClient(ClientConfig(api_key="k", api_secret="s", mode=Mode.DEMO))
     calls: list = []
-    monkeypatch.setattr(c, "_request", lambda m, p, body=None, **k: (calls.append(body), {"ok": 1})[1])
+    monkeypatch.setattr(
+        c, "_request", lambda m, p, body=None, **k: (calls.append(body), {"ok": 1})[1]
+    )
     return c, calls
 
 
 def test_trading_stop_includes_trailing_when_set(monkeypatch) -> None:
     c, calls = _bybit(monkeypatch)
     c.set_trading_stop(
-        "BTCUSDT", OrderSide.BUY, 0.01, stop_loss=64000.0, trailing_stop=1300.0, active_price=66000.0
+        "BTCUSDT",
+        OrderSide.BUY,
+        0.01,
+        stop_loss=64000.0,
+        trailing_stop=1300.0,
+        active_price=66000.0,
     )
     b = calls[0]
     assert b["trailingStop"] == "1300.0"

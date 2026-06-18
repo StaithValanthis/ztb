@@ -21,7 +21,9 @@ class _FakeClient:
     def get_min_order_qty(self, symbol, category="linear"):
         return 0.001
 
-    def place_order(self, symbol, side, qty, order_type=None, order_link_id="", reduce_only=False, **kw):
+    def place_order(
+        self, symbol, side, qty, order_type=None, order_link_id="", reduce_only=False, **kw
+    ):
         self.orders.append((side, qty, reduce_only, order_link_id))
         return {"orderId": "x"}
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ztb.strategies.base import RiskProfile, _DEFAULT_RISK_PROFILE
+from ztb.strategies.base import _DEFAULT_RISK_PROFILE, RiskProfile
 from ztb.strategies.registry import get, list_names
 
 _BEARS = {

@@ -235,6 +235,7 @@ class BybitClient:
         Swallows Bybit "leverage not modified" (retCode 110043) as a success
         no-op so repeated calls with the same value are harmless.
         """
+
         def _fmt(v: float) -> str:
             return str(int(v)) if float(v).is_integer() else str(v)
 

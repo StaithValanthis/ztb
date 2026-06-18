@@ -35,8 +35,8 @@ from ztb.execution.models import (
 from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
-from ztb.strategies.base import RiskProfile
 from ztb.store.results import connect as store_connect
+from ztb.strategies.base import RiskProfile
 from ztb.utils.balance import extract_available_balance
 
 logger = logging.getLogger(__name__)
@@ -451,7 +451,9 @@ class Executor:
         active_price: float = 0.0
         if trailing_stop_dist > 0.0 and activation_pct > 0.0:
             active_price = (
-                avg_entry * (1.0 + activation_pct) if is_long else avg_entry * (1.0 - activation_pct)
+                avg_entry * (1.0 + activation_pct)
+                if is_long
+                else avg_entry * (1.0 - activation_pct)
             )
         try:
             self.client.set_trading_stop(
