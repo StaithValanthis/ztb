@@ -36,7 +36,7 @@ from ztb.execution.reconcile import ReconcileReport, reconcile_account
 from ztb.risk.manager import RiskManager
 from ztb.risk.models import RiskConfig, RiskDecision, RiskDecisionAction
 from ztb.store.results import connect as store_connect
-from ztb.strategies.base import RiskProfile
+from ztb.strategies.base import RiskProfile, ScaleOutTier
 from ztb.utils.balance import extract_available_balance
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class Executor:
         self._sigterm_stop: bool = False
         self._last_executed_signal: float = 0.0
         self._signal_initialized: bool = False
-        self._active_sl_tp: dict[str, dict[str, float | str | None]] = {}
+        self._active_sl_tp: dict[str, dict[str, Any]] = {}
         self._applied_leverage: dict[str, float] = {}
         self._dll_day: str | None = None
         self._dll_day_start_realized: float = 0.0
@@ -252,7 +252,14 @@ class Executor:
         daily_realized = self._pnl.realized_pnl - self._dll_day_start_realized
         return daily_realized <= -(limit * self.config.initial_cash)
 
-    def _seed_scale_outs(self, symbol, entry_qty, avg_entry, bar_ts, scale_outs) -> None:
+    def _seed_scale_outs(
+        self,
+        symbol: str,
+        entry_qty: float,
+        avg_entry: float,
+        bar_ts: str,
+        scale_outs: tuple[ScaleOutTier, ...],
+    ) -> None:
         """Seed per-tier scale-out state at entry (absolute trigger prices)."""
         from ztb.execution.idempotency import make_intent_hash
 
