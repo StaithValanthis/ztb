@@ -116,6 +116,9 @@ class ExecRunConfig:
     risk_per_trade_pct: float = 0.0
     min_qty: float = 0.0
     daily_loss_limit_pct: float = 0.0
+    order_type: OrderType = OrderType.MARKET
+    limit_offset_pct: float = 0.0
+    limit_fallback_market: bool = True
 
     def __post_init__(self) -> None:
         if self.loop is None:
@@ -136,6 +139,10 @@ class ExecRunConfig:
             raise ValueError(
                 f"risk_per_trade_pct must be in [0.001, 0.05] or 0.0 (disabled), "
                 f"got {self.risk_per_trade_pct}"
+            )
+        if not (0.0 <= self.limit_offset_pct <= 0.10):
+            raise ValueError(
+                f"limit_offset_pct must be in [0.0, 0.10], got {self.limit_offset_pct}"
             )
 
 

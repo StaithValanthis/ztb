@@ -221,6 +221,143 @@ class Executor:
             return float(lev)
         return None
 
+    def _resolve_limit_price(self, side: OrderSide, ref_price: float, symbol: str) -> float:
+        """On-tick limit price offset from the reference price; BUY rests below
+        market, SELL rests above (both aim to post as a maker)."""
+        off = self.config.limit_offset_pct
+        raw = ref_price * (1.0 - off) if side == OrderSide.BUY else ref_price * (1.0 + off)
+        if self.client is not None:
+            try:
+                tick = self.client.get_tick_size(symbol)
+                if tick > 0:
+                    step_fn = (
+                        self.client.ceil_to_step
+                        if side == OrderSide.SELL
+                        else self.client.round_to_step
+                    )
+                    return float(step_fn(raw, tick))
+            except Exception:  # pragma: no cover - best-effort tick lookup
+                pass
+        return float(raw)
+
+    def _merge_fills(
+        self, a: list[dict[str, Any]], b: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for f in list(a) + list(b):
+            fid = str(f.get("fill_id", ""))
+            key = fid or (
+                f"{f.get('order_id', '')}:{f.get('price', '')}:"
+                f"{f.get('qty', '')}:{f.get('filled_at', '')}"
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(f)
+        return out
+
+    def _round_qty_down(self, symbol: str, qty: float) -> float:
+        if qty <= 0.0 or self.client is None:
+            return max(0.0, qty)
+        try:
+            step = self.client.get_qty_step(symbol)
+        except Exception:  # pragma: no cover - best-effort step lookup
+            step = 0.0
+        if step > 0:
+            # add a negligible fraction of a step so float repr (e.g. 0.6/0.001
+            # = 599.999...) cannot floor away a whole step from the remainder.
+            return float(self.client.round_to_step(qty + step * 1e-6, step))
+        return qty
+
+    def _execute_limit_lifecycle(
+        self,
+        symbol: str,
+        side: OrderSide,
+        qty: float,
+        order_id: str,
+        order_link_id: str,
+    ) -> dict[str, Any]:
+        """Authoritative limit-entry lifecycle. Give the resting maker a brief
+        chance to fill, then CANCEL FIRST so no later fill can race a fallback,
+        re-read the actual fills, fill only the UNFILLED remainder with a market
+        order (if enabled), and NEVER synthesize a fill. Returns the real fills
+        plus the order id/link/type to attribute downstream.
+
+        v1 limitation (limit orders are OFF by default — order_type defaults to
+        market): the shared restart/lost-response recovery paths (the top-of-bar
+        synthetic restore and the M1 _reconcile_pending_order block) assume
+        market-fill-at-close semantics. If the process crashes mid-bar while a
+        limit is resting, on restart those paths may mis-attribute the entry at
+        close_price rather than the fill price (the next bar re-reconciles
+        against the exchange). Making them fully limit-aware requires reworking
+        that shared idempotency code; tracked separately. Normal (non-restart)
+        operation is correct and fully covered by tests."""
+        assert self.client is not None
+        assert self._idempotency is not None
+        executed_order_type = "Limit"
+        pre = self._poll_fills(order_id=order_id, order_link_id=order_link_id)
+        try:
+            self.client.cancel_order(symbol=symbol, order_id=order_id, order_link_id=order_link_id)
+        except Exception as exc:  # best-effort cleanup — must never abort the bar
+            logger.debug("limit cancel for %s returned: %s", order_id, exc)
+        post = self._poll_fills(order_id=order_id, order_link_id=order_link_id)
+        real_fills = self._merge_fills(pre, post)
+        filled_qty = sum(float(f["qty"]) for f in real_fills)
+        # Only a FULLY filled limit is restorable as 'placed' on restart (the
+        # restore path books the full delta). A partial or unfilled limit is
+        # resolved terminally so a restart reconciles against the exchange
+        # (via _reconcile_pending_order) instead of synth-restoring a wrong qty.
+        if filled_qty >= qty - 1e-9:
+            self._idempotency.resolve(order_link_id, "placed", order_id)
+        else:
+            self._idempotency.resolve(order_link_id, "cancelled")
+        out_order_id, out_link = order_id, order_link_id
+        remainder = self._round_qty_down(symbol, qty - filled_qty)
+        if remainder > 0.0 and self.config.limit_fallback_market:
+            fb_link = f"{order_link_id}-mkt"
+            if not self._idempotency.try_claim(fb_link):
+                # already placed in a prior (crashed) run for this bar — do not
+                # double-fire the fallback on restart.
+                logger.info("limit fallback %s already claimed — skipping", fb_link)
+            else:
+                logger.info(
+                    "limit %s filled %.8f/%.8f — market fallback %s for %.8f",
+                    order_link_id,
+                    filled_qty,
+                    qty,
+                    fb_link,
+                    remainder,
+                )
+                try:
+                    fb_result = self.client.place_order(
+                        symbol=symbol,
+                        side=side,
+                        qty=remainder,
+                        order_type=OrderType.MARKET,
+                        order_link_id=fb_link,
+                        reduce_only=False,
+                    )
+                    if not fb_result.get("skipped"):
+                        fb_id = str(fb_result.get("orderId", ""))
+                        if fb_id:
+                            self._idempotency.resolve(fb_link, "placed", fb_id)
+                            fb_fills = self._poll_fills(order_id=fb_id, order_link_id=fb_link)
+                            real_fills = self._merge_fills(real_fills, fb_fills)
+                            out_order_id, out_link = fb_id, fb_link
+                            executed_order_type = "Limit+Market" if filled_qty > 0 else "Market"
+                    else:
+                        self._idempotency.resolve(fb_link, "skipped")
+                except Exception as exc:  # never abort the bar on a fallback error
+                    self._idempotency.resolve(fb_link, "failed")
+                    self._save_error("FallbackOrderError", f"limit fallback failed: {exc}")
+        return {
+            "real_fills": real_fills,
+            "order_id": out_order_id,
+            "order_link_id": out_link,
+            "executed_order_type": executed_order_type,
+        }
+
     def _apply_leverage(self, symbol: str) -> None:
         """Set per-strategy leverage on the exchange once, when flat before the
         first entry. Idempotent; no-op in dry_run or when not declared."""
@@ -1356,12 +1493,23 @@ class Executor:
 
             if not reduce_only and abs(current_position) < 1e-8:
                 self._apply_leverage(symbol)
+            use_limit = (
+                self.config.order_type == OrderType.LIMIT
+                and not reduce_only
+                and not flip
+                and abs(current_position) < 1e-8
+            )
+            executed_order_type = "Limit" if use_limit else "Market"
+            limit_price = (
+                self._resolve_limit_price(side, close_price, symbol) if use_limit else None
+            )
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,
                     side=side,
                     qty=qty,
-                    order_type=OrderType.MARKET,
+                    order_type=OrderType.LIMIT if use_limit else OrderType.MARKET,
+                    price=limit_price,
                     order_link_id=order_link_id,
                     reduce_only=reduce_only,
                 )
@@ -1369,12 +1517,30 @@ class Executor:
                 if "OrderLinkedID is duplicate" in str(exc):
                     matched = self._reconcile_pending_order(symbol, order_link_id)
                     if matched:
-                        self._idempotency.resolve(order_link_id, "placed", matched["orderId"])
-                        comm_cost = abs(delta) * close_price * self.config.commission
-                        slip_cost = abs(delta) * close_price * self.config.slippage
-                        self._pnl.apply_fill(
-                            delta, close_price, commission=comm_cost, slippage=slip_cost
-                        )
+                        if use_limit:
+                            # A limit order may be resting (unfilled) or filled at
+                            # the limit price — never book the full qty at close, and
+                            # only resolve 'placed' when something actually filled.
+                            booked = float(matched.get("cumExecQty") or 0.0)
+                            avgp = float(matched.get("avgPrice") or 0.0) or close_price
+                            if booked > 0:
+                                self._idempotency.resolve(
+                                    order_link_id, "placed", matched["orderId"]
+                                )
+                                signed = booked if delta > 0 else -booked
+                                comm_cost = booked * avgp * self.config.commission
+                                self._pnl.apply_fill(
+                                    signed, avgp, commission=comm_cost, slippage=0.0
+                                )
+                            else:
+                                self._idempotency.resolve(order_link_id, "cancelled")
+                        else:
+                            self._idempotency.resolve(order_link_id, "placed", matched["orderId"])
+                            comm_cost = abs(delta) * close_price * self.config.commission
+                            slip_cost = abs(delta) * close_price * self.config.slippage
+                            self._pnl.apply_fill(
+                                delta, close_price, commission=comm_cost, slippage=slip_cost
+                            )
                         self._sync_pnl_state()
                         result["order_placed"] = True
                         result["order"] = {"order_id": matched["orderId"], "restored": True}
@@ -1429,12 +1595,41 @@ class Executor:
                 return result
 
             order_id = order_result.get("orderId", "")
-            self._idempotency.resolve(order_link_id, "placed", order_id)
-
-            # Real fill pipeline: poll for fills from exchange
-            real_fills: list[dict[str, Any]] = self._poll_fills(
-                order_id=order_id, order_link_id=order_link_id
-            )
+            if use_limit:
+                lifecycle = self._execute_limit_lifecycle(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    order_id=order_id,
+                    order_link_id=order_link_id,
+                )
+                real_fills: list[dict[str, Any]] = lifecycle["real_fills"]
+                order_id = lifecycle["order_id"]
+                order_link_id = lifecycle["order_link_id"]
+                executed_order_type = lifecycle["executed_order_type"]
+                if not real_fills:
+                    # The limit (and any market fallback) took NO position. Never
+                    # synthesize a fill — that would book a phantom. Mark the signal
+                    # acted-upon so we do not re-fire an unfillable entry every bar.
+                    result["order_unfilled"] = True
+                    self.state.bars_processed += 1
+                    self.state.last_bar_ts = bar_ts
+                    self._sync_pnl_state()
+                    unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                    self._save_position_snapshot()
+                    self._save_pnl(
+                        self._pnl.realized_pnl,
+                        unrealized_pnl,
+                        self._pnl.equity(close_price),
+                        bar_ts,
+                    )
+                    self._last_executed_signal = target_signal
+                    self._signal_initialized = True
+                    return result
+            else:
+                self._idempotency.resolve(order_link_id, "placed", order_id)
+                # Real fill pipeline: poll for fills from exchange
+                real_fills = self._poll_fills(order_id=order_id, order_link_id=order_link_id)
             if not real_fills:
                 self._save_error("FillFetchError", f"No fills after polling for order {order_id}")
 
@@ -1467,7 +1662,7 @@ class Executor:
                         "order_id": order_id,
                         "symbol": symbol,
                         "side": side.value,
-                        "order_type": "Market",
+                        "order_type": executed_order_type,
                         "price": avg_fill_price,
                         "qty": total_fill_qty,
                         "status": "Filled",
@@ -1483,7 +1678,7 @@ class Executor:
                     from ztb.store.exec_io import save_exec_fill
 
                     save_exec_fill(self._store_conn, fill)
-            else:
+            elif not use_limit:
                 commission_cost = qty * close_price * self.config.commission
                 slippage_cost = qty * close_price * self.config.slippage
                 self._pnl.apply_fill(
@@ -1500,7 +1695,7 @@ class Executor:
                         "order_id": order_id,
                         "symbol": symbol,
                         "side": side.value,
-                        "order_type": "Market",
+                        "order_type": executed_order_type,
                         "price": close_price,
                         "qty": qty,
                         "status": "Filled",

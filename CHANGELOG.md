@@ -1,3 +1,6 @@
+## v1.1.56
+- atomic-merge version bump for PR #204
+
 ## v1.1.55
 - atomic-merge version bump for PR #203
 
