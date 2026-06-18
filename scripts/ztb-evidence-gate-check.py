@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-ztb-evidence-gate-check.py — CI gate that blocks strategy PRs without V&R PASS.
+ztb-evidence-gate-check.py — CI gate that checks V&R PASS for strategy PRs.
 
 Usage:
     python3 scripts/ztb-evidence-gate-check.py --sha <commit-sha>
 
 Detects whether the PR touches ztb/strategies/. If so, checks that
 ztb/vr-pass = success on the exact SHA. Posts its own status
-ztb/strategy-evidence-gate for UI visibility.
+ztb/strategy-evidence-gate for UI visibility. Always exits 0 so the
+status is informational — branch protection enforces ztb/vr-pass directly.
+For non-strategy PRs, auto-sets ztb/vr-pass = success.
 """
 
 import argparse
@@ -136,7 +138,7 @@ def post_commit_status(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="CI gate: block strategy PRs without V&R evidence-gate PASS."
+        description="CI gate: check V&R PASS for strategy PRs (informational; always exits 0)."
     )
     parser.add_argument("--sha", required=True, help="Commit SHA to check")
     parser.add_argument("--owner", help="GitHub owner (default: auto-detect)")
@@ -187,7 +189,7 @@ def main() -> None:
 
     post_commit_status(owner, repo, sha, "failure", reason)
     print(f"{GATE_CONTEXT} = failure on {sha[:12]} ({reason})", file=sys.stderr)
-    sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

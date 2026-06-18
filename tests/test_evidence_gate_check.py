@@ -113,7 +113,7 @@ class TestEvidenceGateCheck:
         argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
             mod.main()
-        assert exc.value.code == 1
+        assert exc.value.code == 0
         _, err = capsys.readouterr()
         assert "not set" in err
 
@@ -145,7 +145,7 @@ class TestEvidenceGateCheck:
         argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
             mod.main()
-        assert exc.value.code == 1
+        assert exc.value.code == 0
         _, err = capsys.readouterr()
         assert "FAIL" in err
 
@@ -161,6 +161,6 @@ class TestEvidenceGateCheck:
         argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
             mod.main()
-        assert exc.value.code == 1
+        assert exc.value.code == 0
         _, err = capsys.readouterr()
         assert "pending" in err
