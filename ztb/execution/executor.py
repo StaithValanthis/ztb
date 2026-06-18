@@ -221,6 +221,20 @@ class Executor:
             return float(lev)
         return None
 
+    def _resolve_limit_price(self, side: OrderSide, ref_price: float, symbol: str) -> float:
+        """On-tick limit price offset from the reference price; BUY rests below
+        market, SELL rests above (both aim to post as a maker)."""
+        off = self.config.limit_offset_pct
+        raw = ref_price * (1.0 - off) if side == OrderSide.BUY else ref_price * (1.0 + off)
+        if self.client is not None:
+            try:
+                tick = self.client.get_tick_size(symbol)
+                if tick > 0:
+                    return float(self.client.round_to_step(raw, tick))
+            except Exception:  # pragma: no cover - best-effort tick lookup
+                pass
+        return float(raw)
+
     def _apply_leverage(self, symbol: str) -> None:
         """Set per-strategy leverage on the exchange once, when flat before the
         first entry. Idempotent; no-op in dry_run or when not declared."""
@@ -1356,12 +1370,18 @@ class Executor:
 
             if not reduce_only and abs(current_position) < 1e-8:
                 self._apply_leverage(symbol)
+            use_limit = self.config.order_type == OrderType.LIMIT and not reduce_only
+            executed_order_type = "Limit" if use_limit else "Market"
+            limit_price = (
+                self._resolve_limit_price(side, close_price, symbol) if use_limit else None
+            )
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,
                     side=side,
                     qty=qty,
-                    order_type=OrderType.MARKET,
+                    order_type=OrderType.LIMIT if use_limit else OrderType.MARKET,
+                    price=limit_price,
                     order_link_id=order_link_id,
                     reduce_only=reduce_only,
                 )
@@ -1435,6 +1455,53 @@ class Executor:
             real_fills: list[dict[str, Any]] = self._poll_fills(
                 order_id=order_id, order_link_id=order_link_id
             )
+            if use_limit:
+                # Clear any resting (or partially-filled) remainder so the limit
+                # cannot fill later off-signal. No-op/err if fully filled — swallowed.
+                try:
+                    self.client.cancel_order(symbol=symbol, order_id=order_id)
+                except ClientError as exc:
+                    logger.debug("limit cancel for %s returned: %s", order_id, exc)
+                if not real_fills:
+                    if self.config.limit_fallback_market:
+                        fb_link = f"{order_link_id}-mkt"
+                        logger.info(
+                            "limit unfilled for %s — falling back to market %s",
+                            order_link_id,
+                            fb_link,
+                        )
+                        fb_result = self.client.place_order(
+                            symbol=symbol,
+                            side=side,
+                            qty=qty,
+                            order_type=OrderType.MARKET,
+                            order_link_id=fb_link,
+                            reduce_only=reduce_only,
+                        )
+                        if not fb_result.get("skipped"):
+                            order_id = fb_result.get("orderId", order_id)
+                            order_link_id = fb_link
+                            executed_order_type = "Market"
+                            self._idempotency.resolve(fb_link, "placed", order_id)
+                            real_fills = self._poll_fills(order_id=order_id, order_link_id=fb_link)
+                    else:
+                        # No fallback: limit cancelled, no position taken this bar.
+                        # Do NOT fall through to the synthetic-fill path, which would
+                        # record a phantom position never opened on the exchange.
+                        result["order_unfilled"] = True
+                        self.state.bars_processed += 1
+                        self.state.last_bar_ts = bar_ts
+                        self._sync_pnl_state()
+                        unrealized_pnl = self._pnl.unrealized_pnl(close_price)
+                        self._save_position_snapshot()
+                        self._save_pnl(
+                            self._pnl.realized_pnl,
+                            unrealized_pnl,
+                            self._pnl.equity(close_price),
+                            bar_ts,
+                        )
+                        self._signal_initialized = True
+                        return result
             if not real_fills:
                 self._save_error("FillFetchError", f"No fills after polling for order {order_id}")
 
@@ -1467,7 +1534,7 @@ class Executor:
                         "order_id": order_id,
                         "symbol": symbol,
                         "side": side.value,
-                        "order_type": "Market",
+                        "order_type": executed_order_type,
                         "price": avg_fill_price,
                         "qty": total_fill_qty,
                         "status": "Filled",
@@ -1500,7 +1567,7 @@ class Executor:
                         "order_id": order_id,
                         "symbol": symbol,
                         "side": side.value,
-                        "order_type": "Market",
+                        "order_type": executed_order_type,
                         "price": close_price,
                         "qty": qty,
                         "status": "Filled",

@@ -538,6 +538,23 @@ def validate(
     type=float,
     help="Account daily realized-loss limit as fraction of initial cash (0=disabled)",
 )
+@click.option(
+    "--order-type",
+    type=click.Choice(["market", "limit"]),
+    default="market",
+    help="Entry order type (limit posts at --limit-offset-pct then falls back to market)",
+)
+@click.option(
+    "--limit-offset-pct",
+    default=0.0,
+    type=float,
+    help="Limit-entry offset from close (BUY below / SELL above); 0.001 = 0.1 percent",
+)
+@click.option(
+    "--limit-fallback-market/--no-limit-fallback-market",
+    default=True,
+    help="If a limit entry is unfilled after polling, send a market order",
+)
 @click.option("--asset-precision", default=8, type=int, help="Decimal places for qty rounding")
 @click.option("--db", default=None, help="Path to result database")
 @click.option("--preflight", is_flag=True, help="Run preflight checks before execution")
@@ -567,6 +584,9 @@ def run(
     sl_pct: float | None,
     tp_pct: float | None,
     daily_loss_limit_pct: float,
+    order_type: str,
+    limit_offset_pct: float,
+    limit_fallback_market: bool,
     asset_precision: int,
     db: str | None,
     preflight: bool,
@@ -577,7 +597,7 @@ def run(
     """Execute a strategy on live/demo data."""
     from ztb.execution.executor import Executor
     from ztb.execution.killswitch import LiveKillSwitch
-    from ztb.execution.models import ExecRunConfig
+    from ztb.execution.models import ExecRunConfig, OrderType
     from ztb.execution.models import Mode as ExecMode
 
     if preflight:
@@ -622,6 +642,9 @@ def run(
         sl_pct=sl_pct if sl_pct is not None else ExecRunConfig.sl_pct,
         tp_pct=tp_pct if tp_pct is not None else ExecRunConfig.tp_pct,
         daily_loss_limit_pct=daily_loss_limit_pct,
+        order_type=OrderType.LIMIT if order_type == "limit" else OrderType.MARKET,
+        limit_offset_pct=limit_offset_pct,
+        limit_fallback_market=limit_fallback_market,
         asset_precision=asset_precision,
         loop_flush_interval=loop_flush_interval,
     )

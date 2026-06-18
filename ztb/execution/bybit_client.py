@@ -446,6 +446,15 @@ class BybitClient:
         ls = self.get_lot_size_filter(symbol, category)
         return float(ls.get("minOrderQty", "0"))
 
+    def get_price_filter(self, symbol: str, category: str = "linear") -> dict[str, Any]:
+        info = self.get_instrument_info(symbol, category)
+        pf: dict[str, Any] = info.get("priceFilter", {})
+        return pf
+
+    def get_tick_size(self, symbol: str, category: str = "linear") -> float:
+        pf = self.get_price_filter(symbol, category)
+        return float(pf.get("tickSize", "0.1"))
+
     def _validate_qty(self, symbol: str, qty: float, category: str = "linear") -> dict[str, Any]:
         info = self.get_instrument_info(symbol, category)
         ls = info.get("lotSizeFilter", {})
