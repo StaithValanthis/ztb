@@ -31,21 +31,23 @@ cd ~/ztb-wt/<name>      # do ALL build / commit / push work HERE
 - **Conventional commits** are mandatory on every commit (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, etc.).
 - The PR head commit is the unit the gate operates on — CI and V&R both bind to a single commit SHA.
 
-## 3. THE TWO-KEY MERGE GATE (non-negotiable)
+## 3. THE THREE-KEY MERGE GATE (non-negotiable)
 
-A merge to `main` requires **BOTH keys to hold on the SAME commit SHA**:
+A merge to `main` requires **ALL THREE keys to hold on the SAME commit SHA**:
 
 1. **CI-green** on the PR head commit.
 2. A **recorded V&R PASS** on that **identical SHA**.
+3. **Strategy evidence-gate PASS** — strategy PRs (changing `ztb/strategies/`) must have `ztb/vr-evidence-gate` = success on the same SHA, enforced by the `strategy-evidence-gate` CI job.
 
 Rules:
 
 - **A red CI never reaches V&R.** CI-green on the PR head is a *precondition* to validation review. A red build stays inside Engineering; the owning Head re-tasks the member. Validation is never asked to review a red commit.
-- The V&R PASS must be recorded **against the same SHA** that CI went green on. Not "the branch," not "a later commit" — the identical commit.
-- **Head of Engineering performs the merge, and only when both keys hold on the identical SHA.** No self-certification: Engineering does not approve its own validation; V&R is independent of Engineering.
-- Branch protection on `main` enforces require-PR + green-CI mechanically; the two-key discipline enforces the rest.
+- **Strategy evidence-gate runs after CI-green (`needs: [test]`).** For non-strategy PRs it passes trivially.
+- The V&R PASS (or evidence-gate PASS) must be recorded **against the same SHA** that CI went green on. Not "the branch," not "a later commit" — the identical commit.
+- **Head of Engineering performs the merge, and only when all three keys hold on the identical SHA.** No self-certification: Engineering does not approve its own validation; V&R is independent of Engineering.
+- Branch protection on `main` enforces require-PR + green-CI + `strategy-evidence-gate` + `vr-pass` mechanically; the three-key discipline enforces the rest.
 
-Merge order, every module: `feat/<x>` → CI green on head (precondition) → V&R PASS on the same SHA → Head-of-Eng merge + tag → MD routes next.
+Merge order, every module: `feat/<x>` → CI green on head (precondition) → V&R PASS on the same SHA → (for strategy PRs) evidence-gate PASS on the same SHA → Head-of-Eng merge + tag → MD routes next.
 
 ## 4. CI Matrix
 

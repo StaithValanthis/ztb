@@ -24,7 +24,7 @@ import argparse
 import json
 import subprocess
 import sys
-from typing import NoReturn
+from typing import Any, NoReturn
 
 
 def fail(msg: str) -> NoReturn:
@@ -32,7 +32,7 @@ def fail(msg: str) -> NoReturn:
     sys.exit(1)
 
 
-def gh(args: list[str], input_data: str | None = None) -> dict:
+def gh(args: list[str], input_data: str | None = None) -> dict[str, Any]:
     """Run `gh api` and return parsed JSON. Exits on error."""
     cmd = ["gh", "api"] + args
     try:
@@ -126,17 +126,19 @@ def post_commit_status(
     sha: str,
     state: str,
     description: str,
+    context: str = "ztb/vr-pass",
 ) -> None:
     """Post a commit status via GitHub API.
 
     state: 'success', 'failure', 'pending', 'error'
+    context: GitHub commit status context name (default: ztb/vr-pass)
     """
     body = json.dumps(
         {
             "state": state,
             "target_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
             "description": description,
-            "context": "ztb/vr-pass",
+            "context": context,
         }
     )
     url = f"/repos/{owner}/{repo}/statuses/{sha}"
@@ -171,6 +173,11 @@ def main() -> None:
         "--repo",
         help="GitHub repo (default: auto-detect from git remote)",
     )
+    parser.add_argument(
+        "--context",
+        default="ztb/vr-pass",
+        help="Commit status context (default: ztb/vr-pass; also ztb/vr-evidence-gate)",
+    )
     args = parser.parse_args()
 
     if args.mode == "notify":
@@ -186,9 +193,11 @@ def main() -> None:
             args.sha.strip(),
             "pending",
             "V&R validation pending — awaiting human review",
+            context=args.context,
         )
         sha_short = args.sha.strip()[:12]
-        print(f"ztb/vr-pass = pending on {sha_short} (notify mode — awaiting V&R review)")
+        ctx = args.context
+        print(f"{ctx} = pending on {sha_short} (notify mode — awaiting V&R review)")
         return
 
     # mode is "outcome" — require --outcome
@@ -203,10 +212,13 @@ def main() -> None:
         repo = repo or detected_repo
 
     sha = args.sha.strip()
+    ctx = args.context
 
     if args.outcome == "FAIL":
-        post_commit_status(owner, repo, sha, "failure", "V&R FAIL — validation rejected")
-        print(f"ztb/vr-pass = failure on {sha[:12]} (V&R FAIL)")
+        post_commit_status(
+            owner, repo, sha, "failure", "V&R FAIL — validation rejected", context=ctx
+        )
+        print(f"{ctx} = failure on {sha[:12]} (V&R FAIL)")
         return
 
     # Outcome is PASS — check CI status first (void-on-FAIL rule)
@@ -224,8 +236,9 @@ def main() -> None:
             sha,
             "pending",
             "V&R PASS pending CI verification — no CI checks found (yet)",
+            context=ctx,
         )
-        print(f"ztb/vr-pass = pending on {sha[:12]} (no CI checks found)")
+        print(f"{ctx} = pending on {sha[:12]} (no CI checks found)")
         return
 
     if ci_conclusion == "failure":
@@ -235,13 +248,14 @@ def main() -> None:
             sha,
             "failure",
             "V&R PASS VOIDED — CI FAIL on same SHA (void-on-FAIL rule)",
+            context=ctx,
         )
-        print(f"ztb/vr-pass = failure on {sha[:12]} (V&R PASS voided: CI has failures on this SHA)")
+        print(f"{ctx} = failure on {sha[:12]} (V&R PASS voided: CI has failures on this SHA)")
         return
 
     # CI is green (success)
-    post_commit_status(owner, repo, sha, "success", "V&R PASS — CI green")
-    print(f"ztb/vr-pass = success on {sha[:12]} (V&R PASS + CI green)")
+    post_commit_status(owner, repo, sha, "success", "V&R PASS — CI green", context=ctx)
+    print(f"{ctx} = success on {sha[:12]} (V&R PASS + CI green)")
 
 
 if __name__ == "__main__":

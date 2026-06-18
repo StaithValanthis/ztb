@@ -44,7 +44,17 @@ class TestMainFlow:
             _cp(stdout=_check_runs(["success", "success"])),
             _cp(stdout="{}"),
         ]
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv):
             mod.main()
         out, _ = capsys.readouterr()
@@ -62,7 +72,17 @@ class TestMainFlow:
             _cp(stdout=_check_runs(["success", "failure"])),
             _cp(stdout="{}"),
         ]
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv):
             mod.main()
         out, _ = capsys.readouterr()
@@ -80,7 +100,17 @@ class TestMainFlow:
             _cp(stdout=_check_runs(["success", "queued"])),
             _cp(stdout="{}"),
         ]
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv):
             mod.main()
         out, _ = capsys.readouterr()
@@ -94,7 +124,17 @@ class TestMainFlow:
     ) -> None:
         """V&R FAIL -> failure posted (no CI check)."""
         mock_run.return_value = _cp(stdout="{}")
-        argv = ["script", "--sha", SHA, "--outcome", "FAIL", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "FAIL",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv):
             mod.main()
         out, _ = capsys.readouterr()
@@ -112,7 +152,17 @@ class TestMainFlow:
             _cp(stdout=json.dumps({"check_runs": []})),
             _cp(stdout="{}"),
         ]
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv):
             mod.main()
         out, err = capsys.readouterr()
@@ -131,7 +181,17 @@ class TestGhErrors:
     ) -> None:
         """gh CLI not found -> stderr error, exit 1."""
         mock_run.side_effect = FileNotFoundError()
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
             mod.main()
         _, err = capsys.readouterr()
@@ -145,7 +205,17 @@ class TestGhErrors:
     ) -> None:
         """gh returns non-zero exit -> stderr error, exit 1."""
         mock_run.return_value = _cp(returncode=1, stderr="Not Found")
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
             mod.main()
         _, err = capsys.readouterr()
@@ -159,7 +229,17 @@ class TestGhErrors:
     ) -> None:
         """gh returns non-JSON stdout -> stderr error, exit 1."""
         mock_run.return_value = _cp(stdout="not json at all")
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
             mod.main()
         _, err = capsys.readouterr()
@@ -173,7 +253,17 @@ class TestGhErrors:
     ) -> None:
         """gh CLI timeout -> stderr error, exit 1."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["gh"], timeout=30)
-        argv = ["script", "--sha", SHA, "--outcome", "PASS", "--owner", "o", "--repo", "r"]
+        argv = [
+            "script",
+            "--sha",
+            SHA,
+            "--outcome",
+            "PASS",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+        ]
         with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
             mod.main()
         _, err = capsys.readouterr()
