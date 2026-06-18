@@ -215,8 +215,8 @@ def backtest(
         commission=commission,
         slippage=slippage,
         risk_enabled=risk_enabled,
-        sl_pct=sl_pct if sl_pct is not None else 0.0,
-        tp_pct=tp_pct if tp_pct is not None else 0.0,
+        sl_pct=sl_pct if sl_pct is not None else BacktestConfig.sl_pct,
+        tp_pct=tp_pct if tp_pct is not None else BacktestConfig.tp_pct,
     )
 
     result = run_backtest(strategy, df, cfg)
@@ -290,8 +290,8 @@ def forwardtest(
         slippage=slippage,
         warmup_bars=warmup,
         risk_enabled=not no_risk,
-        sl_pct=sl_pct if sl_pct is not None else 0.0,
-        tp_pct=tp_pct if tp_pct is not None else 0.0,
+        sl_pct=sl_pct if sl_pct is not None else ForwardtestConfig.sl_pct,
+        tp_pct=tp_pct if tp_pct is not None else ForwardtestConfig.tp_pct,
     )
 
     need_store = persist or baseline_run_id is not None
