@@ -16,6 +16,26 @@ PERIODS_PER_YEAR: dict[str, float] = {
     "M": 12,
 }
 
+_MINUTES_PER_YEAR = 365.0 * 24.0 * 60.0
+
+
+def resolve_periods_per_year(timeframe: str) -> float:
+    """Periods/year for Sharpe/Sortino annualization.
+
+    Named timeframes use the table above; a NUMERIC timeframe (minutes per bar,
+    e.g. "240" = 4h, "30", "120") is derived EXACTLY rather than silently
+    defaulting to hourly (8760). That old default mis-annualized every timeframe
+    not in the table — 4h Sharpe came out ~2x too high, making the validation
+    edge gate too lenient (false positives). Unknown/garbage falls back to hourly.
+    """
+    if timeframe in PERIODS_PER_YEAR:
+        return PERIODS_PER_YEAR[timeframe]
+    try:
+        minutes = int(timeframe)
+    except (TypeError, ValueError):
+        return 365.0 * 24.0
+    return _MINUTES_PER_YEAR / minutes if minutes > 0 else 365.0 * 24.0
+
 
 @dataclass
 class MetricsResult:
@@ -40,10 +60,7 @@ def compute_metrics(
     periods_per_year: float | None = None,
     min_trades: int = 30,
 ) -> MetricsResult:
-    if periods_per_year is None:
-        ppy = PERIODS_PER_YEAR.get(timeframe, 365 * 24)
-    else:
-        ppy = periods_per_year
+    ppy = resolve_periods_per_year(timeframe) if periods_per_year is None else periods_per_year
 
     n_trades = len(trades)
 
