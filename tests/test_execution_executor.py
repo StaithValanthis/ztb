@@ -11,7 +11,7 @@ import pytest
 
 from ztb.execution.errors import ClientError, ExecutionError, PollingError
 from ztb.execution.executor import ExecRunConfig, Executor
-from ztb.execution.models import AccountState, Mode, Position, TopUpResult
+from ztb.execution.models import AccountState, Mode, OrderType, Position, TopUpResult
 from ztb.execution.reconcile import reconcile_account as _real_reconcile
 
 
@@ -6880,3 +6880,387 @@ def test_sltp_fill_fetch_no_client_noop(
     exe._init_run()
     result = exe._fetch_and_record_sltp_fills("BTCUSDT")
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# ZTB-3682: Fill-pipeline test-coverage gaps (Gap A, B1-3, C, D)
+# ---------------------------------------------------------------------------
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_fill_fetch_error_saved_on_exhaustion(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap A: FillFetchError saved to exec_errors when _poll_fills exhausts for a MARKET order."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "err_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+    assert mock_client.get_executions.call_count == 3
+
+    errors = exe._store_conn.execute(
+        "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type = 'FillFetchError'",
+        (exe._exec_run_id,),
+    ).fetchall()
+    assert len(errors) >= 1, "Expected FillFetchError in exec_errors"
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic" in fills[0]["fill_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_limit_fully_fills_no_fallback(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap B1: Limit order fully fills via pre-cancel poll, no market fallback."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "limit_oid_full"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.cancel_order.return_value = {}
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.round_to_step.side_effect = lambda qty, step: round(qty / step) * step
+    mock_client.get_tick_size.return_value = 0.0
+    mock_client.get_executions.side_effect = [
+        # pre-poll: fills found immediately (total qty >= placed qty)
+        [
+            {
+                "execId": "lf1",
+                "orderId": "limit_oid_full",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "49950.0",
+                "execQty": "0.4",
+                "execFee": "0.02",
+                "execTime": "2026-01-01T00:00:01Z",
+            },
+            {
+                "execId": "lf2",
+                "orderId": "limit_oid_full",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "49950.0",
+                "execQty": "0.6",
+                "execFee": "0.03",
+                "execTime": "2026-01-01T00:00:02Z",
+            },
+        ],
+        # post-poll: no new fills (cancelled)
+        [],
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        order_type=OrderType.LIMIT,
+        poll_fill_max_attempts=1,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+
+    assert len(orders) >= 1
+    assert orders[0]["order_type"] == "Limit"
+    assert len(fills) == 2
+    assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
+    assert fills[1]["order_link_id"] == orders[0]["order_link_id"]
+    assert orders[0]["cum_exec_qty"] == pytest.approx(1.0, abs=1e-8)
+    assert orders[0]["cum_exec_fee"] == pytest.approx(0.05, abs=1e-8)
+    assert orders[0]["cum_exec_value"] == pytest.approx(49950.0, abs=1e-4)
+
+    assert mock_client.place_order.call_count == 1
+    mock_client.cancel_order.assert_called_once()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_limit_partial_fill_market_fallback(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap B2: Limit order partially fills; market fallback fills remainder."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.side_effect = [
+        {"orderId": "limit_oid_partial"},
+        {"orderId": "fb_oid"},
+    ]
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.cancel_order.return_value = {}
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.round_to_step.side_effect = lambda qty, step: round(qty / step) * step
+    mock_client.get_tick_size.return_value = 0.0
+    mock_client.get_executions.side_effect = [
+        # pre-poll: 1 fill for 0.5 (partial)
+        [
+            {
+                "execId": "pf1",
+                "orderId": "limit_oid_partial",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "49950.0",
+                "execQty": "0.5",
+                "execFee": "0.025",
+                "execTime": "2026-01-01T00:00:01Z",
+            },
+        ],
+        # post-poll: no more fills
+        [],
+        # fallback poll: remainder fill
+        [
+            {
+                "execId": "mf1",
+                "orderId": "fb_oid",
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "execPrice": "50001.0",
+                "execQty": "0.5",
+                "execFee": "0.025",
+                "execTime": "2026-01-01T00:00:03Z",
+            },
+        ],
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        order_type=OrderType.LIMIT,
+        limit_fallback_market=True,
+        poll_fill_max_attempts=1,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+
+    assert len(orders) >= 1
+    assert len(fills) == 2
+    assert orders[0]["cum_exec_qty"] == pytest.approx(1.0, abs=1e-8)
+    assert orders[0]["cum_exec_fee"] == pytest.approx(0.05, abs=1e-8)
+
+    assert mock_client.place_order.call_count == 2
+    mock_client.cancel_order.assert_called_once()
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_limit_unfilled_no_fallback(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap B3: Limit order gets no fills with fallback disabled; order_unfilled=True."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "limit_oid_unf"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.cancel_order.return_value = {}
+    mock_client.get_qty_step.return_value = 0.001
+    mock_client.round_to_step.side_effect = lambda qty, step: round(qty / step) * step
+    mock_client.get_tick_size.return_value = 0.0
+    mock_client.get_executions.return_value = []
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        order_type=OrderType.LIMIT,
+        limit_fallback_market=False,
+        poll_fill_max_attempts=1,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result.get("order_unfilled") is True
+
+    mock_client.place_order.assert_called_once()
+    mock_client.cancel_order.assert_called_once()
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) == 0, "Expected NO fills when limit order unfilled with no fallback"
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_poll_fills_all_attempts_exception(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap C: _poll_fills raises on every attempt; synthetic fill + FillFetchError."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "exc_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.side_effect = [
+        Exception("API err"),
+        Exception("API err 2"),
+        Exception("API err 3"),
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=3,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+    assert "real_fills" not in result or len(result["real_fills"]) == 0
+    assert mock_client.get_executions.call_count == 3
+
+    errors = exe._store_conn.execute(
+        "SELECT * FROM exec_errors WHERE exec_run_id = ? AND error_type = 'FillFetchError'",
+        (exe._exec_run_id,),
+    ).fetchall()
+    assert len(errors) >= 1, "Expected FillFetchError in exec_errors"
+
+    from ztb.store.exec_io import get_exec_fills
+
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+    assert len(fills) >= 1
+    assert "synthetic" in fills[0]["fill_id"]
+
+
+@patch("ztb.execution.executor.load_data")
+@patch("ztb.execution.executor.BybitClient")
+def test_exec_orders_fills_reconciliation_quantitative(
+    mock_bybit_cls: MagicMock,
+    mock_load: MagicMock,
+    sample_data: pd.DataFrame,
+) -> None:
+    """Gap D: Quantitative exec_orders/exec_fills reconciliation with 2 fills."""
+    mock_load.return_value = sample_data
+    mock_client = MagicMock()
+    mock_client.place_order.return_value = {"orderId": "recon_oid"}
+    mock_client.get_positions.return_value = []
+    mock_client.get_wallet_balance.return_value = {"list": []}
+    mock_client.get_executions.return_value = [
+        {
+            "execId": "r1",
+            "orderId": "recon_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50001.0",
+            "execQty": "0.001",
+            "execFee": "0.05",
+            "execTime": "2026-01-01T00:00:01Z",
+        },
+        {
+            "execId": "r2",
+            "orderId": "recon_oid",
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "execPrice": "50002.0",
+            "execQty": "0.002",
+            "execFee": "0.10",
+            "execTime": "2026-01-01T00:00:02Z",
+        },
+    ]
+    mock_bybit_cls.return_value = mock_client
+
+    config = ExecRunConfig(
+        mode=Mode.LIVE,
+        dry_run=False,
+        risk_enabled=False,
+        poll_fill_max_attempts=1,
+        poll_fill_interval=0.01,
+    )
+    signal_strat = SignalStrategy()
+    exe = Executor(signal_strat, config=config)
+    exe._init_run()
+    exe._init_store(":memory:")
+    exe.client = mock_client
+
+    result = exe.step(sample_data)
+    assert result["order_placed"] is True
+
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
+
+    orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
+    fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
+
+    assert len(orders) == 1
+    assert len(fills) == 2
+    assert fills[0]["order_link_id"] == orders[0]["order_link_id"]
+    assert fills[1]["order_link_id"] == orders[0]["order_link_id"]
+
+    assert orders[0]["cum_exec_qty"] == pytest.approx(0.003, abs=1e-8)
+    assert orders[0]["cum_exec_fee"] == pytest.approx(0.15, abs=1e-8)
+    assert orders[0]["cum_exec_value"] == pytest.approx(50001.0 * 0.001 + 50002.0 * 0.002, abs=1e-4)
+    assert orders[0]["status"] == "Filled"
