@@ -33,7 +33,7 @@ feat/<x> branch ──→ Bump __version__ + CHANGELOG (IN the PR head)
 
 2. **CI.** Every push runs the full CI matrix. The PR head commit must go green on all checks. No review or validation happens on a red commit. The version already reflects the target tag at this point.
 
-3. **Validation.** Once CI is green on the head commit, the Head of Engineering routes the request BACK to the MD, who routes ACROSS to the Head of V&R. V&R reviews the code and re-runs against the **same SHA** — which already carries the bumped version. V&R records PASS or FAIL on that commit. A FAIL sends the fix back through Engineering; a PASS unlocks the merge.
+3. **Validation.** Once CI is green on the head commit, the Head of Engineering routes the request BACK to the MD, who routes ACROSS to the Head of V&R. V&R reviews the code and re-runs against the **same SHA** — which already carries the bumped version. V&R MUST also run `ztb smoke-test --timeout 60` locally and confirm PASS (the smoke-test exercises the full execution pipeline against Bybit DEMO; CI cannot run it due to CloudFront geographic restrictions on GitHub Actions runners). V&R records PASS or FAIL on that commit. A FAIL sends the fix back through Engineering; a PASS unlocks the merge.
 
 4. **Merge (two-key).** Head of Engineering performs the merge **only when**:
    - CI is green on the PR head commit, AND
@@ -64,6 +64,7 @@ Every push runs on **Python 3.11 and 3.13** (matrix, not single-version):
 | Tests + coverage | `pytest -m "not network" --cov-fail-under=90 --cov=ztb --cov-report=term-missing` |
 | Secret scan | `python3 scripts/secret-scan.py $(git diff --name-only HEAD~1..HEAD 2>/dev/null \|\| find . -name '*.py' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.cfg' -o -name '*.ini' \| grep -v __pycache__ \| grep -v .git)` |
 | Version consistency | `__version__` matches `importlib.metadata.version('ztb')` |
+| Smoke test (DEMO) | `ztb smoke-test --timeout 60` (separate `smoke-test` job, runs after `test`, blocks `vr-pass`) |
 | V&R PASS bridge (separate `vr-pass` job, `main` push only) | `python3 scripts/ztb-vr-pass-bridge.py --sha ${{ github.sha }} --outcome PASS` on Python 3.11 |
 
 CI configuration: `.github/workflows/ci.yml`

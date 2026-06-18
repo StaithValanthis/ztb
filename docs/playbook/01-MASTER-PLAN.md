@@ -39,8 +39,9 @@ Spine: `M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7`. M4 builds the forw
 ### 0.4 The merge gate is CI-green AND V&R-PASS on the same SHA (fix #3)
 Every PR, every milestone:
 1. CI green on the **PR head commit** (lint + types + full pytest + secret-scan + version-consistency). A red CI never reaches V&R.
-2. Head of V&R PASS recorded **against that same SHA**.
-3. Head of Eng's merge requires **both**, verified against the identical commit. Branch protection on `main` enforces require-PR-+-green-CI.
+2. **V&R runs `ztb smoke-test --timeout 60` as a manual precondition** before recording a PASS. The smoke-test exercises the full execution pipeline against the Bybit DEMO exchange (places a real MARKET BUY, retrieves fills, validates commission + price scaling + store persistence + FK consistency). CI cannot run the smoke-test due to CloudFront geographic restrictions on GitHub Actions runners.
+3. Head of V&R PASS recorded **against that same SHA**.
+4. Head of Eng's merge requires **both** (CI-green + V&R PASS), verified against the identical commit. Branch protection on `main` enforces require-PR-+-green-CI.
 
 ### 0.5 Secrets & supply-chain owners from day one (fixes #4, #6)
 - **Secrets:** Head of V&R owns policy ("no secret in diff / logs / scorecard / Discord payload / dashboard frame" on code-review + go-live checklists). Ops Engineer owns mechanics (pre-commit secret-scan + CI secret-scan from M0; demo/live keys confined to `execution/`, env-only, gitignored). Live keys never read outside `execution/` and never before M7 arming.

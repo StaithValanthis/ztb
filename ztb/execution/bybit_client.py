@@ -159,6 +159,13 @@ class BybitClient:
                     time.sleep(1.0 * (attempt + 1))
                     continue
                 raise ClientError(0, "timeout") from exc
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                logger.warning("_request: non-JSON response from %s: %.200s", url, resp.text)
+                if attempt < self._config.max_retries - 1:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                raise ClientError(0, f"non-JSON response: {resp.text[:200]}") from exc
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 if exc.response.status_code >= 500 and attempt < self._config.max_retries - 1:
