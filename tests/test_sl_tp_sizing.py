@@ -1388,6 +1388,246 @@ def test_sltp_precedence_cli_overrides_strategy() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Trade management — modify/cancel SL/TP on open positions  (ZTB-3875)
+# ---------------------------------------------------------------------------
+
+
+def test_modify_tp_sl_updates_active_sl_tp() -> None:
+    """modify_tp_sl should update _active_sl_tp state."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 49000.0,
+        "tp_price": 51000.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+
+    result = executor.modify_tp_sl(
+        symbol="BTCUSDT",
+        sl_price=48500.0,
+        tp_price=52000.0,
+    )
+    assert result is True
+    assert executor._active_sl_tp["BTCUSDT"]["sl_price"] == 48500.0
+    assert executor._active_sl_tp["BTCUSDT"]["tp_price"] == 52000.0
+
+
+def test_modify_tp_sl_keeps_unchanged_values() -> None:
+    """modify_tp_sl keeps current SL/TP when new values are None."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 49000.0,
+        "tp_price": 51000.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+
+    result = executor.modify_tp_sl(symbol="BTCUSDT", tp_price=51500.0)
+    assert result is True
+    assert executor._active_sl_tp["BTCUSDT"]["sl_price"] == 49000.0
+    assert executor._active_sl_tp["BTCUSDT"]["tp_price"] == 51500.0
+
+
+def test_modify_tp_sl_returns_false_when_no_client() -> None:
+    """modify_tp_sl returns False when client is None."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    executor = Executor(strategy=strategy, config=config)
+    executor._init_run()
+
+    result = executor.modify_tp_sl(symbol="BTCUSDT", sl_price=48000.0)
+    assert result is False
+
+
+def test_modify_tp_sl_returns_false_in_dry_run() -> None:
+    """modify_tp_sl returns False when dry_run is enabled."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=True)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+
+    result = executor.modify_tp_sl(symbol="BTCUSDT", sl_price=48000.0)
+    assert result is False
+
+
+def test_modify_tp_sl_by_pct_updates_sl() -> None:
+    """modify_tp_sl_by_pct computes correct SL price from percentage."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 0.0,
+        "tp_price": 0.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+
+    result = executor.modify_tp_sl_by_pct(symbol="BTCUSDT", sl_pct=0.03)
+    assert result is True
+    expected_sl = 50000.0 * (1.0 - 0.03)
+    assert abs(executor._active_sl_tp["BTCUSDT"]["sl_price"] - expected_sl) < 1e-8
+
+
+def test_modify_tp_sl_by_pct_short_position() -> None:
+    """modify_tp_sl_by_pct computes correct SL price for short."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(-1.0, 50000.0, commission=0.0, slippage=0.0)
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 0.0,
+        "tp_price": 0.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+
+    result = executor.modify_tp_sl_by_pct(symbol="BTCUSDT", sl_pct=0.02)
+    assert result is True
+    expected_sl = 50000.0 * (1.0 + 0.02)
+    assert abs(executor._active_sl_tp["BTCUSDT"]["sl_price"] - expected_sl) < 1e-8
+
+
+def test_modify_tp_sl_by_pct_clears_sl_with_zero() -> None:
+    """modify_tp_sl_by_pct clears SL when sl_pct=0."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 49000.0,
+        "tp_price": 51000.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+
+    result = executor.modify_tp_sl_by_pct(symbol="BTCUSDT", sl_pct=0.0)
+    assert result is True
+    assert executor._active_sl_tp["BTCUSDT"]["sl_price"] == 0.0
+    assert executor._active_sl_tp["BTCUSDT"]["tp_price"] == 51000.0
+
+
+def test_cancel_tp_sl_clears_active_state() -> None:
+    """cancel_tp_sl removes the symbol from _active_sl_tp."""
+    from ztb.execution.executor import Executor
+    from ztb.execution.models import ExecRunConfig, Mode
+
+    strategy = MagicMock()
+    strategy.name = "test"
+    strategy.symbols = ["BTCUSDT"]
+    strategy.timeframe = "60"
+    strategy.warmup = 0
+    strategy.params = {}
+
+    config = ExecRunConfig(mode=Mode.DEMO, dry_run=False)
+    client = MagicMock()
+    executor = Executor(strategy=strategy, config=config, client=client)
+    executor._init_run()
+    executor._active_sl_tp["BTCUSDT"] = {
+        "sl_price": 49000.0,
+        "tp_price": 51000.0,
+        "trailing_stop": 0.0,
+        "activation_price": 0.0,
+    }
+    executor._pnl.__init__(initial_cash=100_000.0)
+    executor._pnl.apply_fill(1.0, 50000.0, commission=0.0, slippage=0.0)
+
+    # Pre-seed _active_sl_tp so _clear_sl_tp thinks it has something to clear
+    executor._active_sl_tp["BTCUSDT"] = {"sl_price": 49000.0, "tp_price": 51000.0}
+
+    result = executor.cancel_tp_sl("BTCUSDT")
+    assert result is True
+    assert "BTCUSDT" not in executor._active_sl_tp
+
+
+# ---------------------------------------------------------------------------
 # P-2: Zero defaults parity — sl_pct=0, tp_pct=0 produces no SL/TP
 # ---------------------------------------------------------------------------
 
