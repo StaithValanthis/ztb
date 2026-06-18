@@ -223,6 +223,36 @@ class BybitClient:
             )
         return result
 
+    def set_leverage(
+        self,
+        symbol: str,
+        buy_leverage: float,
+        sell_leverage: float,
+        category: str = "linear",
+    ) -> dict[str, Any]:
+        """Set position leverage on the exchange.
+
+        Swallows Bybit "leverage not modified" (retCode 110043) as a success
+        no-op so repeated calls with the same value are harmless.
+        """
+        def _fmt(v: float) -> str:
+            return str(int(v)) if float(v).is_integer() else str(v)
+
+        body = {
+            "category": category,
+            "symbol": symbol,
+            "buyLeverage": _fmt(buy_leverage),
+            "sellLeverage": _fmt(sell_leverage),
+        }
+        try:
+            return self._request("POST", "/v5/position/set-leverage", body=body)
+        except ClientError as exc:
+            msg = str(exc).lower()
+            if "not modified" in msg or "110043" in msg:
+                logger.info("set_leverage no-op (already %s) for %s", buy_leverage, symbol)
+                return {}
+            raise
+
     def set_trading_stop(
         self,
         symbol: str,

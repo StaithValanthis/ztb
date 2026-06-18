@@ -118,6 +118,7 @@ class Executor:
         self._last_executed_signal: float = 0.0
         self._signal_initialized: bool = False
         self._active_sl_tp: dict[str, dict[str, float | str | None]] = {}
+        self._applied_leverage: dict[str, float] = {}
 
     def _init_run(self) -> None:
         now = datetime.now(UTC)
@@ -201,6 +202,38 @@ class Executor:
                 self.state.symbol,
                 self.state.timeframe,
             )
+
+    def _resolve_sizing_leverage(self) -> float:
+        """Leverage for LOCAL margin sizing caps. Always returns a value:
+        per-strategy declared > config.max_leverage > hard default."""
+        return float(_resolve_profile_field(self.strategy, self.config, "leverage"))
+
+    def _resolve_exchange_leverage(self) -> float | None:
+        """Leverage to SET on the exchange. Only when the strategy EXPLICITLY
+        declares risk_profile.leverage (None => leave the account default)."""
+        get = getattr(self.strategy, "get_risk_profile", None)
+        prof = get() if callable(get) else getattr(self.strategy, "risk_profile", None)
+        lev = getattr(prof, "leverage", None) if prof is not None else None
+        if lev is not None and lev > 0:
+            return float(lev)
+        return None
+
+    def _apply_leverage(self, symbol: str) -> None:
+        """Set per-strategy leverage on the exchange once, when flat before the
+        first entry. Idempotent; no-op in dry_run or when not declared."""
+        if self.client is None or self.config.dry_run:
+            return
+        lev = self._resolve_exchange_leverage()
+        if lev is None or lev <= 0:
+            return
+        if self._applied_leverage.get(symbol) == lev:
+            return
+        try:
+            self.client.set_leverage(symbol, buy_leverage=lev, sell_leverage=lev)
+            self._applied_leverage[symbol] = lev
+            logger.info("Applied leverage %sx for %s", lev, symbol)
+        except Exception:
+            logger.warning("set_leverage failed for %s — continuing", symbol)
 
     def _apply_sl_tp(
         self,
@@ -841,7 +874,7 @@ class Executor:
         asset_precision = self.config.asset_precision
         if not self.config.dry_run and self.client is not None and available_balance > 0:
             target_notional = target_signal * min(
-                equity, available_balance * self.config.max_leverage
+                equity, available_balance * self._resolve_sizing_leverage()
             )
             target_qty = (
                 round(target_notional / close_price, asset_precision) if close_price > 0 else 0.0
@@ -1068,7 +1101,7 @@ class Executor:
                 return result
 
             if not reduce_only and available_balance > 0 and close_price > 0:
-                max_notional = available_balance * self.config.max_leverage
+                max_notional = available_balance * self._resolve_sizing_leverage()
                 max_qty = round(max_notional / close_price, asset_precision)
                 if isinstance(instrument_qty_step, (int, float)) and instrument_qty_step > 0:
                     max_qty = round_to_step(max_qty, instrument_qty_step)
@@ -1112,6 +1145,8 @@ class Executor:
                 clear_side = OrderSide.BUY if current_position > 0 else OrderSide.SELL
                 self._clear_sl_tp(symbol, side=clear_side, position_size=abs(current_position))
 
+            if not reduce_only and abs(current_position) < 1e-8:
+                self._apply_leverage(symbol)
             try:
                 order_result = self.client.place_order(
                     symbol=symbol,
