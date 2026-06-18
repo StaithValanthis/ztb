@@ -6942,7 +6942,7 @@ def test_gap1_real_fills_reconciliation_detail(
     assert "real_fills" in result
     assert len(result["real_fills"]) == 2
 
-    from ztb.store.exec_io import get_exec_orders, get_exec_fills
+    from ztb.store.exec_io import get_exec_fills, get_exec_orders
 
     orders = get_exec_orders(exe._store_conn, exe._exec_run_id)
     fills = get_exec_fills(exe._store_conn, exe._exec_run_id)
@@ -6951,9 +6951,7 @@ def test_gap1_real_fills_reconciliation_detail(
     order = orders[0]
     assert order["status"] == "Filled"
     assert order["cum_exec_qty"] == pytest.approx(0.005)
-    assert order["cum_exec_value"] == pytest.approx(
-        50001.0 * 0.002 + 50002.0 * 0.003
-    )
+    assert order["cum_exec_value"] == pytest.approx(50001.0 * 0.002 + 50002.0 * 0.003)
     assert order["cum_exec_fee"] == pytest.approx(0.15)
 
     assert len(fills) == 2
@@ -7013,7 +7011,7 @@ def test_gap3_limit_path_no_fills_no_synthetic(
     mock_load: MagicMock,
     sample_data: pd.DataFrame,
 ) -> None:
-    """Gap 3 limit path: unfilled limit order returns order_unfilled with NO FillFetchError and NO synthetic fill."""
+    """Gap 3 limit path: unfilled limit -> order_unfilled, NO synthetic."""
     mock_load.return_value = sample_data
     mock_client = MagicMock()
     mock_client.place_order.return_value = {"orderId": "gap3_lim_oid"}
