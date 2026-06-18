@@ -175,14 +175,15 @@ def test_limit_order_placed_with_limit_type_and_offset_price() -> None:
 
 def test_filled_limit_cancels_and_resolves_placed() -> None:
     # cancel-FIRST design: we always cancel to clear any resting remainder, and a
-    # filled limit resolves the link to a restorable 'placed' state.
+    # FULLY filled limit resolves the link to a restorable 'placed' state.
     executor, _ = _mk_executor(OrderType.LIMIT)
-    executor.client.get_executions.return_value = [_EXEC]
+    # fill qty larger than any cash-sized order qty -> unambiguously fully filled
+    executor.client.get_executions.return_value = [_exec("fill-1", "1000000")]
     _run(executor)
     executor.client.cancel_order.assert_called()
     statuses = [c.args[1] for c in executor._idempotency.resolve.call_args_list if len(c.args) >= 2]
     assert "placed" in statuses
-    assert "cancelled" not in statuses  # it filled
+    assert "cancelled" not in statuses  # fully filled -> no fallback, restorable
 
 
 def test_unfilled_limit_falls_back_to_market_for_remainder() -> None:
