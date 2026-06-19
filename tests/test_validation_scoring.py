@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 from pandas import DataFrame, Series
@@ -64,7 +66,7 @@ def test_evaluate_acceptance_criteria_pass() -> None:
     assert "pass" in result
     assert "exit_code" in result
     assert "criteria" in result
-    assert len(result["criteria"]) == 8
+    assert len(result["criteria"]) == 11
 
 
 def test_evaluate_acceptance_criteria_fail_on_lookahead() -> None:
@@ -116,7 +118,7 @@ def test_all_eight_criteria_present() -> None:
     wf, dsr, look = _make_pass_result()
     result = evaluate_acceptance_criteria(wf, dsr, look)
     ids = sorted(c["id"] for c in result["criteria"])
-    assert ids == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert ids == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
 
 def test_criterion_names_are_correct() -> None:
@@ -191,14 +193,14 @@ def test_nine_criteria_with_conversion() -> None:
     wf, dsr, look = _make_pass_result()
     stf = _make_signal_to_fill(1.0, True)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
-    assert len(result["criteria"]) == 9
+    assert len(result["criteria"]) == 12
 
 
 def test_conversion_rate_fails_below_threshold() -> None:
     wf, dsr, look = _make_pass_result()
     stf = _make_signal_to_fill(0.50, True)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
-    c9 = [c for c in result["criteria"] if c["id"] == 9][0]
+    c9 = [c for c in result["criteria"] if c["id"] == 12][0]
     assert not c9["pass"]
     assert result["exit_code"] == 1
 
@@ -207,7 +209,7 @@ def test_conversion_rate_passes_at_threshold() -> None:
     wf, dsr, look = _make_pass_result()
     stf = _make_signal_to_fill(0.80, True)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
-    c9 = [c for c in result["criteria"] if c["id"] == 9][0]
+    c9 = [c for c in result["criteria"] if c["id"] == 12][0]
     assert c9["pass"]
     assert c9["value"] == 0.80
 
@@ -215,21 +217,21 @@ def test_conversion_rate_passes_at_threshold() -> None:
 def test_eight_criteria_without_conversion() -> None:
     wf, dsr, look = _make_pass_result()
     result = evaluate_acceptance_criteria(wf, dsr, look)
-    assert len(result["criteria"]) == 8
+    assert len(result["criteria"]) == 11
 
 
 def test_eight_criteria_insufficient_sample() -> None:
     wf, dsr, look = _make_pass_result()
     stf = _make_signal_to_fill(1.0, False)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
-    assert len(result["criteria"]) == 8
+    assert len(result["criteria"]) == 11
 
 
 def test_all_nine_criterion_ids_present() -> None:
     wf, dsr, look = _make_pass_result()
     stf = _make_signal_to_fill(1.0, True)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
-    assert sorted(c["id"] for c in result["criteria"]) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert sorted(c["id"] for c in result["criteria"]) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 
 def test_criterion_names_include_conversion() -> None:
@@ -255,3 +257,34 @@ def test_exit_code_1_with_conversion_fail() -> None:
     stf = _make_signal_to_fill(0.0, True)
     result = evaluate_acceptance_criteria(wf, dsr, look, signal_to_fill=stf)
     assert result["exit_code"] == 1
+
+
+def test_is_and_full_period_criteria_reject_regime_luck_loser() -> None:
+    """The 2026-06-19 fix: a strategy that is +OOS but loses money in-sample / full-period
+    (e.g. ETH 50/200) must FAIL on criteria 9/10/11 even if the OOS-window criteria pass."""
+    wf, dsr, look = _make_pass_result()
+    bad = dataclasses.replace(
+        wf.aggregate,
+        total_return=-0.2,
+        profit_factor=0.7,
+        max_drawdown=-0.6,
+        sufficient_sample=True,
+    )
+    wf2 = dataclasses.replace(wf, full_metrics=bad, is_metrics=bad)
+    result = evaluate_acceptance_criteria(wf2, dsr, look)
+    by_id = {c["id"]: c for c in result["criteria"]}
+    assert not by_id[9]["pass"]  # in-sample not profitable
+    assert not by_id[10]["pass"]  # full-period return <= 0
+    assert not by_id[11]["pass"]  # full-period drawdown worse than 35%
+    assert not result["pass"]
+
+
+def test_is_and_full_period_criteria_pass_robust_winner() -> None:
+    wf, dsr, look = _make_pass_result()
+    good = dataclasses.replace(
+        wf.aggregate, total_return=1.2, profit_factor=1.6, max_drawdown=-0.2, sufficient_sample=True
+    )
+    wf2 = dataclasses.replace(wf, full_metrics=good, is_metrics=good)
+    result = evaluate_acceptance_criteria(wf2, dsr, look)
+    by_id = {c["id"]: c for c in result["criteria"]}
+    assert by_id[9]["pass"] and by_id[10]["pass"] and by_id[11]["pass"]

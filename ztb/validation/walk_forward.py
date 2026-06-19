@@ -33,6 +33,33 @@ class WalkForwardResult:
     n_windows_credible: int
     n_windows_total: int
     config: WalkForwardConfig
+    full_metrics: MetricsResult | None = None
+    is_metrics: MetricsResult | None = None
+
+
+def _full_period_metrics(
+    strategy: Strategy, data: DataFrame, config: WalkForwardConfig
+) -> tuple[MetricsResult | None, MetricsResult | None]:
+    """Full-period backtest -> (full, in-sample) metrics. The windowed OOS aggregate can
+    pass a strategy that only worked in a recent regime (e.g. a strategy that LOSES money
+    in-sample / full-period but is positive in the last OOS slice). Gating on in-sample +
+    full-period profitability and the TRUE (non-windowed) max drawdown closes that hole.
+    (2026-06-19: ETH 50/200 passed the OOS-only gate while losing 14% full-period.)"""
+    try:
+        bt = run_backtest(
+            strategy,
+            data,
+            BacktestConfig(
+                is_fraction=config.train_ratio,
+                min_trades=config.min_trades,
+                initial_cash=config.initial_cash,
+                commission=config.commission,
+                slippage=config.slippage,
+            ),
+        )
+        return bt.full, bt.is_
+    except Exception:
+        return None, None
 
 
 def run_walk_forward(
@@ -117,6 +144,8 @@ def run_walk_forward(
             if oos_metrics.sufficient_sample:
                 credible_count += 1
 
+    full_metrics, is_metrics = _full_period_metrics(strategy, data, config)
+
     if not window_results:
         empty_metrics = MetricsResult(
             total_return=None,
@@ -139,6 +168,8 @@ def run_walk_forward(
             n_windows_credible=0,
             n_windows_total=config.n_windows,
             config=config,
+            full_metrics=full_metrics,
+            is_metrics=is_metrics,
         )
 
     def _median_of(attr: str) -> float | None:
@@ -199,4 +230,6 @@ def run_walk_forward(
         n_windows_credible=credits,
         n_windows_total=config.n_windows,
         config=config,
+        full_metrics=full_metrics,
+        is_metrics=is_metrics,
     )
