@@ -29,6 +29,23 @@ def _status_response(state: str) -> str:
     return json.dumps([{"context": mod.EVIDENCE_CONTEXT, "state": state}])
 
 
+def _checkruns_response(conclusion: str | None = None) -> str:
+    """check-runs API payload. conclusion=None -> no strategy-validate run (forces fallback)."""
+    if conclusion is None:
+        return json.dumps({"check_runs": []})
+    return json.dumps(
+        {
+            "check_runs": [
+                {
+                    "name": mod.STRATEGY_VALIDATE_CHECK,
+                    "status": "completed",
+                    "conclusion": conclusion,
+                }
+            ]
+        }
+    )
+
+
 class TestStrategyDetection:
     """is_strategy_pr detection logic."""
 
@@ -65,7 +82,14 @@ class TestStrategyDetection:
 
 
 class TestEvidenceGateCheck:
-    """Evidence-gate main flow."""
+    """Evidence-gate main flow.
+
+    Strategy-PR subprocess.run call order after the auto-clear change:
+      1. git diff           (is_strategy_pr)
+      2. gh check-runs      (get_check_conclusion -> strategy-validate)
+      3. gh statuses        (get_commit_status -> ztb/vr-pass)   [only if 2 was None]
+      4. gh POST status     (post_commit_status)
+    """
 
     @patch.object(mod.subprocess, "run")
     def test_non_strategy_pr_passes(
@@ -83,11 +107,46 @@ class TestEvidenceGateCheck:
         assert "trivially passed" in out
 
     @patch.object(mod.subprocess, "run")
+    def test_strategy_validate_success_autoclears(
+        self, mock_run: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Green strategy-validate check-run clears the gate with no V&R attestation."""
+        mock_run.side_effect = [
+            _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response("success")),
+            _cp(stdout="{}"),
+        ]
+        argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
+        with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 0
+        out, _ = capsys.readouterr()
+        assert "auto-cleared" in out
+
+    @patch.object(mod.subprocess, "run")
+    def test_strategy_validate_failure_fails(
+        self, mock_run: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A failed strategy-validate check-run fails the gate closed."""
+        mock_run.side_effect = [
+            _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response("failure")),
+            _cp(stdout="{}"),
+        ]
+        argv = ["script", "--sha", SHA, "--owner", "o", "--repo", "r"]
+        with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+            mod.main()
+        assert exc.value.code == 1
+        _, err = capsys.readouterr()
+        assert "strategy-validate FAILED" in err
+
+    @patch.object(mod.subprocess, "run")
     def test_strategy_pr_no_evidence_gate(
         self, mock_run: Any, capsys: pytest.CaptureFixture[str]
     ) -> None:
         mock_run.side_effect = [
             _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response(None)),
             _cp(stdout=json.dumps([])),
             _cp(stdout="{}"),
         ]
@@ -104,6 +163,7 @@ class TestEvidenceGateCheck:
     ) -> None:
         mock_run.side_effect = [
             _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response(None)),
             _cp(stdout=_status_response("success")),
             _cp(stdout="{}"),
         ]
@@ -120,6 +180,7 @@ class TestEvidenceGateCheck:
     ) -> None:
         mock_run.side_effect = [
             _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response(None)),
             _cp(stdout=_status_response("failure")),
             _cp(stdout="{}"),
         ]
@@ -136,6 +197,7 @@ class TestEvidenceGateCheck:
     ) -> None:
         mock_run.side_effect = [
             _cp(stdout="ztb/strategies/sma_cross.py"),
+            _cp(stdout=_checkruns_response(None)),
             _cp(stdout=_status_response("pending")),
             _cp(stdout="{}"),
         ]
