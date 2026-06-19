@@ -70,8 +70,10 @@ jobs:
         run: python3 scripts/ztb-vr-pass-bridge.py --sha "$SHA" --mode notify
 
   strategy-evidence-gate:
-    needs: [test]
-    if: github.event_name == 'pull_request'
+    # runs AFTER strategy-validate (always(), so the required check still reports even if an
+    # upstream job fails) and accepts a green strategy-validate as the evidence — no per-PR V&R cycle.
+    needs: [test, strategy-validate]
+    if: ${{ always() && github.event_name == 'pull_request' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:

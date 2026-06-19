@@ -18,6 +18,10 @@ from typing import Any, NoReturn
 
 GATE_CONTEXT = "ztb/strategy-evidence-gate"
 EVIDENCE_CONTEXT = "ztb/vr-pass"
+# The deterministic CI edge gate. A strategy PR that passes this cleared the walk-forward OOS
+# bar in CI ($0, ungameable) — STRONGER evidence than a per-PR V&R attestation, so it satisfies
+# the evidence gate directly (no DeepSeek V&R cycle needed). Name == the ci.yml job id.
+STRATEGY_VALIDATE_CHECK = "strategy-validate"
 
 
 def fail(msg: str) -> NoReturn:
@@ -112,6 +116,18 @@ def get_commit_status(owner: str, repo: str, sha: str, context: str) -> str | No
     return None
 
 
+def get_check_conclusion(owner: str, repo: str, sha: str, name: str) -> str | None:
+    """Return a named check-run's conclusion on the SHA, or None if absent/not completed."""
+    data = gh([f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100"])
+    runs = data.get("check_runs", []) if isinstance(data, dict) else []
+    for run in runs:
+        if run.get("name") == name:
+            if run.get("status") != "completed":
+                return None
+            return run.get("conclusion")
+    return None
+
+
 def post_commit_status(
     owner: str,
     repo: str,
@@ -158,9 +174,35 @@ def main() -> None:
         print(f"{GATE_CONTEXT} = success on {sha[:12]} (non-strategy PR, trivially passed)")
         sys.exit(0)
 
-    print(f"Strategy PR detected — checking {EVIDENCE_CONTEXT} status on {sha[:12]}...")
+    print(f"Strategy PR detected on {sha[:12]} — checking evidence...")
 
-    # Step 2: check the V&R evidence-gate status on this SHA
+    # Step 1b: deterministic edge gate. If the CI strategy-validate check passed on this SHA, the
+    # strategy cleared the walk-forward OOS bar — accept it directly (no V&R attestation / DeepSeek
+    # cycle needed). Fails closed if strategy-validate failed; falls back to the V&R path if it did
+    # not run (None), preserving the legacy attestation route.
+    sv = get_check_conclusion(owner, repo, sha, STRATEGY_VALIDATE_CHECK)
+    if sv == "success":
+        post_commit_status(
+            owner,
+            repo,
+            sha,
+            "success",
+            "strategy-validate PASS (deterministic OOS edge gate) — V&R attestation not required",
+        )
+        print(f"{GATE_CONTEXT} = success on {sha[:12]} (strategy-validate PASS — auto-cleared)")
+        sys.exit(0)
+    if sv in ("failure", "cancelled", "timed_out"):
+        post_commit_status(
+            owner,
+            repo,
+            sha,
+            "failure",
+            "strategy-validate FAILED — strategy did not clear the OOS edge gate",
+        )
+        print(f"{GATE_CONTEXT} = failure on {sha[:12]} (strategy-validate FAILED)", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 2: strategy-validate did not run (None) — fall back to the V&R vr-pass attestation
     ev_status = get_commit_status(owner, repo, sha, EVIDENCE_CONTEXT)
 
     if ev_status == "success":
