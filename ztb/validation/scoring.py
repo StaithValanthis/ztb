@@ -111,11 +111,51 @@ def evaluate_acceptance_criteria(
         }
     )
 
+    # In-sample + full-period robustness (2026-06-19). The OOS-window aggregate alone passed
+    # strategies that only worked in a recent regime (e.g. ETH 50/200: +OOS but -14% full /
+    # negative in-sample). These require the edge to also hold in-sample and over the FULL
+    # period, and bound the TRUE (non-windowed) max drawdown that the per-window median hides.
+    is_m = getattr(wf_result, "is_metrics", None)
+    full_m = getattr(wf_result, "full_metrics", None)
+    if is_m is not None:
+        is_pf = is_m.profit_factor if is_m.profit_factor is not None else 0.0
+        is_ret = is_m.total_return if is_m.total_return is not None else 0.0
+        criteria.append(
+            {
+                "id": 9,
+                "name": "In-sample profitable",
+                "pass": is_pf >= 1.0 and is_ret > 0.0,
+                "value": is_pf,
+                "threshold": ">= 1.0 PF",
+            }
+        )
+    if full_m is not None:
+        full_ret = full_m.total_return if full_m.total_return is not None else 0.0
+        criteria.append(
+            {
+                "id": 10,
+                "name": "Full-period return",
+                "pass": full_ret > 0.0,
+                "value": full_ret,
+                "threshold": "> 0",
+            }
+        )
+        full_dd = full_m.max_drawdown if full_m.max_drawdown is not None else 0.0
+        criteria.append(
+            {
+                "id": 11,
+                "name": "Full-period max DD",
+                "pass": full_dd >= -0.35,
+                "value": full_dd,
+                "threshold": "<= 35%",
+            }
+        )
+
     if signal_to_fill is not None and signal_to_fill.sufficient_sample:
         c9 = signal_to_fill.conversion_rate >= 0.80
         criteria.append(
             {
-                "id": 9,
+                "id": 12,
                 "name": "Signal-to-fill conversion rate",
                 "pass": c9,
                 "value": signal_to_fill.conversion_rate,
